@@ -1,0 +1,21 @@
+# This is a skin file for the Palm OS Emulator.  See the ReadMe.txt
+# file in this directory for a description of its contents.
+
+Name			= Standard-English
+File1x			= Palm_m505_16.jpg
+File2x			= Palm_m505_32.jpg
+BackgroundColor	= 0x7B, 0x8C, 0x5A
+HighlightColor	= 0x64, 0xF0, 0xDC
+Devices			= PalmM505
+
+#									  x    y    w    h
+#								   ---- ---- ---- ----
+Element1		= PowerButton,		179,   0,  27,  12
+Element2		= UpButton,			113, 292,  20,  15
+Element3		= DownButton,		113, 312,  20,  15
+Element4		= App1Button,		 27, 293,  22,  18
+Element5		= App2Button,		 70, 299,  22,  18
+Element6		= App3Button,		152, 299,  22,  18
+Element7		= App4Button,		195, 293,  22,  18
+Element11		= Touchscreen,		 41,  43, 160, 220
+Element12		= LCD,				 41,  43, 160, 160

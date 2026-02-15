@@ -1,0 +1,42 @@
+--- a/SrcUnix/EmCommonUnix.h	2002-03-29 08:11:19.000000000 -0500
++++ b/SrcUnix/EmCommonUnix.h	2026-02-14 17:02:27.449453370 -0500
+@@ -38,12 +38,12 @@
+ // as EmCommon.h is the basis for the precompiled header files,
+ // which load in quickly even with lots of extra stuff in them.
+ 
+-//#include <ctype.h>				// isalpha, tolower
+-//#include <stdarg.h>
+-//#include <stddef.h>
+-//#include <stdio.h>
+-//#include <stdlib.h>
+-//#include <string.h>
++#include <ctype.h>				// isalpha, tolower
++#include <stdarg.h>
++#include <stddef.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ //#include <sys/types.h>
+ //#include <sys/socket.h>
+@@ -52,13 +52,13 @@
+ //#include <netinet/tcp.h>
+ //#include <netdb.h>
+ 
+-//#include <algorithm>			// find, sort
+-//#include <deque>				// deque
+-//#include <list>					// list
+-//#include <string>				// list
+-//#include <utility>				// pair
+-//#include <vector>
+-//#include <map>
++#include <algorithm>			// find, sort
++#include <deque>				// deque
++#include <list>					// list
++#include <string>				// string
++#include <utility>				// pair
++#include <vector>
++#include <map>
+ 
+ 
+ #define down fl_down	// "down" defined both in WindowNew.h and Fl/Enumerations.h

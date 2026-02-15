@@ -1,0 +1,32 @@
+# This is a skin file for the Palm OS Emulator.  See the ReadMe.txt
+# file in this directory for a description of its contents.
+
+Name			= HandEra330 w/Cards
+File1x			= HandEra330Cards_16.jpg
+File2x			= HandEra330Cards_32.jpg
+#BackgroundColor	= 0x7B, 0x8C, 0x5A
+BackgroundColor	= 0x98, 0xA8, 0x7A
+HighlightColor	= 0x64, 0xF0, 0xDC
+Devices			= HandEra330
+
+#						  x    y    w    h
+#						---- ---- ---- ----
+Element1		= PowerButton,		 86,  66,  34,  22
+Element2		= UpButton,		168, 466,  28,  32
+Element3		= DownButton,		168, 508,  28,  32
+Element4		= App1Button,		 58, 470,  36,  40
+Element5		= App2Button,		114, 482,  36,  40
+Element6		= App3Button,		218, 482,  36,  40
+Element7		= App4Button,		270, 470,  36,  40
+Element8 		= Touchscreen,		 64, 110, 240, 320
+Element9 		= LCD,			 64, 110, 240, 320
+Element10		= ContrastButton,	  0, 118,  18,  27
+Element11		= TriggerRight,		  2, 188,  16,  18
+Element12		= TriggerLeft, 	          2, 222,  16,  18
+Element13		= TriggerCenter,          2, 208,  16,  12
+# SD removal
+Element14               = DownButtonRight,      128,  36, 106,  24
+# CF removal
+Element15               = DownButtonLeft,        94,   4, 154,  56
+# power toggle
+Element16               = UpButtonLeft,          14, 476,  14,  24

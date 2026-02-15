@@ -1,0 +1,19 @@
+--- a/SrcUnix/EmMenusFltk.cpp	2001-10-04 00:00:00.000000000 +0000
++++ b/SrcUnix/EmMenusFltk.cpp	2026-02-14 00:00:00.000000000 +0000
+@@ -14,6 +14,7 @@
+ #include "EmCommon.h"
+ #include "EmMenusFltk.h"
+
++#include <string.h>				// strdup
+ #include <ctype.h>				// isalpha
+
+
+@@ -46,7 +47,7 @@
+ 			const EmMenuItemList&	children = iter->GetChildren ();
+ 			Fl_Menu_Item			fltkItem;
+
+-			fltkItem.text			= iter->GetTitle ().c_str ();
++			fltkItem.text			= strdup (iter->GetTitle ().c_str ());
+ 			fltkItem.shortcut_		= ::PrvMakeShortcut (iter->GetShortcut ());
+ 			fltkItem.callback_		= NULL;
+ 			fltkItem.user_data_		= (void*) iter->GetCommand ();

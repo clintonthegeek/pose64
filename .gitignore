@@ -1,0 +1,51 @@
+# Build output
+build/
+src/build/
+src/Emulator_Src_3.5/
+src/fltk-1.1.10/
+src/fltk-install/
+
+# Abandoned v1 port (has its own git repo)
+abandoned/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+.cmake/
+
+# Qt MOC
+moc_*.cpp
+*.moc
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.dylib
+
+# Binaries
+qtpose
+pose
+
+# IDE / tools
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ROM files (copyrighted)
+*.rom
+
+# Session files
+*.psf
+
+# Palm OS Emulator session data
+Palm OS Emulator/

@@ -1,0 +1,24 @@
+# This is a skin file for the Palm OS Emulator.  See the ReadMe.txt
+# file in this directory for a description of its contents.
+
+Name			= Standard-English
+File1x			= Symbol_1700_16.jpg
+File2x			= Symbol_1700_32.jpg
+BackgroundColor	= 0x7B, 0x8C, 0x5A
+HighlightColor	= 0x64, 0xF0, 0xDC
+Devices			= Symbol1700
+
+#									  x    y    w    h
+#								   ---- ---- ---- ----
+Element1		= PowerButton,		 45, 460,  16,  24
+Element2		= UpButtonLeft,		 50,  46,  24,  38
+Element3		= UpButtonRight,	200,  46,  24,  38
+Element4		= DownButtonLeft,	 37,  82,  20,  28
+Element5		= DownButtonRight,	218,  82,  20,  28
+Element6		= App1Button,		 67, 416,  20,  30
+Element7		= App2Button,		107, 427,  20,  30
+Element8		= App3Button,		147, 427,  20,  30
+Element9		= App4Button,		187, 416,  20,  30
+Element10		= ContrastButton,	215, 460,  16,  24
+Element11		= Touchscreen,		 60, 149, 160, 220
+Element12		= LCD,				 60, 149, 160, 160

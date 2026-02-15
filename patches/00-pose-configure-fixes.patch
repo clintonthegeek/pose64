@@ -1,0 +1,56 @@
+--- a/BuildUnix/configure.in	2002-03-29 08:11:13.000000000 -0500
++++ b/BuildUnix/configure.in	2026-02-14 16:56:43.134036300 -0500
+@@ -34,6 +34,9 @@
+ 	[  --with-fltk=DIR         use FLTK in DIR], [
+ 	CPPFLAGS="${CPPFLAGS} -I$withval/include"
+ 	LDFLAGS="${LDFLAGS} -L$withval/lib"
++	if test "${FLUID+set}" != set; then
++		test -r $withval/bin/fluid && FLUID=$withval/bin/fluid
++	fi
+ ])
+ 
+ 
+@@ -318,6 +321,13 @@
+ 
+ GLLIB=
+ 
++dnl When we go to FLTK 1.1 this will get easier: we will be able to ask
++dnl FLTK whether it needs GL via fltk-config
++
++AC_ARG_ENABLE(gl,
++	[  --disable-gl             use OpenGL (default yes)])
++
++if test x$enable_gl != xno; then
+ AC_CHECK_HEADER(GL/gl.h,
+ 	AC_CHECK_LIB(GL, glXMakeCurrent, AC_DEFINE(HAVE_GL) GLLIB="-lGL", \
+ 		AC_CHECK_LIB(MesaGL, glXMakeCurrent, AC_DEFINE(HAVE_GL) GLLIB=" -lMesaGL",,\
+@@ -334,13 +344,15 @@
+ 		GLLIB="-lMesaGLU $GLLIB"
+ 	fi
+ )
++fi
+ 
+ AC_SUBST(GLLIB)
+ 
+ 
+ dnl ========================================================
+ dnl Make sure FLTK is available.  It must be installed on
+-dnl a standard path, or on $x_libraries.
++dnl a standard path, or on $x_libraries.  Also check that
++dnl fluid is available (in PATH, or via --with-fltk).
+ dnl ========================================================
+ 
+ AC_CACHE_SAVE
+@@ -355,8 +367,11 @@
+ 		pose_cv_lib_fltk_found=yes, pose_cv_lib_fltk_found=no))
+ 
+ LIBS="$save_LIBS"
++ 
++dnl $FLUID may have already been set by --with-fltk, above
++AC_CHECK_PROG(FLUID, fluid, fluid, no)
+ 
+-if test $pose_cv_lib_fltk_found = yes; then
++if test $pose_cv_lib_fltk_found = yes && test $FLUID != no; then
+ 	AC_DEFINE(HAVE_LIBFLTK)
+ else
+ 	AC_MSG_ERROR(*** FLTK *must* be installed before running configure. ***)

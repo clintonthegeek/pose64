@@ -1,0 +1,96 @@
+cmake_minimum_required(VERSION 3.19)
+project(QtHugo VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
+# Qt6
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Widgets WebEngineWidgets Network)
+qt_standard_project_setup()
+
+# ECM and KDE Frameworks
+find_package(ECM 6.0 REQUIRED NO_MODULE)
+set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
+
+include(KDEInstallDirs)
+include(KDECMakeSettings)
+include(FeatureSummary)
+
+find_package(KF6 REQUIRED COMPONENTS
+    CoreAddons
+    I18n
+    XmlGui
+    WidgetsAddons
+    IconThemes
+    Config
+    ConfigWidgets
+)
+
+# qmarkdowntextedit library (disable test executable)
+set(QMARKDOWNTEXTEDIT_EXE OFF CACHE BOOL "Disable qmarkdowntextedit test exe" FORCE)
+add_subdirectory(lib/qmarkdowntextedit)
+
+# Main application
+qt_add_executable(qthugo
+    src/main.cpp
+    src/app/mainwindow.cpp
+    src/models/hugosite.cpp
+    src/models/hugoprocess.cpp
+    src/models/contentmodel.cpp
+    src/models/frontmatterdata.cpp
+    src/models/frontmatterparser.cpp
+    src/models/tagdiscovery.cpp
+    src/models/archetypemanager.cpp
+    src/widgets/contentbrowser.cpp
+    src/widgets/editorwidget.cpp
+    src/widgets/tageditwidget.cpp
+    src/widgets/frontmatterformwidget.cpp
+    src/widgets/imageimportpanel.cpp
+    src/widgets/imagedroptarget.cpp
+    src/widgets/tabdocumentmanager.cpp
+    src/dialogs/transcodedialog.cpp
+    src/widgets/previewwidget.cpp
+    src/widgets/themebrowser.cpp
+    src/dialogs/newcontentdialog.cpp
+    src/dialogs/sitesettingsdialog.cpp
+    src/dialogs/deploydialog.cpp
+    src/dialogs/deployprofiledialog.cpp
+    src/config/deployprofile.cpp
+    src/config/siteconfig.cpp
+    src/config/qthugosettings.cpp
+    src/qthugo.qrc
+    src/archetypes.qrc
+)
+
+target_include_directories(qthugo PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/models
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/widgets
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dialogs
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/config
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/qmarkdowntextedit
+)
+
+target_link_libraries(qthugo PRIVATE
+    Qt6::Core
+    Qt6::Widgets
+    Qt6::WebEngineWidgets
+    Qt6::Network
+    KF6::CoreAddons
+    KF6::I18n
+    KF6::XmlGui
+    KF6::WidgetsAddons
+    KF6::IconThemes
+    KF6::ConfigCore
+    KF6::ConfigWidgets
+    qmarkdowntextedit
+)
+
+install(FILES src/app/qthugoui.rc DESTINATION ${KDE_INSTALL_KXMLGUIDIR}/qthugo)
+install(TARGETS qthugo ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+
+feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)

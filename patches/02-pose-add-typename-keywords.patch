@@ -1,0 +1,91 @@
+--- a/SrcShared/EmStream.h	2002-03-29 08:11:14.000000000 -0500
++++ b/SrcShared/EmStream.h	2026-02-14 17:02:54.732423403 -0500
+@@ -1,6 +1,6 @@
+ /* -*- mode: C++; tab-width: 4 -*- */
+ // ===========================================================================
+-//	EmStream.h				   ©1993-1998 Metrowerks Inc. All rights reserved.
++//	EmStream.h				   ï¿½1993-1998 Metrowerks Inc. All rights reserved.
+ // ===========================================================================
+ //
+ //	Abstract class for reading/writing an ordered sequence of bytes
+@@ -90,7 +90,7 @@
+ 
+ 									container.resize (numElements);
+ 
+-									deque<T>::iterator	iter = container.begin ();
++									typename deque<T>::iterator	iter = container.begin ();
+ 									while (iter != container.end ())
+ 									{
+ 										*this >> *iter;
+@@ -108,7 +108,7 @@
+ 
+ 									container.resize (numElements);
+ 
+-									list<T>::iterator	iter = container.begin ();
++									typename list<T>::iterator	iter = container.begin ();
+ 									while (iter != container.end ())
+ 									{
+ 										*this >> *iter;
+@@ -126,7 +126,7 @@
+ 
+ 									container.resize (numElements);
+ 
+-									vector<T>::iterator	iter = container.begin ();
++									typename vector<T>::iterator	iter = container.begin ();
+ 									while (iter != container.end ())
+ 									{
+ 										*this >> *iter;
+@@ -143,7 +143,7 @@
+ 
+ 									*this << numElements;
+ 
+-									deque<T>::const_iterator	iter = container.begin ();
++									typename deque<T>::const_iterator	iter = container.begin ();
+ 									while (iter != container.end ())
+ 									{
+ 										*this << *iter;
+@@ -160,7 +160,7 @@
+ 
+ 									*this << numElements;
+ 
+-									list<T>::const_iterator	iter = container.begin ();
++									typename list<T>::const_iterator	iter = container.begin ();
+ 									while (iter != container.end ())
+ 									{
+ 										*this << *iter;
+@@ -177,7 +177,7 @@
+ 
+ 									*this << numElements;
+ 
+-									vector<T>::const_iterator	iter = container.begin ();
++									typename vector<T>::const_iterator	iter = container.begin ();
+ 									while (iter != container.end ())
+ 									{
+ 										*this << *iter;
+@@ -321,7 +321,7 @@
+ 
+ 	*this << numElements;
+ 
+-	const deque<T>::const_iterator	iter = container.begin ();
++	const typename deque<T>::const_iterator	iter = container.begin ();
+ 	while (iter != container.end ())
+ 	{
+ 		*this << *iter;
+@@ -338,7 +338,7 @@
+ 
+ 	*this << numElements;
+ 
+-	const list<T>::const_iterator	iter = container.begin ();
++	const typename list<T>::const_iterator	iter = container.begin ();
+ 	while (iter != container.end ())
+ 	{
+ 		*this << *iter;
+@@ -355,7 +355,7 @@
+ 
+ 	*this << numElements;
+ 
+-	const vector<T>::const_iterator	iter = container.begin ();
++	const typename vector<T>::const_iterator	iter = container.begin ();
+ 	while (iter != container.end ())
+ 	{
+ 		*this << *iter;

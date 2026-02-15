@@ -1,0 +1,74 @@
+--- a/SrcShared/PreferenceMgr.cpp	2002-03-29 08:11:17.000000000 -0500
++++ b/SrcShared/PreferenceMgr.cpp	2026-02-14 17:23:21.669451019 -0500
+@@ -347,7 +347,7 @@
+ template class Preference<signed long>;
+ template class Preference<unsigned long>;
+ 
+-//template class Preference<EmDirRef>;
++template class Preference<EmDirRef>;
+ template class Preference<EmFileRef>;
+ template class Preference<string>;
+ 
+@@ -1986,7 +1986,7 @@
+ #pragma mark -
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ Errors::LogMessage
++//		ï¿½ Errors::LogMessage
+ // ---------------------------------------------------------------------------
+ // Return whether or not the message should be logged.
+ 
+@@ -2013,7 +2013,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ PrvGetPrefKey
++//		ï¿½ PrvGetPrefKey
+ // ---------------------------------------------------------------------------
+ // Return the key for the preference that tells us to handle the error or
+ // warning in this situation.
+@@ -2036,7 +2036,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmulatorPreferences::ShouldQuit
++//		ï¿½ EmulatorPreferences::ShouldQuit
+ // ---------------------------------------------------------------------------
+ // Return whether or not this error should cause us to quit.
+ 
+@@ -2071,7 +2071,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmulatorPreferences::ShouldContinue
++//		ï¿½ EmulatorPreferences::ShouldContinue
+ // ---------------------------------------------------------------------------
+ // Return whether or not this error should be logged but not displayed.
+ 
+@@ -2106,7 +2106,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmulatorPreferences::ShouldNextGremlin
++//		ï¿½ EmulatorPreferences::ShouldNextGremlin
+ // ---------------------------------------------------------------------------
+ // Return whether or not this error should cause us to switch to the next
+ // Gremlin in a Horde.
+@@ -2562,3 +2562,17 @@
+ {
+ 	return _stricmp (key1, key2) == 0;
+ }
++
++// Explicit instantiations for compound types (needed by GCC 15).
++template class Preference<Configuration>;
++template class Preference<DatabaseInfo>;
++template class Preference<DatabaseInfoList>;
++template class Preference<EmFileRefList>;
++template class Preference<GremlinInfo>;
++template class Preference<HordeInfo>;
++template class Preference<PointType>;
++template class Preference<EmPoint>;
++template class Preference<RGBType>;
++template class Preference<SkinNameList>;
++template class Preference<SlotInfoType>;
++template class Preference<SlotInfoList>;

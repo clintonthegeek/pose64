@@ -1,0 +1,12 @@
+In order to ensure that the Handspring skins on the Palm site and those
+on the Handspring site don't get out of sync, the Handspring site will
+now be the official source for their skins.  You can download them from:
+
+	<http://www.handspring.com/developers/VisorSkins_3.1H1.zip>
+
+If that link gets out-of-date (because they've released a new version
+with a new version number), you should be able to go to the Web page:
+
+	<http://www.handspring.com/developers/tech_pose.jhtml>
+
+and find them there.

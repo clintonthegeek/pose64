@@ -1,0 +1,11 @@
+--- a/SrcUnix/EmDlgFltk.cpp	2002-03-29 08:11:19.000000000 -0500
++++ b/SrcUnix/EmDlgFltk.cpp	2026-02-14 17:03:11.188870930 -0500
+@@ -14,6 +14,8 @@
+ #include "EmCommon.h"
+ #include "EmDlgFltk.h"
+ 
++#include <limits.h>
++
+ #include "ErrorHandling.h"		// ParamList
+ #include "Miscellaneous.h"		// ReplaceString, FormatString
+ #include "Platform.h"			// Platform::GetString

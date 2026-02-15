@@ -1,0 +1,22 @@
+# This is a skin file for the Palm OS Emulator.  See the ReadMe.txt
+# file in this directory for a description of its contents.
+
+Name			= Standard-English
+File1x			= Palm_m130_16.jpg
+File2x			= Palm_m130_32.jpg
+BackgroundColor	= 0x7B, 0x8C, 0x5A
+HighlightColor	= 0x64, 0xF0, 0xDC
+Devices			= Palmm130
+
+#						 x    y    w    h
+#						---- ---- ---- ----
+Element1		= PowerButton,		112,   1,  33,  18
+Element2		= UpButton,		117, 304,  25,  25
+Element3		= DownButton,		117, 338,  25,  25
+Element4		= App1Button,		 25, 306,  26,  26
+Element5		= App2Button,		 65, 324,  26,  26
+Element6		= App3Button,		167, 324,  26,  26
+Element7		= App4Button,		206, 306,  26,  26
+Element11		= Touchscreen,		 50,  45, 160, 220
+Element12		= LCD,			 50,  45, 160, 160
+

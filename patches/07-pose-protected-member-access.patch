@@ -1,0 +1,390 @@
+--- a/SrcShared/Hardware/EmRegsEZTRGpro.cpp	2002-03-29 08:11:18.000000000 -0500
++++ b/SrcShared/Hardware/EmRegsEZTRGpro.cpp	2026-02-14 17:19:17.619294820 -0500
+@@ -44,7 +44,7 @@
+ };
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::EmRegsEZTRGpro
++//		ï¿½ EmRegsEZTRGpro::EmRegsEZTRGpro
+ // ---------------------------------------------------------------------------
+ 
+ EmRegsEZTRGpro::EmRegsEZTRGpro (CFBusManager ** fBusMgr) :
+@@ -56,7 +56,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::~EmRegsEZTRGpro
++//		ï¿½ EmRegsEZTRGpro::~EmRegsEZTRGpro
+ // ---------------------------------------------------------------------------
+ 
+ EmRegsEZTRGpro::~EmRegsEZTRGpro (void)
+@@ -66,7 +66,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::Initialize
++//		ï¿½ EmRegsEZTRGpro::Initialize
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsEZTRGpro::Initialize(void)
+@@ -79,7 +79,7 @@
+ }
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetLCDScreenOn
++//		ï¿½ EmRegsEZTRGpro::GetLCDScreenOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsEZTRGpro::GetLCDScreenOn (void)
+@@ -89,7 +89,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetLCDBacklightOn
++//		ï¿½ EmRegsEZTRGpro::GetLCDBacklightOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsEZTRGpro::GetLCDBacklightOn (void)
+@@ -99,7 +99,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetLineDriverState
++//		ï¿½ EmRegsEZTRGpro::GetLineDriverState
+ // ---------------------------------------------------------------------------
+ // Return whether or not the line drivers for the given object are open or
+ // closed.
+@@ -117,7 +117,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetPortInputValue
++//		ï¿½ EmRegsEZTRGpro::GetPortInputValue
+ // ---------------------------------------------------------------------------
+ // Return the GPIO values for the pins on the port.  These values are used
+ // if the select pins are high.
+@@ -131,7 +131,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetPortInternalValue
++//		ï¿½ EmRegsEZTRGpro::GetPortInternalValue
+ // ---------------------------------------------------------------------------
+ // Return the dedicated values for the pins on the port.  These values are
+ // used if the select pins are low.
+@@ -153,7 +153,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetKeyInfo
++//		ï¿½ EmRegsEZTRGpro::GetKeyInfo
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsEZTRGpro::GetKeyInfo (int* numRows, int* numCols,
+@@ -190,7 +190,7 @@
+ }
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetKeyInfo
++//		ï¿½ EmRegsEZTRGpro::GetKeyInfo
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsEZTRGpro::PortDataChanged (int port, uint8 oldValue, uint8 newValue)
+@@ -210,7 +210,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::spiWrite
++//		ï¿½ EmRegsEZTRGpro::spiWrite
+ //
+ // We need to share SPI writes with the touchscreen ...
+ // ---------------------------------------------------------------------------
+@@ -223,13 +223,13 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::SetSubBankHandlers
++//		ï¿½ EmRegsEZTRGpro::SetSubBankHandlers
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsEZTRGpro::SetSubBankHandlers(void)
+ {
+ 	EmRegsEZ::SetSubBankHandlers();
+-	this->SetHandler((ReadFunction)&EmRegs::StdRead,
++	this->SetHandler((ReadFunction)&EmRegsEZTRGpro::StdRead,
+                          (WriteFunction)&EmRegsEZTRGpro::spiWrite,
+ 	                 addressof(spiMasterData),
+ 	                 sizeof(f68EZ328Regs.spiMasterData));
+@@ -237,7 +237,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsEZTRGpro::GetSPISlave
++//		ï¿½ EmRegsEZTRGpro::GetSPISlave
+ // ---------------------------------------------------------------------------
+ 
+ EmSPISlave* EmRegsEZTRGpro::GetSPISlave (void)
+--- a/SrcShared/Hardware/EmRegsVZHandEra330.cpp	2002-03-29 08:11:19.000000000 -0500
++++ b/SrcShared/Hardware/EmRegsVZHandEra330.cpp	2026-02-14 17:19:48.748397661 -0500
+@@ -39,7 +39,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::EmRegsVZHandEra330
++//		ï¿½ EmRegsVZHandEra330::EmRegsVZHandEra330
+ // ---------------------------------------------------------------------------
+ 
+ EmRegsVZHandEra330::EmRegsVZHandEra330 (HandEra330PortManager ** fPortManager) :
+@@ -89,7 +89,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::~EmRegsVZHandEra330
++//		ï¿½ EmRegsVZHandEra330::~EmRegsVZHandEra330
+ // ---------------------------------------------------------------------------
+ 
+ EmRegsVZHandEra330::~EmRegsVZHandEra330 (void)
+@@ -113,7 +113,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetLCDScreenOn
++//		ï¿½ EmRegsVZHandEra330::GetLCDScreenOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsVZHandEra330::GetLCDScreenOn (void)
+@@ -124,7 +124,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetLCDBacklightOn
++//		ï¿½ EmRegsVZHandEra330::GetLCDBacklightOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsVZHandEra330::GetLCDBacklightOn (void)
+@@ -135,7 +135,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetLineDriverState
++//		ï¿½ EmRegsVZHandEra330::GetLineDriverState
+ // ---------------------------------------------------------------------------
+ // Return whether or not the line drivers for the given object are open or
+ // closed.
+@@ -153,7 +153,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetUARTDevice
++//		ï¿½ EmRegsVZHandEra330::GetUARTDevice
+ // ---------------------------------------------------------------------------
+ // Return what sort of device is hooked up to the given UART.
+ 
+@@ -183,7 +183,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetVibrateOn
++//		ï¿½ EmRegsVZHandEra330::GetVibrateOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsVZHandEra330::GetVibrateOn (void)
+@@ -193,7 +193,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetInterruptLevel
++//		ï¿½ EmRegsVZHandEra330::GetInterruptLevel
+ // ---------------------------------------------------------------------------
+ 
+ int32 EmRegsVZHandEra330::GetInterruptLevel (void)
+@@ -210,7 +210,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetLEDState
++//		ï¿½ EmRegsVZHandEra330::GetLEDState
+ // ---------------------------------------------------------------------------
+ 
+ uint16 EmRegsVZHandEra330::GetLEDState (void)
+@@ -229,7 +229,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetPortD
++//		ï¿½ EmRegsVZHandEra330::GetPortD
+ // ---------------------------------------------------------------------------
+ 
+ uint8 EmRegsVZHandEra330::GetPortD (uint8 result)
+@@ -242,7 +242,7 @@
+ }
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetPortInputValue
++//		ï¿½ EmRegsVZHandEra330::GetPortInputValue
+ // ---------------------------------------------------------------------------
+ // Return the GPIO values for the pins on the port.  These values are used
+ // if the select pins are high.
+@@ -279,7 +279,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetPortInternalValue
++//		ï¿½ EmRegsVZHandEra330::GetPortInternalValue
+ // ---------------------------------------------------------------------------
+ // Return the dedicated values for the pins on the port.  These values are
+ // used if the select pins are low.
+@@ -315,7 +315,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetKeyInfo
++//		ï¿½ EmRegsVZHandEra330::GetKeyInfo
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsVZHandEra330::GetKeyInfo (int* numRows, int* numCols,
+@@ -335,7 +335,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetSPISlave
++//		ï¿½ EmRegsVZHandEra330::GetSPISlave
+ // ---------------------------------------------------------------------------
+ 
+ EmSPISlave* EmRegsVZHandEra330::GetSPISlave (void)
+@@ -353,7 +353,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::GetROMSize
++//		ï¿½ EmRegsVZHandEra330::GetROMSize
+ // ---------------------------------------------------------------------------
+ 
+ int32 EmRegsVZHandEra330::GetROMSize (void)
+@@ -363,7 +363,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::ButtonToBits
++//		ï¿½ EmRegsVZHandEra330::ButtonToBits
+ // ---------------------------------------------------------------------------
+ 
+ uint16 EmRegsVZHandEra330::ButtonToBits (SkinElementType button)
+@@ -577,7 +577,7 @@
+ }
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZHandEra330::SetSubBankHandlers
++//		ï¿½ EmRegsVZHandEra330::SetSubBankHandlers
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsVZHandEra330::SetSubBankHandlers(void)
+@@ -588,14 +588,14 @@
+ 
+     // SD support
+ 	this->SetHandler((ReadFunction)&EmRegsVZHandEra330::spiRxDRead,
+-                         (WriteFunction)&EmRegsVZ::StdWrite,
++                         (WriteFunction)&EmRegsVZHandEra330::StdWrite,
+ 	                 addressof(spiRxD),
+ 	                 sizeof(UInt16));
+-	this->SetHandler((ReadFunction)&EmRegsVZ::StdRead,
++	this->SetHandler((ReadFunction)&EmRegsVZHandEra330::StdRead,
+                          (WriteFunction)&EmRegsVZHandEra330::spiTxDWrite,
+ 	                 addressof(spiTxD),
+ 	                 sizeof(UInt16));
+-	this->SetHandler((ReadFunction)&EmRegsVZ::StdRead,
++	this->SetHandler((ReadFunction)&EmRegsVZHandEra330::StdRead,
+                          (WriteFunction)&EmRegsVZHandEra330::spiCont1Write,
+ 	                 addressof(spiCont1),
+ 	                 sizeof(UInt16));
+--- a/SrcShared/Hardware/EmRegsVZPalmM505.cpp	2002-03-29 08:11:19.000000000 -0500
++++ b/SrcShared/Hardware/EmRegsVZPalmM505.cpp	2026-02-14 17:19:49.751702447 -0500
+@@ -20,7 +20,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::EmRegsVZPalmM505
++//		ï¿½ EmRegsVZPalmM505::EmRegsVZPalmM505
+ // ---------------------------------------------------------------------------
+ 
+ EmRegsVZPalmM505::EmRegsVZPalmM505 (void) :
+@@ -30,7 +30,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::~EmRegsVZPalmM505
++//		ï¿½ EmRegsVZPalmM505::~EmRegsVZPalmM505
+ // ---------------------------------------------------------------------------
+ 
+ EmRegsVZPalmM505::~EmRegsVZPalmM505 (void)
+@@ -39,7 +39,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::SetSubBankHandlers
++//		ï¿½ EmRegsVZPalmM505::SetSubBankHandlers
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsVZPalmM505::SetSubBankHandlers (void)
+@@ -50,14 +50,14 @@
+ 
+ 	// Now add standard/specialized handers for the defined registers.
+ 
+-	this->SetHandler ((ReadFunction) &EmRegsVZ::StdRead,
++	this->SetHandler ((ReadFunction) &EmRegsVZPalmM505::StdRead,
+ 		(WriteFunction) &EmRegsVZPalmM505::portFSelectWrite,
+ 		addressof (portFSelect), sizeof (f68VZ328Regs.portFSelect));
+ }
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZ::portFSelectWrite
++//		ï¿½ EmRegsVZ::portFSelectWrite
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsVZPalmM505::portFSelectWrite (emuptr address, int size, uint32 value)
+@@ -89,7 +89,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::GetLCDScreenOn
++//		ï¿½ EmRegsVZPalmM505::GetLCDScreenOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsVZPalmM505::GetLCDScreenOn (void)
+@@ -101,7 +101,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::GetLCDBacklightOn
++//		ï¿½ EmRegsVZPalmM505::GetLCDBacklightOn
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsVZPalmM505::GetLCDBacklightOn (void)
+@@ -113,7 +113,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::GetLCDHasFrame
++//		ï¿½ EmRegsVZPalmM505::GetLCDHasFrame
+ // ---------------------------------------------------------------------------
+ 
+ Bool EmRegsVZPalmM505::GetLCDHasFrame (void)
+@@ -125,7 +125,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::GetLCDBeginEnd
++//		ï¿½ EmRegsVZPalmM505::GetLCDBeginEnd
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsVZPalmM505::GetLCDBeginEnd (emuptr& begin, emuptr& end)
+@@ -137,7 +137,7 @@
+ 
+ 
+ // ---------------------------------------------------------------------------
+-//		¥ EmRegsVZPalmM505::GetLCDScanlines
++//		ï¿½ EmRegsVZPalmM505::GetLCDScanlines
+ // ---------------------------------------------------------------------------
+ 
+ void EmRegsVZPalmM505::GetLCDScanlines (EmScreenUpdateInfo& info)

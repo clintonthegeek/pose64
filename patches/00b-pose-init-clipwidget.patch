@@ -1,0 +1,18 @@
+--- a/SrcUnix/EmApplicationFltk.cpp	2002-03-29 08:11:19.000000000 -0500
++++ b/SrcUnix/EmApplicationFltk.cpp	2026-02-14 16:56:43.147369456 -0500
+@@ -115,6 +115,7 @@
+ 
+ EmApplicationFltk::EmApplicationFltk (void) :
+ 	EmApplication (),
++	fClipboardWidget (NULL),
+ 	fAppWindow (NULL)
+ {
+ 	EmAssert (gHostApplication == NULL);
+@@ -138,6 +139,7 @@
+ EmApplicationFltk::~EmApplicationFltk (void)
+ {
+ 	delete fAppWindow;
++	delete fClipboardWidget;
+ 
+ 	EmAssert (gHostApplication == this);
+ 	gHostApplication = NULL;
