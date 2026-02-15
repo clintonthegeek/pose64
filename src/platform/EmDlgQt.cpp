@@ -13,8 +13,11 @@
 #include "EmDevice.h"
 #include "EmFileRef.h"
 #include "EmStructs.h"			// Configuration
+#include "EmTypes.h"			// EmResetType
 #include "Miscellaneous.h"		// MemoryTextList, GetMemoryTextList
+#include "Platform.h"			// Platform::GetString, Platform::GetMilliseconds
 #include "PreferenceMgr.h"		// gEmuPrefs
+#include "Strings.r.h"			// kStr_OK, kStr_Cancel, etc.
 
 // Undefine Palm OS macros that conflict with Qt
 #undef daysInYear
@@ -338,6 +341,173 @@ static EmDlgItemID PrvHostSessionNew (void* userData)
 
 
 // ---------------------------------------------------------------------------
+//	PrvHostDatabaseImport — drive the import callback synchronously
+// ---------------------------------------------------------------------------
+// The FLTK version shows a progress dialog while the callback processes files
+// via init/idle events.  For Qt, we drive the callback synchronously — import
+// is fast enough for typical PRC files that no progress dialog is needed.
+
+static EmDlgItemID PrvHostDatabaseImport (EmDlgFn fn, void* userData)
+{
+	EmDlgContext context;
+	context.fFn       = fn;
+	context.fUserData = userData;
+	context.fDlg      = nullptr;
+	context.fDlgID    = kDlgDatabaseImport;
+
+	// Init: sets up the importer
+	context.fCommandID = kDlgCmdInit;
+	context.fItemID    = kDlgItemNone;
+	fn (context);
+
+	// Idle: process chunks until the callback says it's done
+	context.fCommandID = kDlgCmdIdle;
+	for (int iterations = 0; iterations < 100000; ++iterations)
+	{
+		EmDlgFnResult result = fn (context);
+		if (result == kDlgResultClose)
+			break;
+
+		QApplication::processEvents ();
+	}
+
+	// Destroy
+	context.fCommandID = kDlgCmdDestroy;
+	fn (context);
+
+	return kDlgItemOK;
+}
+
+
+// ---------------------------------------------------------------------------
+//	PrvHostReset — Reset type dialog
+// ---------------------------------------------------------------------------
+
+static EmDlgItemID PrvHostReset (EmDlgFn /*fn*/, void* userData)
+{
+	EmResetType& choice = *(EmResetType*) userData;
+
+	QMessageBox dlg;
+	dlg.setWindowTitle ("Reset");
+	dlg.setText ("Choose reset type:");
+
+	QPushButton* softBtn  = dlg.addButton ("Soft Reset",  QMessageBox::AcceptRole);
+	QPushButton* hardBtn  = dlg.addButton ("Hard Reset",  QMessageBox::DestructiveRole);
+	QPushButton* debugBtn = dlg.addButton ("Debug Reset", QMessageBox::ActionRole);
+	dlg.addButton (QMessageBox::Cancel);
+
+	dlg.setDefaultButton (softBtn);
+	dlg.exec ();
+
+	QAbstractButton* clicked = dlg.clickedButton ();
+
+	if (clicked == softBtn)
+		choice = kResetSoft;
+	else if (clicked == hardBtn)
+		choice = kResetHard;
+	else if (clicked == debugBtn)
+		choice = kResetDebug;
+	else
+		return kDlgItemCancel;
+
+	return kDlgItemOK;
+}
+
+
+// ---------------------------------------------------------------------------
+//	PrvHostCommonDialog — error/warning/info message box
+// ---------------------------------------------------------------------------
+// The POSE common dialog has up to 3 configurable buttons.  We decode the
+// button flags and present a QMessageBox.  Returns kDlgItemCmnButton1/2/3
+// so that DoCommonDialog can translate to the button ID (kDlgItemOK, etc.).
+
+struct PrvCommonDialogData
+{
+	const char*          fMessage;
+	EmCommonDialogFlags  fFlags;
+};
+
+static EmDlgItemID PrvHostCommonDialog (EmDlgFn /*fn*/, void* userData)
+{
+	PrvCommonDialogData& data = *(PrvCommonDialogData*) userData;
+
+	// Decode buttons from flags.  Each button is an 8-bit field
+	// with ID in low 4 bits and visibility/enabled flags in high 4.
+	struct ButtonInfo {
+		QString     label;
+		EmDlgItemID id;		// kDlgItemOK, kDlgItemCancel, etc.
+		bool        isDefault;
+		bool        visible;
+	};
+
+	ButtonInfo buttons[3];
+	int visibleCount = 0;
+
+	for (int ii = 0; ii < 3; ++ii)
+	{
+		int flags = GET_BUTTON (ii, data.fFlags);
+		buttons[ii].visible   = (flags & kButtonVisible) != 0;
+		buttons[ii].isDefault = (flags & kButtonDefault) != 0;
+		buttons[ii].id        = (EmDlgItemID) (flags & kButtonMask);
+
+		if (buttons[ii].visible)
+		{
+			visibleCount++;
+
+			// Map button ID to label text
+			switch (buttons[ii].id)
+			{
+				case kDlgItemOK:       buttons[ii].label = "OK";       break;
+				case kDlgItemCancel:   buttons[ii].label = "Cancel";   break;
+				case kDlgItemYes:      buttons[ii].label = "Yes";      break;
+				case kDlgItemNo:       buttons[ii].label = "No";       break;
+				case kDlgItemContinue: buttons[ii].label = "Continue"; break;
+				case kDlgItemDebug:    buttons[ii].label = "Debug";    break;
+				case kDlgItemReset:    buttons[ii].label = "Reset";    break;
+				default:               buttons[ii].label = "OK";       break;
+			}
+		}
+	}
+
+	// Build a QMessageBox
+	QMessageBox msgBox;
+	msgBox.setWindowTitle ("QtPOSE");
+	msgBox.setText (QString::fromUtf8 (data.fMessage));
+
+	// Add buttons and track which QPushButton maps to which slot
+	QPushButton* qButtons[3] = { nullptr, nullptr, nullptr };
+
+	for (int ii = 0; ii < 3; ++ii)
+	{
+		if (buttons[ii].visible)
+		{
+			QMessageBox::ButtonRole role = QMessageBox::AcceptRole;
+			if (buttons[ii].id == kDlgItemCancel || buttons[ii].id == kDlgItemNo)
+				role = QMessageBox::RejectRole;
+
+			qButtons[ii] = msgBox.addButton (buttons[ii].label, role);
+
+			if (buttons[ii].isDefault)
+				msgBox.setDefaultButton (qButtons[ii]);
+		}
+	}
+
+	msgBox.exec ();
+
+	QAbstractButton* clicked = msgBox.clickedButton ();
+
+	for (int ii = 0; ii < 3; ++ii)
+	{
+		if (qButtons[ii] && clicked == qButtons[ii])
+			return (EmDlgItemID) (kDlgItemCmnButton1 + ii);
+	}
+
+	// Fallback: return first visible button
+	return kDlgItemCmnButton1;
+}
+
+
+// ---------------------------------------------------------------------------
 //	HostRunDialog — dispatch to the appropriate Qt dialog
 // ---------------------------------------------------------------------------
 
@@ -352,6 +522,16 @@ EmDlgItemID EmDlg::HostRunDialog (const void* parameters)
 	{
 		case kDlgSessionNew:
 			return PrvHostSessionNew (params->fUserData);
+
+		case kDlgDatabaseImport:
+			return PrvHostDatabaseImport (params->fFn, params->fUserData);
+
+		case kDlgReset:
+			return PrvHostReset (params->fFn, params->fUserData);
+
+		case kDlgCommonDialog:
+			return PrvHostCommonDialog (params->fFn, params->fUserData);
+
 		default:
 			return kDlgItemNone;
 	}
@@ -628,6 +808,22 @@ EmDlgItemID EmDlg::HostRunAboutBox (const void* parameters)
 
 EmDlgItemID EmDlg::HostRunSessionSave (const void* parameters)
 {
-	// Session save is handled by HostRunPutFile
-	return kDlgItemCancel;
+	const DoSessionSaveParameters* params =
+		static_cast<const DoSessionSaveParameters*> (parameters);
+
+	QString message = QString ("Save changes to \"%1\"?")
+		.arg (QString::fromStdString (params->fDocName));
+
+	QMessageBox::StandardButton result = QMessageBox::question (
+		nullptr,
+		QString::fromStdString (params->fAppName),
+		message,
+		QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+
+	switch (result)
+	{
+		case QMessageBox::Yes:    return kDlgItemYes;
+		case QMessageBox::No:     return kDlgItemNo;
+		default:                  return kDlgItemCancel;
+	}
 }

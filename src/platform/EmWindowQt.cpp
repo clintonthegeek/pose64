@@ -26,6 +26,7 @@
 #include <QContextMenuEvent>
 #include <QCloseEvent>
 #include <QPainter>
+#include <QPen>
 #include <QApplication>
 #include <QScreen>
 #include <QMenu>
@@ -63,7 +64,9 @@ EmWindowQt::EmWindowQt () :
 	EmWindow (),
 	fSkinValid (false),
 	fMouseX (0),
-	fMouseY (0)
+	fMouseY (0),
+	fButtonFrameVisible (false),
+	fLEDVisible (false)
 {
 	EmAssert (gHostWindow == NULL);
 	gHostWindow = this;
@@ -148,6 +151,22 @@ void EmWindowQt::paintEvent (QPaintEvent*)
 		if (!fLCDImage.isNull ())
 		{
 			painter.drawImage (fLCDRect, fLCDImage);
+		}
+
+		// Draw button press highlight
+		if (fButtonFrameVisible)
+		{
+			painter.setPen (QPen (fButtonFrameColor, 2));
+			painter.setBrush (Qt::NoBrush);
+			painter.drawRect (fButtonFrame);
+		}
+
+		// Draw LED indicator
+		if (fLEDVisible)
+		{
+			painter.setPen (Qt::NoPen);
+			painter.setBrush (fLEDColor);
+			painter.drawEllipse (fLEDRect);
 		}
 	}
 	else
@@ -588,18 +607,20 @@ void EmWindowQt::HostWindowShow (void)
 
 void EmWindowQt::HostRectFrame (const EmRect& r, const EmPoint& pen, const RGBType& color)
 {
-	// Button press visual feedback.
-	// In the FLTK version, this draws directly.  In Qt retained mode,
-	// we'd need to cache the frame data and draw in paintEvent.
-	// For now, just trigger a repaint.
+	fButtonFrame = QRect (r.fLeft, r.fTop,
+						  r.fRight - r.fLeft, r.fBottom - r.fTop);
+	fButtonFrameColor = QColor (color.fRed, color.fGreen, color.fBlue);
+	fButtonFrameVisible = true;
 	update ();
 }
 
 
 void EmWindowQt::HostOvalPaint (const EmRect& r, const RGBType& color)
 {
-	// LED indicator painting.
-	// Same as HostRectFrame — trigger repaint.
+	fLEDRect = QRect (r.fLeft, r.fTop,
+					  r.fRight - r.fLeft, r.fBottom - r.fTop);
+	fLEDColor = QColor (color.fRed, color.fGreen, color.fBlue);
+	fLEDVisible = true;
 	update ();
 }
 
@@ -609,6 +630,10 @@ void EmWindowQt::HostPaintCase (const EmScreenUpdateInfo& info)
 	const EmPixMap& skin = GetCurrentSkin ();
 	fSkinImage = emPixMapToQImage (skin);
 	fSkinValid = true;
+
+	// Clear overlays — they get redrawn by their respective Host* calls
+	fButtonFrameVisible = false;
+	fLEDVisible = false;
 
 	update ();
 }

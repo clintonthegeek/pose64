@@ -5,9 +5,9 @@ running on modern x86_64 Linux without `-m32`.
 
 ## Status
 
-**Phase 2 complete** — the emulator boots PalmOS to the home screen from
-a saved session file. CPU thread runs m68k instructions, LCD renders to a
-Qt widget, pen input works.
+**Phase 4 complete** — the emulator boots PalmOS, renders the device skin,
+handles keyboard/mouse/pen input, and provides a full context menu with
+working session management and PRC installation.
 
 ### What works
 
@@ -17,16 +17,24 @@ Qt widget, pen input works.
 - CPU thread via omnithread (two-thread model matching original POSE)
 - LCD rendering (all pixel formats: 1-bit through 16-bit)
 - Pen/mouse input
-- New Session dialog, common dialogs, file dialogs
+- Keyboard input (F1-F4 hardware buttons, arrow keys, Page Up/Down, printable characters)
+- Context menu with full POSE menu system (right-click or F10)
+- Skin rendering (default gray skin with LCD area and button regions)
+- Button press visual feedback (highlight rectangle on hardware button clicks)
+- LED indicator (green power LED)
+- New Session dialog, session save prompt, file dialogs
+- Database import (PRC/PDB installation via menu)
+- Reset dialog (soft/hard/debug reset)
+- Common error/warning/info dialogs
+- Clipboard sync (bidirectional, text)
 - QTimer-based idle loop at ~10 Hz (replaces FLTK's `Fl::wait(0.1)`)
 
 ### What doesn't work yet
 
-- Keyboard input (not wired up)
-- Context menu / toolbar commands
-- Most dialogs (preferences, logging, debugging, etc. are stubs)
-- Skin rendering (case/buttons around LCD)
-- Clipboard sync
+- Skin image loading from `.skin` files (uses procedural default skin only)
+- Some menu commands (preferences, logging, debugging dialogs are stubs)
+- Database export
+- Gremlins
 - ReControl socket API (planned for Phase 7)
 
 ## Quick Start

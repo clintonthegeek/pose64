@@ -125,16 +125,20 @@ public:
             void (*fn_void)(void*);
             void* (*fn_ret)(void*);
             void* arg;
-            WorkerThread(void (*fv)(void*), void* (*fr)(void*), void* a)
-                : fn_void(fv), fn_ret(fr), arg(a) {}
+            omni_thread* owner;
+            WorkerThread(void (*fv)(void*), void* (*fr)(void*), void* a,
+                         omni_thread* o)
+                : fn_void(fv), fn_ret(fr), arg(a), owner(o) {}
             void run() override {
+                sCurrentThread = owner;
                 if (fn_void)
                     fn_void(arg);
                 else if (fn_ret)
                     fn_ret(arg);
+                sCurrentThread = nullptr;
             }
         };
-        m_thread = new WorkerThread(m_fn_void, m_fn_ret, m_arg);
+        m_thread = new WorkerThread(m_fn_void, m_fn_ret, m_arg, this);
         m_thread->start();
     }
 
@@ -169,11 +173,10 @@ public:
         }
     }
 
-    // NOTE: self() cannot map cleanly to Qt — original omnithread stored
-    // a thread-local pointer to the omni_thread object.  Returning nullptr
-    // means InCPUThread() always returns false, but the session code handles
-    // that path safely (it just takes the non-CPU-thread assertion branch).
-    static omni_thread* self() { return 0; }
+    // Thread-local pointer set in WorkerThread::run() so self() works.
+    // This enables InCPUThread() to correctly identify the CPU thread,
+    // which is needed for BlockOnDialog to marshal UI calls.
+    static omni_thread* self() { return sCurrentThread; }
     static void exit(void* = 0) { QThread::currentThread()->quit(); }
 
     priority_t priority() { return PRIORITY_NORMAL; }
@@ -187,6 +190,8 @@ private:
     void* (*m_fn_ret)(void*);
     void* m_arg;
     QThread* m_thread;
+
+    inline static thread_local omni_thread* sCurrentThread = nullptr;
 };
 
 // ---- Semaphore ----

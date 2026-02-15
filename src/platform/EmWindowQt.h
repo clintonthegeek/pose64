@@ -84,6 +84,16 @@ private:
 	// Cached mouse position
 	int fMouseX;
 	int fMouseY;
+
+	// Button press visual feedback (HostRectFrame)
+	QRect fButtonFrame;
+	QColor fButtonFrameColor;
+	bool fButtonFrameVisible;
+
+	// LED indicator (HostOvalPaint)
+	QRect fLEDRect;
+	QColor fLEDColor;
+	bool fLEDVisible;
 };
 
 extern EmWindowQt* gHostWindow;
