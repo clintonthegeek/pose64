@@ -239,6 +239,12 @@ void StubAppEnqueueKey (UInt16 ascii, UInt16 keycode, UInt16 modifiers)
 void StubAppGremlinsOn (void)
 {
 	// Called from Gremlins::Initialize.
+
+	// TODO: When Gremlins UI is implemented, warn the user here if
+	// Accurate Timers mode is enabled.  Gremlins runs at maximum speed
+	// and cycle-accurate timers may cause PalmOS tick overflows or
+	// unexpected timing behaviour.  Consider auto-switching to Legacy
+	// Timers mode for Gremlins runs.
 }
 
 

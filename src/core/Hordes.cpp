@@ -90,6 +90,10 @@ Bool				gErrorHappened;
 
 void Hordes::Initialize (void)
 {
+	// TODO: When Gremlins UI is implemented, check kPrefKeyTimerAccuracy
+	// here and warn if accurate timers are enabled.  Gremlins expects
+	// maximum-speed execution; cycle-accurate timers may cause issues.
+
 	gTheGremlin.Reset ();
 }
 
