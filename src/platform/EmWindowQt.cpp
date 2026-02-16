@@ -432,16 +432,22 @@ void EmWindowQt::mousePressEvent (QMouseEvent* event)
 			return;
 		}
 
-		// Check what skin element was clicked.  If it's empty skin area
-		// (kElement_None or kElement_Frame), start a window drag.
+		// Check what skin element was clicked.
 		EmPoint pt (event->pos ().x (), event->pos ().y ());
 		SkinElementType what = ::SkinTestPoint (pt);
 
-		if (what == kElement_None || what == kElement_Frame)
+		if (what == kElement_Frame)
 		{
-			// Use system move for Wayland compatibility.
+			// Click on skin frame — start a window drag.
 			if (windowHandle ())
 				windowHandle ()->startSystemMove ();
+			return;
+		}
+
+		if (what == kElement_None)
+		{
+			// Dead zone around buttons — ignore the click entirely
+			// so high-precision mice don't accidentally start drags.
 			return;
 		}
 
