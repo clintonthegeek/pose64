@@ -259,10 +259,17 @@ void SkinSetSkin (const EmDevice& device, ScaleType scale, const SkinName& name)
 {
 	Skinfo		skin;
 
+	fprintf (stderr, "SKIN: SkinSetSkin device=%s scale=%d name='%s'\n",
+			 device.GetIDString ().c_str (), (int)scale, name.c_str ());
+
 	if (!::PrvGetNamedSkin (device, name, skin))
 	{
+		fprintf (stderr, "SKIN: named skin not found, using default\n");
 		::PrvGetDefaultSkin (device, skin);
 	}
+
+	fprintf (stderr, "SKIN: selected skin name='%s' img1x='%s' img2x='%s'\n",
+			 skin.fName.c_str (), skin.fImageName1x.c_str (), skin.fImageName2x.c_str ());
 
 	::PrvSetSkin (device, skin, scale);
 }
@@ -386,8 +393,14 @@ EmStream* SkinGetSkinStream (ScaleType scale)
 {
 	EmStream*	result = NULL;
 
+	fprintf (stderr, "SKIN: SkinGetSkinStream scale=%d currentSkin='%s'\n",
+			 (int)scale, gCurrentSkin.fName.c_str ());
+
 	if (gCurrentSkin.fName == kGenericSkinName)
+	{
+		fprintf (stderr, "SKIN: generic skin — returning NULL\n");
 		return result;
+	}
 
 	if (gApplication->IsBound ())
 	{
@@ -409,6 +422,9 @@ EmStream* SkinGetSkinStream (ScaleType scale)
 	else
 	{
 		EmFileRef	file = ::SkinGetSkinFile (scale);
+
+		fprintf (stderr, "SKIN: skin file = '%s' exists=%d\n",
+				 file.GetFullPath ().c_str (), (int)file.Exists ());
 
 		if (file.Exists ())
 		{
@@ -1160,10 +1176,13 @@ void PrvBuildSkinList (SkinList& skins)
 
 	// Look for a sub-directory named "Skins".
 
-	EmDirRef	scanDir (EmDirRef::GetEmulatorDirectory (), "Skins");
+	EmDirRef	emuDir = EmDirRef::GetEmulatorDirectory ();
+	fprintf (stderr, "SKIN: emulator dir = '%s'\n", emuDir.GetFullPath ().c_str ());
+
+	EmDirRef	scanDir (emuDir, "Skins");
 
 	if (!scanDir.Exists ())
-		scanDir = EmDirRef (EmDirRef::GetEmulatorDirectory (), "skins");
+		scanDir = EmDirRef (emuDir, "skins");
 
 #if PLATFORM_UNIX
 	// On Unix, also look in the /usr/local/share/pose and /usr/share/pose directories.
@@ -1181,9 +1200,16 @@ void PrvBuildSkinList (SkinList& skins)
 		scanDir = EmDirRef ("/usr/share/pose/skins");
 #endif
 
+	fprintf (stderr, "SKIN: scan dir = '%s' exists=%d\n",
+			 scanDir.GetFullPath ().c_str (), (int)scanDir.Exists ());
+
 	if (scanDir.Exists ())
 	{
 		::PrvScanForSkinFiles (skins, scanDir);
+		fprintf (stderr, "SKIN: found %zu skins\n", skins.size ());
+		for (size_t i = 0; i < skins.size (); ++i)
+			fprintf (stderr, "SKIN:   [%zu] name='%s' devices=%zu\n",
+					 i, skins[i].fName.c_str (), skins[i].fDevices.size ());
 	}
 }
 

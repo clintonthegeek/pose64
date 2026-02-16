@@ -17,6 +17,7 @@
 #include "Miscellaneous.h"		// MemoryTextList, GetMemoryTextList
 #include "Platform.h"			// Platform::GetString, Platform::GetMilliseconds
 #include "PreferenceMgr.h"		// gEmuPrefs
+#include "Skins.h"				// SkinGetSkinNames, SkinSetSkinName
 #include "Strings.r.h"			// kStr_OK, kStr_Cancel, etc.
 
 // Undefine Palm OS macros that conflict with Qt
@@ -196,6 +197,10 @@ static EmDlgItemID PrvHostSessionNew (void* userData)
 	QComboBox* deviceCombo = new QComboBox;
 	form->addRow ("Device:", deviceCombo);
 
+	// Skin selector
+	QComboBox* skinCombo = new QComboBox;
+	form->addRow ("Skin:", skinCombo);
+
 	// RAM size selector
 	QComboBox* ramCombo = new QComboBox;
 	form->addRow ("RAM Size:", ramCombo);
@@ -210,12 +215,42 @@ static EmDlgItemID PrvHostSessionNew (void* userData)
 	// --- State tracking ---
 	EmDeviceList   currentDevices;
 	MemoryTextList currentSizes;
+	SkinNameList   currentSkins;
+
+	auto refreshSkins = [&]() {
+		currentSkins.clear ();
+		SkinGetSkinNames (cfg.fDevice, currentSkins);
+
+		skinCombo->blockSignals (true);
+		skinCombo->clear ();
+
+		// Pick the saved skin name for this device, if any.
+		SkinName savedSkin = SkinGetSkinName (cfg.fDevice);
+		int selectedIdx = 0;
+
+		for (SkinNameList::size_type i = 0; i < currentSkins.size (); ++i)
+		{
+			skinCombo->addItem (QString::fromStdString (currentSkins[i]));
+			if (currentSkins[i] == savedSkin)
+				selectedIdx = (int) i;
+		}
+
+		// If there's a non-generic skin, default to index 1 (first real skin)
+		// unless a preference was saved.
+		if (selectedIdx == 0 && currentSkins.size () > 1 && savedSkin.empty ())
+			selectedIdx = 1;
+
+		skinCombo->setCurrentIndex (selectedIdx);
+		skinCombo->blockSignals (false);
+	};
 
 	auto refreshFromROM = [&]() {
 		currentDevices = FilterDevicesForROM (cfg.fROMFile);
 		int devIdx = PopulateDeviceCombo (deviceCombo, currentDevices, cfg.fDevice);
 		if (!currentDevices.empty ())
 			cfg.fDevice = currentDevices[devIdx];
+
+		refreshSkins ();
 
 		currentSizes = FilterMemorySizes (cfg.fDevice);
 		int ramIdx = PopulateRAMCombo (ramCombo, currentSizes, cfg.fRAMSize);
@@ -226,6 +261,8 @@ static EmDlgItemID PrvHostSessionNew (void* userData)
 	};
 
 	auto refreshFromDevice = [&]() {
+		refreshSkins ();
+
 		currentSizes = FilterMemorySizes (cfg.fDevice);
 		int ramIdx = PopulateRAMCombo (ramCombo, currentSizes, cfg.fRAMSize);
 		if (!currentSizes.empty ())
@@ -332,6 +369,13 @@ static EmDlgItemID PrvHostSessionNew (void* userData)
 
 	if (dlg.exec () == QDialog::Accepted)
 	{
+		// Persist the selected skin for this device.
+		int skinIdx = skinCombo->currentIndex ();
+		if (skinIdx >= 0 && skinIdx < (int) currentSkins.size ())
+		{
+			SkinSetSkinName (cfg.fDevice, currentSkins[skinIdx]);
+		}
+
 		*(data.cfg) = cfg;
 		return kDlgItemOK;
 	}

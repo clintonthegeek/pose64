@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <climits>
 
 using namespace std;
 
@@ -457,10 +458,24 @@ EmDirRef
 EmDirRef::GetEmulatorDirectory (void)
 {
 	const char*	dir = getenv ("POSER_DIR");
+	if (dir != NULL)
+		return EmDirRef (dir);
 
-	if (dir == NULL)
-		dir = getenv ("HOME");
+	// Resolve from the executable's location via /proc/self/exe.
+	// The binary lives in build/, which contains Skins/, ROM files, etc.
+	char buf[PATH_MAX];
+	ssize_t len = readlink ("/proc/self/exe", buf, sizeof (buf) - 1);
+	if (len > 0)
+	{
+		buf[len] = '\0';
+		string exePath (buf);
+		string::size_type pos = exePath.rfind ('/');
+		if (pos != string::npos)
+			return EmDirRef (exePath.substr (0, pos));
+	}
 
+	// Last resort fallback
+	dir = getenv ("HOME");
 	return EmDirRef (dir);
 }
 

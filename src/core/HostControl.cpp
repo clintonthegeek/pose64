@@ -15,6 +15,8 @@
 #include "HostControl.h"
 #include "HostControlPrv.h"
 
+#include <map>					// LP64: FILE* handle table
+
 #include "DebugMgr.h"			// gDebuggerGlobals
 #include "EmApplication.h"		// gApplication, ScheduleQuit
 #include "EmBankMapped.h"		// EmBankMapped::GetEmulatedAddress
@@ -333,6 +335,11 @@ HostHandler			gHandlerTable [hostSelectorLastTrapNumber];
 vector<FILE*>		gOpenFiles;
 vector<MyDIR*>		gOpenDirs;
 vector<void*>		gAllocatedBlocks;
+
+// LP64 fix: FILE* is 64-bit on the host but must pass through the 32-bit
+// Palm stack as an emuptr.  Use an index map instead of raw pointer casts.
+static map<uint32, FILE*>	gFileHandleMap;
+static uint32				gNextFileHandle = 0x100;	// avoid 0 and small values
 HostDirEntType		gHostDirEnt;
 string				gResultString;
 EmProxyHostTmType	gGMTime;
@@ -817,6 +824,9 @@ static void _HostFClose (void)
 		++iter;
 	}
 
+	// LP64: remove the handle mapping.
+	gFileHandleMap.erase ((uint32) fileP);
+
 	// Return the result.
 
 	PUT_RESULT_VAL (long, result);
@@ -1079,11 +1089,16 @@ static void _HostFOpen (void)
 	if (result)
 	{
 		gOpenFiles.push_back (result);
+
+		// LP64: return a 32-bit handle, not the raw FILE* pointer.
+		uint32	handle = gNextFileHandle++;
+		gFileHandleMap[handle] = result;
+		PUT_RESULT_VAL (emuptr, handle);
 	}
-
-	// Return the result.
-
-	PUT_RESULT_VAL (emuptr, result);
+	else
+	{
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
+	}
 }
 
 
@@ -4487,7 +4502,13 @@ FILE* PrvToFILE (emuptr f)
 		return hostLogFILE;
 	}
 
-	return (FILE*)(uintptr_t) f;
+	// LP64: look up the 32-bit handle in our map instead of casting
+	// directly to FILE* (which would lose the upper 32 bits).
+	map<uint32, FILE*>::iterator it = gFileHandleMap.find ((uint32) f);
+	if (it != gFileHandleMap.end ())
+		return it->second;
+
+	return NULL;
 }
 
 
@@ -4793,6 +4814,7 @@ void PrvReleaseAllResources (void)
 		}
 
 		gOpenFiles.clear ();
+		gFileHandleMap.clear ();
 	}
 
 	// Close all open directories.

@@ -81,9 +81,14 @@ static EmAddressBank	gAddressBank =
 EmRegsList		EmBankRegs::fgSubBanks;
 EmRegsList		EmBankRegs::fgDisabledSubBanks;
 
-static EmRegs*	gLastSubBank;
-static uint64	gLastStart;
-static uint32	gLastRange;
+// Per-thread cache: the CPU thread and UI thread (PaintScreen → GetLCDScanlines)
+// both call GetSubBank concurrently.  Without thread_local, the cache variables
+// can be torn between threads — e.g., gLastSubBank updated to VZ while
+// gLastStart/gLastRange still hold old FrameBuffer values, causing the UI thread
+// to return the wrong subbank for framebuffer addresses.
+static thread_local EmRegs*	gLastSubBank;
+static thread_local uint64	gLastStart;
+static thread_local uint32	gLastRange;
 
 static void PrvSwitchBanks (EmRegsList& fromList, EmRegsList& toList, emuptr address);
 

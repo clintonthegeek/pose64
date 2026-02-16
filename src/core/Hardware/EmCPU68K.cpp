@@ -1722,6 +1722,10 @@ uint32 EmCPU68K::GetCycleCount (void)
 
 void EmCPU68K::BusError (emuptr address, long size, Bool forRead)
 {
+	fprintf (stderr, "BUSERR: addr=0x%08X size=%ld %s PC=0x%08X\n",
+			 (unsigned)address, size, forRead ? "READ" : "WRITE",
+			 (unsigned)m68k_getpc ());
+
 	gExceptionAddress	= address;
 	gExceptionSize		= size;
 	gExceptionForRead	= forRead;

@@ -1149,6 +1149,12 @@ CallROMType SysHeadpatch::HwrSleep (void)
 {
 	// void HwrSleep(Boolean untilReset, Boolean emergency)
 
+	static int sHwrSleepHeadTrace = 0;
+	if (sHwrSleepHeadTrace < 10) {
+		fprintf (stderr, "HWRSLEEP_HEAD: unlocking vectors\n");
+		sHwrSleepHeadTrace++;
+	}
+
 	// HwrSleep changes the exception vectors for for the interrupts,
 	// so temporarily unlock those.  We'll re-establish them in the
 	// HwrSleep tailpatch.
@@ -2665,6 +2671,12 @@ void SysTailpatch::HwrMemReadable (void)
 void SysTailpatch::HwrSleep (void)
 {
 	// void HwrSleep(Boolean untilReset, Boolean emergency)
+
+	static int sHwrSleepTailTrace = 0;
+	if (sHwrSleepTailTrace < 10) {
+		fprintf (stderr, "HWRSLEEP_TAIL: re-locking vectors\n");
+		sHwrSleepTailTrace++;
+	}
 
 	MetaMemory::MarkLowMemory (offsetof (M68KExcTableType, busErr),
 							   offsetof (M68KExcTableType, busErr) + sizeof (emuptr));

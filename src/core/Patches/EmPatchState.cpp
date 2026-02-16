@@ -727,9 +727,15 @@ Bool EmPatchState::IsPCInMemMgr (void)
 
 void EmPatchState::EnterMemMgr (const char* fnName)
 {
-	UNUSED_PARAM (fnName)
-
 	++fgData.fMemMgrCount;
+
+	static int sEnterTrace = 0;
+	if (sEnterTrace < 30) {
+		fprintf (stderr, "ENTER_MEMMGR: fn='%s' count=%ld\n",
+			fnName ? fnName : "?", fgData.fMemMgrCount);
+		sEnterTrace++;
+	}
+
 	EmAssert (fgData.fMemMgrCount < 10);
 }
 
@@ -748,9 +754,15 @@ void EmPatchState::EnterMemMgr (const char* fnName)
 
 void EmPatchState::ExitMemMgr (const char* fnName)
 {
-	UNUSED_PARAM (fnName)
-
 	--fgData.fMemMgrCount;
+
+	static int sExitTrace = 0;
+	if (sExitTrace < 30) {
+		fprintf (stderr, "EXIT_MEMMGR: fn='%s' count=%ld\n",
+			fnName ? fnName : "?", fgData.fMemMgrCount);
+		sExitTrace++;
+	}
+
 	EmAssert (fgData.fMemMgrCount >= 0);
 
 	#if 0	// _DEBUG

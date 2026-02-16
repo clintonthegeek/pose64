@@ -309,24 +309,29 @@ extern EmulatorPreferences* gEmuPrefs;
 	DO_TO_PREF(PortSerialSocket,	string,				(""))					\
 	DO_TO_PREF(PortIRSocket,		string,				(""))					\
 																				\
-	DO_TO_PREF(ReportFreeChunkAccess,			bool,	(true))					\
-	DO_TO_PREF(ReportHardwareRegisterAccess,	bool,	(true))					\
-	DO_TO_PREF(ReportLowMemoryAccess,			bool,	(true))					\
-	DO_TO_PREF(ReportLowStackAccess,			bool,	(true))					\
-	DO_TO_PREF(ReportMemMgrDataAccess,			bool,	(true))					\
-	DO_TO_PREF(ReportMemMgrLeaks,				bool,	(true))					\
-	DO_TO_PREF(ReportMemMgrSemaphore,			bool,	(true))					\
-	DO_TO_PREF(ReportOffscreenObject,			bool,	(true))					\
-	DO_TO_PREF(ReportOverlayErrors,				bool,	(true))					\
-	DO_TO_PREF(ReportProscribedFunction,		bool,	(true))					\
-	DO_TO_PREF(ReportROMAccess,					bool,	(true))					\
-	DO_TO_PREF(ReportScreenAccess,				bool,	(true))					\
-	DO_TO_PREF(ReportSizelessObject,			bool,	(true))					\
-	DO_TO_PREF(ReportStackAlmostOverflow,		bool,	(true))					\
-	DO_TO_PREF(ReportStrictIntlChecks,			bool,	(true))					\
-	DO_TO_PREF(ReportSystemGlobalAccess,		bool,	(true))					\
-	DO_TO_PREF(ReportUIMgrDataAccess,			bool,	(true))					\
-	DO_TO_PREF(ReportUnlockedChunkAccess,		bool,	(true))					\
+	/* LP64/Qt port: default access violation reports to OFF.				\
+	   On 32-bit FLTK POSE these rarely fired due to timing coincidence.	\
+	   On 64-bit Qt they fire frequently, making the emulator unusable.		\
+	   Users can re-enable specific checks for debugging their own apps.	\
+	   See docs/violation-ignore-feature.md */								\
+	DO_TO_PREF(ReportFreeChunkAccess,			bool,	(false))				\
+	DO_TO_PREF(ReportHardwareRegisterAccess,	bool,	(false))				\
+	DO_TO_PREF(ReportLowMemoryAccess,			bool,	(false))				\
+	DO_TO_PREF(ReportLowStackAccess,			bool,	(false))				\
+	DO_TO_PREF(ReportMemMgrDataAccess,			bool,	(false))				\
+	DO_TO_PREF(ReportMemMgrLeaks,				bool,	(false))				\
+	DO_TO_PREF(ReportMemMgrSemaphore,			bool,	(false))				\
+	DO_TO_PREF(ReportOffscreenObject,			bool,	(false))				\
+	DO_TO_PREF(ReportOverlayErrors,				bool,	(false))				\
+	DO_TO_PREF(ReportProscribedFunction,		bool,	(false))				\
+	DO_TO_PREF(ReportROMAccess,					bool,	(false))				\
+	DO_TO_PREF(ReportScreenAccess,				bool,	(false))				\
+	DO_TO_PREF(ReportSizelessObject,			bool,	(false))				\
+	DO_TO_PREF(ReportStackAlmostOverflow,		bool,	(false))				\
+	DO_TO_PREF(ReportStrictIntlChecks,			bool,	(false))				\
+	DO_TO_PREF(ReportSystemGlobalAccess,		bool,	(false))				\
+	DO_TO_PREF(ReportUIMgrDataAccess,			bool,	(false))				\
+	DO_TO_PREF(ReportUnlockedChunkAccess,		bool,	(false))				\
 																				\
 	DO_TO_PREF(ReportLockedRecords,				bool,	(false))				\
 	DO_TO_PREF(ReportSysFatalAlert,				bool,	(true))					\

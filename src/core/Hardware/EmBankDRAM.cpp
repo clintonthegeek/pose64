@@ -155,7 +155,9 @@ static void PrvReportBelowStackPointerAccess (emuptr address, size_t size, Bool 
 static inline void PrvCheckBelowStackPointerAccess (emuptr address, size_t size, Bool forRead)
 {
 #if 1
-	if (address < gCPU->GetSP () && address >= gStackLow)
+	// Only check RAM-based user code. ROM and RAM OS components are trusted.
+	if (address < gCPU->GetSP () && address >= gStackLow
+		&& Memory::IsPCInRAM ())
 	{
 		::PrvReportBelowStackPointerAccess (address, size, forRead);
 	}
@@ -311,7 +313,10 @@ void EmBankDRAM::SetBankHandlers (void)
 	// First few memory banks are managed by the functions in EmBankDRAM.
 
 	gDynamicHeapSize = EmHAL::GetDynamicHeapSize ();
-	
+
+	fprintf (stderr, "DRAM: gDynamicHeapSize=0x%08X gRAMBank_Size=0x%08X\n",
+		gDynamicHeapSize, gRAMBank_Size);
+
 	if (gDynamicHeapSize > gRAMBank_Size)
 		gDynamicHeapSize = gRAMBank_Size;
 
@@ -332,6 +337,15 @@ uint32 EmBankDRAM::GetLong (emuptr address)
 {
 	if (address > gDynamicHeapSize)
 		return EmBankSRAM::GetLong (address);
+
+	if (address == 0x78) {
+		static int s78LongCount = 0;
+		if (s78LongCount < 20) {
+			fprintf (stderr, "READ32_0x78: PC=0x%08X accessOK=%d\n",
+				(unsigned) gCPU->GetPC (), CEnableFullAccess::AccessOK ());
+			s78LongCount++;
+		}
+	}
 
 #if (PROFILE_MEMORY)
 	gMemoryAccess[kDRAMLongRead]++;
@@ -669,6 +683,13 @@ void EmBankDRAM::ProbableCause (emuptr address, long size, Bool forRead)
 	EmAssert (gSession);
 
 	Errors::EAccessType	whatHappened = MetaMemory::GetWhatHappened (address, size, forRead);
+
+	if (whatHappened != Errors::kOKAccess)
+	{
+		fprintf (stderr, "META_ERROR: addr=0x%08X size=%ld %s whatHappened=%d PC=0x%08X IsPCInRAM=%d\n",
+			address, size, forRead ? "read" : "write",
+			(int) whatHappened, gCPU->GetPC (), Memory::IsPCInRAM ());
+	}
 
 	switch (whatHappened)
 	{

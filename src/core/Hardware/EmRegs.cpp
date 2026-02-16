@@ -176,9 +176,11 @@ void EmRegs::SetSubBankHandlers (void)
 
 uint32 EmRegs::GetLong (emuptr address)
 {
-//	EmAssert (this->ValidAddress (address, 4));
-
 	uint32			offset	= address - this->GetAddressStart ();
+
+	if (offset >= fReadFunctions.size ())
+		return 0;
+
 	ReadFunction	fn		= fReadFunctions [offset];
 	EmAssert (fn);
 
@@ -192,9 +194,11 @@ uint32 EmRegs::GetLong (emuptr address)
 
 uint32 EmRegs::GetWord (emuptr address)
 {
-//	EmAssert (this->ValidAddress (address, 2));
-
 	uint32			offset	= address - this->GetAddressStart ();
+
+	if (offset >= fReadFunctions.size ())
+		return 0;
+
 	ReadFunction	fn		= fReadFunctions [offset];
 	EmAssert (fn);
 
@@ -208,9 +212,21 @@ uint32 EmRegs::GetWord (emuptr address)
 
 uint32 EmRegs::GetByte (emuptr address)
 {
-//	EmAssert (this->ValidAddress (address, 1));
-
 	uint32			offset	= address - this->GetAddressStart ();
+
+	if (offset >= fReadFunctions.size ())
+	{
+		static int sOobCount = 0;
+		if (sOobCount < 5)
+		{
+			fprintf (stderr, "REGS_OOB: GetByte addr=0x%08X bankStart=0x%08X offset=0x%X tableSize=0x%lX\n",
+				(unsigned)address, (unsigned)this->GetAddressStart (),
+				(unsigned)offset, (unsigned long)fReadFunctions.size ());
+			sOobCount++;
+		}
+		return 0;
+	}
+
 	ReadFunction	fn		= fReadFunctions [offset];
 	EmAssert (fn);
 
@@ -224,9 +240,11 @@ uint32 EmRegs::GetByte (emuptr address)
 
 void EmRegs::SetLong (emuptr address, uint32 value)
 {
-//	EmAssert (this->ValidAddress (address, 4));
-
 	uint32			offset	= address - this->GetAddressStart ();
+
+	if (offset >= fWriteFunctions.size ())
+		return;
+
 	WriteFunction	fn		= fWriteFunctions [offset];
 	EmAssert (fn);
 
@@ -240,9 +258,11 @@ void EmRegs::SetLong (emuptr address, uint32 value)
 
 void EmRegs::SetWord (emuptr address, uint32 value)
 {
-//	EmAssert (this->ValidAddress (address, 2));
-
 	uint32			offset	= address - this->GetAddressStart ();
+
+	if (offset >= fWriteFunctions.size ())
+		return;
+
 	WriteFunction	fn		= fWriteFunctions [offset];
 	EmAssert (fn);
 
@@ -256,9 +276,11 @@ void EmRegs::SetWord (emuptr address, uint32 value)
 
 void EmRegs::SetByte (emuptr address, uint32 value)
 {
-//	EmAssert (this->ValidAddress (address, 1));
-
 	uint32			offset	= address - this->GetAddressStart ();
+
+	if (offset >= fWriteFunctions.size ())
+		return;
+
 	WriteFunction	fn		= fWriteFunctions [offset];
 	EmAssert (fn);
 

@@ -429,6 +429,29 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 		return whatHappened;
 	}
 
+	static int sAllowBugsTraceCount = 0;
+	if (sAllowBugsTraceCount < 30)
+	{
+		emuptr pc = gCPU->GetPC ();
+		fprintf (stderr, "ALLOWBUGS: addr=0x%08X size=%ld %s whatHappened=%d PC=0x%08X\n",
+			address, size, forRead ? "read" : "write", (int) whatHappened, pc);
+		fprintf (stderr, "  D0=%08X D1=%08X D2=%08X D3=%08X A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X SP=%08X\n",
+			gCPU68K->GetRegister (e68KRegID_D0), gCPU68K->GetRegister (e68KRegID_D1),
+			gCPU68K->GetRegister (e68KRegID_D2), gCPU68K->GetRegister (e68KRegID_D3),
+			gCPU68K->GetRegister (e68KRegID_A0), gCPU68K->GetRegister (e68KRegID_A1),
+			gCPU68K->GetRegister (e68KRegID_A2), gCPU68K->GetRegister (e68KRegID_A3),
+			gCPU68K->GetRegister (e68KRegID_A4), gCPU68K->GetRegister (e68KRegID_A5),
+			gCPU68K->GetRegister (e68KRegID_A6), gCPU68K->GetRegister (e68KRegID_USP));
+		{
+			CEnableFullAccess munge;
+			uint16 opcode = EmMemGet16 (pc);
+			uint16 ext1 = EmMemGet16 (pc + 2);
+			uint16 ext2 = EmMemGet16 (pc + 4);
+			fprintf (stderr, "  opcodes: %04X %04X %04X\n", opcode, ext1, ext2);
+		}
+		sAllowBugsTraceCount++;
+	}
+
 	if (forRead)
 	{
 		// Let PrvFindMemoryLeaks have the run of the show.
@@ -801,7 +824,7 @@ void MetaMemory::MarkRange (emuptr start, emuptr end, uint8 v)
 
 	uint8*	startP	= EmMemGetMetaAddress (start);
 	uint8*	endP	= startP + (end - start);	// EmMemGetMetaAddress (end);
-	uint8*	end4P	= (uint8*)(uintptr_t) (((uint32)(uintptr_t) endP) & ~3);
+	uint8*	end4P	= (uint8*) (((uintptr_t) endP) & ~(uintptr_t)3);
 	uint8*	p		= startP;
 
 	EmAssert (end >= start);
@@ -825,7 +848,7 @@ void MetaMemory::MarkRange (emuptr start, emuptr end, uint8 v)
 		longValue |= (longValue << 8);
 		longValue |= (longValue << 16);
 
-		while (((uint32)(uintptr_t) p) & 3)		// while there are leading bytes
+		while (((uintptr_t) p) & 3)		// while there are leading bytes
 		{
 			*p++ |= v;
 		}
@@ -881,7 +904,7 @@ void MetaMemory::UnmarkRange (emuptr start, emuptr end, uint8 v)
 
 	uint8*	startP	= EmMemGetMetaAddress (start);
 	uint8*	endP	= startP + (end - start);	// EmMemGetMetaAddress (end);
-	uint8*	end4P	= (uint8*)(uintptr_t) (((uint32)(uintptr_t) endP) & ~3);
+	uint8*	end4P	= (uint8*) (((uintptr_t) endP) & ~(uintptr_t)3);
 	uint8*	p		= startP;
 
 	EmAssert (end >= start);
@@ -907,7 +930,7 @@ void MetaMemory::UnmarkRange (emuptr start, emuptr end, uint8 v)
 		longValue |= (longValue << 8);
 		longValue |= (longValue << 16);
 
-		while (((uint32)(uintptr_t) p) & 3)		// while there are leading bytes
+		while (((uintptr_t) p) & 3)		// while there are leading bytes
 		{
 			*p++ &= v;
 		}
@@ -964,7 +987,7 @@ void MetaMemory::MarkUnmarkRange (emuptr start, emuptr end,
 
 	uint8*	startP	= EmMemGetMetaAddress (start);
 	uint8*	endP	= startP + (end - start);	// EmMemGetMetaAddress (end);
-	uint8*	end4P	= (uint8*)(uintptr_t) (((uint32)(uintptr_t) endP) & ~3);
+	uint8*	end4P	= (uint8*) (((uintptr_t) endP) & ~(uintptr_t)3);
 	uint8*	p		= startP;
 
 	EmAssert (end >= start);
@@ -1009,7 +1032,7 @@ void MetaMemory::MarkUnmarkRange (emuptr start, emuptr end,
 			longOr |= (longOr << 8);
 			longOr |= (longOr << 16);
 
-			while (((uint32)(uintptr_t) p) & 3)		// while there are leading bytes
+			while (((uintptr_t) p) & 3)		// while there are leading bytes
 			{
 				*p = (*p & andValue) | orValue;
 				p += sizeof (char);

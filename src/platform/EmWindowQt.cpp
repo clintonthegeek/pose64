@@ -141,10 +141,12 @@ void EmWindowQt::paintEvent (QPaintEvent*)
 
 	if (gDocument)
 	{
-		// Draw skin (device case) as background
+		// Draw skin (device case) as background, scaled to fill the widget.
+		// On HiDPI displays the skin image pixels != logical pixels, so
+		// we must scale rather than drawing at (0,0) 1:1.
 		if (!fSkinImage.isNull ())
 		{
-			painter.drawImage (0, 0, fSkinImage);
+			painter.drawImage (rect (), fSkinImage);
 		}
 
 		// Draw LCD contents on top
@@ -535,8 +537,34 @@ void EmWindowQt::HostWindowReset (void)
 	// Invalidate cached skin so it gets re-rendered
 	fSkinValid = false;
 
-	// Resize the window.
-	setFixedSize (w, h);
+	// Pre-render the skin image for paintEvent (Qt retained-mode).
+	// PaintScreen only paints the case on specific triggers, but
+	// paintEvent can fire anytime after resize, so we need the
+	// skin QImage ready now.
+	const EmPixMap& skin = GetCurrentSkin ();
+	if (skin.GetSize ().fX > 0 && skin.GetSize ().fY > 0)
+	{
+		fSkinImage = emPixMapToQImage (skin);
+		fSkinValid = true;
+	}
+
+	fprintf (stderr, "WINDOW: HostWindowReset skinRegion bounds=(%d,%d,%d,%d) w=%d h=%d skinImg=%dx%d\n",
+		(int)newBounds.fLeft, (int)newBounds.fTop,
+		(int)newBounds.fRight, (int)newBounds.fBottom,
+		(int)w, (int)h,
+		fSkinImage.isNull () ? 0 : fSkinImage.width (),
+		fSkinImage.isNull () ? 0 : fSkinImage.height ());
+
+	// Resize the window.  Skin dimensions are logical pixel sizes.
+	// paintEvent uses drawImage(rect(), ...) to scale the skin image
+	// to fill the widget, so Qt handles HiDPI device pixel mapping.
+	setMinimumSize (0, 0);
+	setMaximumSize (QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+	resize ((int)w, (int)h);
+	setFixedSize ((int)w, (int)h);
+
+	fprintf (stderr, "WINDOW: after setFixedSize actual size=%dx%d\n",
+		width (), height ());
 
 	// Force repaint
 	update ();
@@ -644,13 +672,46 @@ void EmWindowQt::HostPaintLCD (const EmScreenUpdateInfo& info,
 							   const EmRect& destRect,
 							   Bool scaled)
 {
-	// Convert framebuffer to QImage
-	fLCDImage = emPixMapToQImage (info.fImage);
+	// GetLCDScanlines only fills dirty scanlines (fFirstLine..fLastLine)
+	// in info.fImage — the rest is uninitialized garbage.  Keep a
+	// persistent fLCDImage and merge only the dirty portion.
 
-	// Use the destRect provided by the caller (already scaled).
-	fLCDRect = QRect (destRect.fLeft, destRect.fTop,
-					  destRect.fRight - destRect.fLeft,
-					  destRect.fBottom - destRect.fTop);
+	QImage newImage = emPixMapToQImage (info.fImage);
+
+	int w = newImage.width ();
+	int h = newImage.height ();
+
+	if (fLCDImage.isNull ()
+		|| fLCDImage.width () != w
+		|| fLCDImage.height () != h
+		|| fLCDImage.format () != newImage.format ())
+	{
+		// First frame or resolution change — take the whole image.
+		fLCDImage = newImage;
+	}
+	else
+	{
+		// Merge only the dirty scanlines into the persistent image.
+		int firstLine = info.fFirstLine;
+		int lastLine  = info.fLastLine;
+
+		if (firstLine < 0)        firstLine = 0;
+		if (lastLine > h)         lastLine  = h;
+
+		for (int y = firstLine; y < lastLine; y++)
+		{
+			memcpy (fLCDImage.scanLine (y),
+					newImage.scanLine (y),
+					fLCDImage.bytesPerLine ());
+		}
+	}
+
+	// Qt retained-mode: paintEvent redraws the full widget, so always use
+	// the full LCD bounds.  Skin coords map 1:1 to widget logical pixels.
+	EmRect lcdBounds = this->GetLCDBounds ();
+	fLCDRect = QRect (lcdBounds.fLeft, lcdBounds.fTop,
+					  lcdBounds.fRight - lcdBounds.fLeft,
+					  lcdBounds.fBottom - lcdBounds.fTop);
 
 	update ();
 }

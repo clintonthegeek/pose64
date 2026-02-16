@@ -426,7 +426,9 @@ void EmBankSRAM::SetLong (emuptr address, uint32 value)
 #endif
 
 #if (PREVENT_USER_SRAM_SET)
-	if (gMemAccessFlags.fProtect_SRAMSet)
+	if (gMemAccessFlags.fProtect_SRAMSet
+		&& !CEnableFullAccess::AccessOK ()
+		&& Memory::IsPCInRAM ())
 	{
 		ProtectedAccess (address, sizeof (uint32), false);
 	}
@@ -477,7 +479,9 @@ void EmBankSRAM::SetWord (emuptr address, uint32 value)
 #endif
 
 #if (PREVENT_USER_SRAM_SET)
-	if (gMemAccessFlags.fProtect_SRAMSet)
+	if (gMemAccessFlags.fProtect_SRAMSet
+		&& !CEnableFullAccess::AccessOK ()
+		&& Memory::IsPCInRAM ())
 	{
 		ProtectedAccess (address, sizeof (uint16), false);
 	}
@@ -521,7 +525,9 @@ void EmBankSRAM::SetByte (emuptr address, uint32 value)
 #endif
 
 #if (PREVENT_USER_SRAM_SET)
-	if (gMemAccessFlags.fProtect_SRAMSet)
+	if (gMemAccessFlags.fProtect_SRAMSet
+		&& !CEnableFullAccess::AccessOK ()
+		&& Memory::IsPCInRAM ())
 	{
 		ProtectedAccess (address, sizeof (uint8), false);
 	}
@@ -560,10 +566,9 @@ void EmBankSRAM::SetByte (emuptr address, uint32 value)
 
 int EmBankSRAM::ValidAddress (emuptr address, uint32 size)
 {
-	address -= gMemoryStart;
-	int	result = (address + size) <= (gMemoryStart + gRAMBank_Size);
-
-	return result;
+	// Check if address falls within SRAM: [gMemoryStart, gMemoryStart + gRAMBank_Size)
+	return (address >= gMemoryStart) &&
+		   ((address + size) <= (gMemoryStart + gRAMBank_Size));
 }
 
 
@@ -635,6 +640,28 @@ void EmBankSRAM::InvalidAccess (emuptr address, long size, Bool forRead)
 
 void EmBankSRAM::ProtectedAccess (emuptr address, long size, Bool forRead)
 {
+	emuptr pc = gCPU->GetPC ();
+	fprintf (stderr, "SRAM_PROTECT: addr=0x%08X size=%ld %s PC=0x%08X AccessOK=%d\n",
+		address, size, forRead ? "read" : "write",
+		pc, CEnableFullAccess::AccessOK ());
+	fprintf (stderr, "  D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X\n",
+		gCPU68K->GetRegister (e68KRegID_D0), gCPU68K->GetRegister (e68KRegID_D1),
+		gCPU68K->GetRegister (e68KRegID_D2), gCPU68K->GetRegister (e68KRegID_D3),
+		gCPU68K->GetRegister (e68KRegID_D4), gCPU68K->GetRegister (e68KRegID_D5),
+		gCPU68K->GetRegister (e68KRegID_D6), gCPU68K->GetRegister (e68KRegID_D7));
+	fprintf (stderr, "  A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X\n",
+		gCPU68K->GetRegister (e68KRegID_A0), gCPU68K->GetRegister (e68KRegID_A1),
+		gCPU68K->GetRegister (e68KRegID_A2), gCPU68K->GetRegister (e68KRegID_A3),
+		gCPU68K->GetRegister (e68KRegID_A4), gCPU68K->GetRegister (e68KRegID_A5),
+		gCPU68K->GetRegister (e68KRegID_A6), gCPU68K->GetRegister (e68KRegID_USP));
+	// Read opcode at PC
+	{
+		CEnableFullAccess munge;
+		uint16 opcode = EmMemGet16 (pc);
+		uint16 ext1 = EmMemGet16 (pc + 2);
+		uint16 ext2 = EmMemGet16 (pc + 4);
+		fprintf (stderr, "  opcodes: %04X %04X %04X\n", opcode, ext1, ext2);
+	}
 	EmAssert (gCPU68K);
 	gCPU68K->BusError (address, size, forRead);
 }
