@@ -96,9 +96,9 @@ class EmRegsEZ : public EmRegs, public EmHALHandler
 		void					rtcIntStatusWrite		(emuptr address, int size, uint32 value);
 		void					rtcIntEnableWrite		(emuptr address, int size, uint32 value);
 
-	protected:
-		void					HotSyncEvent			(Bool buttonIsDown);
+		virtual void			HotSyncEvent			(Bool buttonIsDown) override;
 
+	protected:
 		virtual uint8			GetKeyBits				(void);
 		virtual uint16			ButtonToBits			(SkinElementType);
 		virtual EmSPISlave*		GetSPISlave				(void);

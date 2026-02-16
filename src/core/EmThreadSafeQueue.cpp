@@ -179,9 +179,8 @@ int EmThreadSafeQueue<T>::GetMaxSize (void)
 
 // Instantiate the ones we want.
 
-#include "EmSession.h"			// uint8 (Byte), EmButtonEvent, EmKeyEvent, EmPenEvent
+#include "EmSession.h"			// uint8 (Byte), EmKeyEvent, EmPenEvent
 
 template class EmThreadSafeQueue<uint8>;
-template class EmThreadSafeQueue<EmButtonEvent>;
 template class EmThreadSafeQueue<EmKeyEvent>;
 template class EmThreadSafeQueue<EmPenEvent>;

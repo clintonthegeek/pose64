@@ -1661,8 +1661,15 @@ EmSession::ButtonChanges EmSession::PollButtonChanges (void)
 	// At 16 MHz (DragonBall 328/EZ) each CycleSlowly interval ≈ 2 ms
 	// emulated time, so 5 intervals ≈ 10 ms.  At 33 MHz (VZ) it's
 	// about 5 ms.  Both are generous for an ISR + event-post cycle.
+	//
+	// At fractional speeds the wall-clock delay stretches (e.g. 5
+	// intervals at 0.25x = 40 ms wall), making quick clicks feel like
+	// holds.  Scale the cooldown down so wall time stays ≈ 10-16 ms.
 
-	static const uint32	kButtonCooldownCycles = 5;
+	uint32	cooldownCycles = 5;
+	int		speed = fEmulationSpeed.load (std::memory_order_relaxed);
+	if (speed > 0 && speed < 100)
+		cooldownCycles = speed * 5 / 100 + 1;	// min 1 at lowest speeds
 
 	if (fButtonCooldown > 0)
 	{
@@ -1713,7 +1720,7 @@ EmSession::ButtonChanges EmSession::PollButtonChanges (void)
 	// held off for a few cycles.
 
 	if (result.pressed != 0 || result.released != 0)
-		fButtonCooldown = kButtonCooldownCycles;
+		fButtonCooldown = cooldownCycles;
 
 	// Step 4: Move tap bits to auto-release for next cycle.
 

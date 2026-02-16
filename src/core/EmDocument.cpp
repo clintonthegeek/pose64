@@ -460,8 +460,9 @@ void EmDocument::HandleButton (SkinElementType theButton, Bool isDown)
 {
 	EmAssert (fSession);
 
-	EmButtonEvent	event (theButton, isDown);
-	fSession->PostButtonEvent (event);
+	if (isDown)
+		fSession->SetButtonTap (theButton);
+	// Release is handled by auto-release in PollButtonChanges.
 }
 
 

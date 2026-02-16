@@ -52,6 +52,7 @@ class EmHALHandler
 		virtual void			CycleSlowly				(Bool sleeping);
 
 		virtual void			ButtonEvent				(SkinElementType, Bool buttonIsDown);
+		virtual void			HotSyncEvent			(Bool buttonIsDown);
 		virtual void			TurnSoundOff			(void);
 		virtual void			ResetTimer				(void);
 		virtual void			ResetRTC				(void);
@@ -109,6 +110,7 @@ class EmHAL
 		static void				CycleSlowly				(Bool sleeping);
 
 		static void				ButtonEvent				(SkinElementType, Bool buttonIsDown);
+		static void				HotSyncEvent			(Bool buttonIsDown);
 		static void				TurnSoundOff			(void);
 		static void				ResetTimer				(void);
 		static void				ResetRTC				(void);

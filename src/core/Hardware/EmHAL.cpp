@@ -148,6 +148,17 @@ void EmHAL::ButtonEvent (SkinElementType button, Bool buttonIsDown)
 
 
 // ---------------------------------------------------------------------------
+//		� EmHAL::HotSyncEvent
+// ---------------------------------------------------------------------------
+
+void EmHAL::HotSyncEvent (Bool buttonIsDown)
+{
+	EmAssert (EmHAL::GetRootHandler());
+	EmHAL::GetRootHandler()->HotSyncEvent (buttonIsDown);
+}
+
+
+// ---------------------------------------------------------------------------
 //		� EmHAL::TurnSoundOff
 // ---------------------------------------------------------------------------
 
@@ -602,6 +613,17 @@ void EmHALHandler::ButtonEvent (SkinElementType button, Bool buttonIsDown)
 {
 	EmAssert (this->GetNextHandler());
 	this->GetNextHandler()->ButtonEvent (button, buttonIsDown);
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmHALHandler::HotSyncEvent
+// ---------------------------------------------------------------------------
+
+void EmHALHandler::HotSyncEvent (Bool buttonIsDown)
+{
+	EmAssert (this->GetNextHandler());
+	this->GetNextHandler()->HotSyncEvent (buttonIsDown);
 }
 
 

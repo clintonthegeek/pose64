@@ -20,7 +20,7 @@
 #include "EmQuantizer.h"		// EmQuantizer
 #include "EmRegion.h"			// EmRegion
 #include "EmScreen.h"			// EmScreenUpdateInfo
-#include "EmSession.h"			// PostPenEvent, PostButtonEvent, etc.
+#include "EmSession.h"			// PostPenEvent, SetButtonDown, etc.
 #include "EmStream.h"			// delete imageStream
 #include "Platform.h"			// Platform::PinToScreen
 
@@ -290,13 +290,16 @@ void EmWindow::HandlePenEvent (const EmPoint& where, Bool down)
 	}
 
 	// Otherwise, if we clicked on a button, start tracking it.
+	// Setting an already-set bit is a no-op with atomic OR, so no
+	// duplicate-press guard is needed.
 
 	else if (what != kElement_None)
 	{
-		EmButtonEvent	event (what, down);
-
 		EmAssert (gSession);
-		gSession->PostButtonEvent (event);
+		if (down)
+			gSession->SetButtonDown (what);
+		else
+			gSession->SetButtonUp (what);
 	}
 
 	// Set or clear what we're tracking.

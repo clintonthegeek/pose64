@@ -525,6 +525,11 @@ void EmRegs328::Load (SessionFile& f)
 	{
 		f.SetCanReload (false);
 	}
+
+	// No physical buttons are pressed at load time.  Clear saved key state
+	// so PalmOS doesn't see phantom button presses with no matching release.
+	fKeyBits   = 0;
+	fPortDEdge = 0;
 }
 
 
@@ -895,19 +900,31 @@ void EmRegs328::CycleSlowly (Bool sleeping)
 {
 	UNUSED_PARAM(sleeping)
 
-	// See if a hard button is pressed.
+	// See if a hard button is pressed (state-based, replaces event queue).
 
 	EmAssert (gSession);
-	if (gSession->HasButtonEvent ())
+
+	EmSession::ButtonChanges	buttonChanges = gSession->PollButtonChanges ();
+
+	for (int i = 0; i < (int) kElement_NumElements; i++)
 	{
-		EmButtonEvent	event = gSession->GetButtonEvent ();
-		if (event.fButton == kElement_CradleButton)
+		uint32	bit = 1U << i;
+		SkinElementType	btn = (SkinElementType) i;
+
+		if (buttonChanges.pressed & bit)
 		{
-			EmRegs328::HotSyncEvent (event.fButtonIsDown);
+			if (btn == kElement_CradleButton)
+				EmRegs328::HotSyncEvent (true);
+			else
+				EmRegs328::ButtonEvent (btn, true);
 		}
-		else
+
+		if (buttonChanges.released & bit)
 		{
-			EmRegs328::ButtonEvent (event.fButton, event.fButtonIsDown);
+			if (btn == kElement_CradleButton)
+				EmRegs328::HotSyncEvent (false);
+			else
+				EmRegs328::ButtonEvent (btn, false);
 		}
 	}
 
