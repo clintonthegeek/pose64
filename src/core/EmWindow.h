@@ -77,7 +77,6 @@ class EmWindow
 		void					GetLCDContents		(EmScreenUpdateInfo& info);
 
 	private:
-		void					PaintScreen			(Bool drawCase, Bool always);
 		void					PaintCase			(const EmScreenUpdateInfo& info);
 		void					PaintLCDFrame		(const EmScreenUpdateInfo& info);
 		void					PaintLCD			(const EmScreenUpdateInfo& info);
@@ -91,6 +90,7 @@ class EmWindow
 		void					GetDefaultSkin		(EmPixMap&);
 
 	protected:
+		void					PaintScreen			(Bool drawCase, Bool always);
 		EmRect					GetLCDBounds		(void);
 		EmRect					GetLEDBounds		(void);
 		void					PreDestroy			(void);

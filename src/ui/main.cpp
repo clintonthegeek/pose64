@@ -34,8 +34,8 @@ int main (int argc, char** argv)
 	setvbuf (stderr, NULL, _IONBF, 0);  // unbuffered stderr for diagnostics
 
 	QApplication qtApp (argc, argv);
-	qtApp.setApplicationName ("QtPOSE");
-	qtApp.setOrganizationName ("QtPOSE");
+	qtApp.setApplicationName ("POSE64");
+	qtApp.setOrganizationName ("POSE64");
 	qtApp.setApplicationVersion ("2.0.0");
 
 	// Create preferences and application objects on the stack,
@@ -69,11 +69,11 @@ int main (int argc, char** argv)
 	}
 	catch (const std::exception& e)
 	{
-		fprintf (stderr, "QtPOSE: Fatal Internal Error: %s\n", e.what());
+		fprintf (stderr, "POSE64: Fatal Internal Error: %s\n", e.what());
 	}
 	catch (...)
 	{
-		fprintf (stderr, "QtPOSE: Fatal Internal Error (unknown exception)\n");
+		fprintf (stderr, "POSE64: Fatal Internal Error (unknown exception)\n");
 	}
 
 	theApp.Shutdown ();

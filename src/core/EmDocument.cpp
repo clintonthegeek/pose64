@@ -20,6 +20,7 @@
 #include "EmRPC.h"				// RPC::Idle
 #include "EmSession.h"			// EmStopMethod
 #include "EmWindow.h"			// EmWindow, gWindow
+#include "EmWindowQt.h"			// gHostWindow, getLCDImage
 #include "ErrorHandling.h"		// Errors::ReportIfError
 #include "Hordes.h"				// Hordes::PostLoad, Suspend, Step, Resume, Stop
 #include "Platform.h"			// Platform::GetBoundDevice
@@ -1114,7 +1115,7 @@ Bool EmDocument::AskSaveScreen (EmFileRef& ref)
 	string			prompt (Platform::GetString (kStr_SaveScreenAs));
 	EmDirRef		defaultPath;
 	EmFileTypeList	filterList;
-	string			defaultName;
+	string			defaultName ("screen.png");
 
 	filterList.push_back (kFileTypePicture);
 	filterList.push_back (kFileTypeAll);
@@ -1185,8 +1186,13 @@ Bool EmDocument::HostCanSaveBound (void)
 //		� EmDocument::HostSaveScreen
 // ---------------------------------------------------------------------------
 
-void EmDocument::HostSaveScreen (const EmFileRef&)
+void EmDocument::HostSaveScreen (const EmFileRef& destRef)
 {
+	if (gHostWindow)
+	{
+		QString path = QString::fromStdString (destRef.GetFullPath ());
+		gHostWindow->getLCDImage ().save (path, "PNG");
+	}
 }
 
 

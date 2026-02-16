@@ -32,6 +32,9 @@ public:
 	EmWindowQt ();
 	virtual ~EmWindowQt ();
 
+	// Public accessor for Save Screen
+	const QImage& getLCDImage () const { return fLCDImage; }
+
 protected:
 	// QWidget overrides
 	void paintEvent (QPaintEvent* event) override;

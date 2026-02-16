@@ -720,7 +720,7 @@ int Platform::CollectOptions (int argc, char** argv, int& errorArg, int (*cb)(in
 
 void Platform::PrintHelp (void)
 {
-	printf ("QtPOSE - Palm OS Emulator\n");
+	printf ("POSE64 - Palm OS Emulator\n");
 }
 
 

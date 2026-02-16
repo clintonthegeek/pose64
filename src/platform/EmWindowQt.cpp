@@ -71,7 +71,7 @@ EmWindowQt::EmWindowQt () :
 	EmAssert (gHostWindow == NULL);
 	gHostWindow = this;
 
-	setWindowTitle ("QtPOSE - Palm OS Emulator");
+	setWindowTitle ("POSE64 - Palm OS Emulator");
 	resize (kDefaultWidth, kDefaultHeight);
 
 	// Ensure the user can't freely resize this window.
@@ -537,6 +537,16 @@ void EmWindowQt::HostWindowReset (void)
 	// Invalidate cached skin so it gets re-rendered
 	fSkinValid = false;
 
+	// Invalidate stale LCD image and rect — they were rendered at
+	// the old scale.  PaintScreen will re-render them at the new
+	// scale on the next idle cycle.
+	fLCDImage = QImage ();
+	fLCDRect  = QRect ();
+
+	// Clear overlays that reference old-scale coordinates
+	fButtonFrameVisible = false;
+	fLEDVisible = false;
+
 	// Pre-render the skin image for paintEvent (Qt retained-mode).
 	// PaintScreen only paints the case on specific triggers, but
 	// paintEvent can fire anytime after resize, so we need the
@@ -566,8 +576,29 @@ void EmWindowQt::HostWindowReset (void)
 	fprintf (stderr, "WINDOW: after setFixedSize actual size=%dx%d\n",
 		width (), height ());
 
-	// Force repaint
-	update ();
+	// Apply Stay On Top preference.  setWindowFlags() hides the widget,
+	// so we must call show() after — but only if we were already visible.
+	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
+	Qt::WindowFlags flags = windowFlags ();
+	if (*prefOnTop)
+		flags |= Qt::WindowStaysOnTopHint;
+	else
+		flags &= ~Qt::WindowStaysOnTopHint;
+
+	if (flags != windowFlags ())
+	{
+		bool wasVisible = isVisible ();
+		setWindowFlags (flags);
+		if (wasVisible)
+			show ();
+	}
+
+	// Force a full PaintScreen cycle to re-render the LCD at the new
+	// scale before we paint.  PaintScreen(true, true) redraws the case
+	// and the entire LCD, populating fLCDImage/fLCDRect with correct
+	// new-scale data.  Then repaint() synchronously blits it all.
+	this->PaintScreen (true, true);
+	repaint ();
 }
 
 
