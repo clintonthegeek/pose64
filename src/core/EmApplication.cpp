@@ -43,9 +43,6 @@
 #include "TracerPlatform.h"		// gTracer.Initialize();
 #endif
 
-#include <FL/fl_ask.H>			// fl_input
-#include <cstdlib>				// atoi
-#include <cstring>				// strchr
 
 using namespace std;
 
@@ -1103,31 +1100,10 @@ void EmApplication::DoTimerMode (EmCommandID cmd)
 
 void EmApplication::DoSpeedManual (EmCommandID)
 {
-	const char* result = fl_input (
-		"Enter speed as a fraction of real-time\n"
-		"(e.g. \"1/32\" for 1/32x, \"3\" for 3x):",
-		"1/1");
-
-	if (!result)
-		return;
-
-	int numerator = 0;
+	int numerator = 1;
 	int denominator = 1;
 
-	// Try parsing as "N/D"
-	const char* slash = strchr (result, '/');
-	if (slash)
-	{
-		numerator = atoi (result);
-		denominator = atoi (slash + 1);
-	}
-	else
-	{
-		// Try parsing as plain number (treat as Nx speed)
-		numerator = atoi (result);
-	}
-
-	if (numerator <= 0 || denominator <= 0)
+	if (EmDlg::DoManualSpeed (numerator, denominator) != kDlgItemOK)
 		return;
 
 	// Compute speed as percentage: (num / den) * 100

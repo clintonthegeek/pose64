@@ -685,6 +685,9 @@ class EmDlg
 		static EmDlgItemID		DoSessionInfo				(void);
 		static EmDlgItemID		DoGetSocketAddress			(std::string&);
 
+		static EmDlgItemID		DoManualSpeed				(int& numerator,
+															 int& denominator);
+
 		static void				GremlinControlOpen			(void);
 		static void				GremlinControlClose			(void);
 

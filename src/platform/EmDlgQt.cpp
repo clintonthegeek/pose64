@@ -1659,6 +1659,56 @@ static EmDlgItemID PrvHostDatabaseExport (void)
 
 
 // ---------------------------------------------------------------------------
+//	DoManualSpeed — numerator/denominator speed fraction dialog
+// ---------------------------------------------------------------------------
+
+EmDlgItemID EmDlg::DoManualSpeed (int& numerator, int& denominator)
+{
+	QDialog dlg;
+	dlg.setWindowTitle ("Manual Speed");
+
+	QVBoxLayout* topLayout = new QVBoxLayout (&dlg);
+
+	topLayout->addWidget (new QLabel (
+		"Enter speed as a fraction of real-time:"));
+
+	QHBoxLayout* fracLayout = new QHBoxLayout;
+
+	QSpinBox* numSpin = new QSpinBox;
+	numSpin->setRange (1, 9999);
+	numSpin->setValue (numerator);
+
+	QSpinBox* denSpin = new QSpinBox;
+	denSpin->setRange (1, 9999);
+	denSpin->setValue (denominator);
+
+	fracLayout->addWidget (numSpin);
+	fracLayout->addWidget (new QLabel ("/"));
+	fracLayout->addWidget (denSpin);
+	fracLayout->addWidget (new QLabel ("x"));
+
+	topLayout->addLayout (fracLayout);
+
+	QDialogButtonBox* buttons = new QDialogButtonBox (
+		QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+
+	topLayout->addWidget (buttons);
+
+	QObject::connect (buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+	QObject::connect (buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+	if (dlg.exec () == QDialog::Accepted)
+	{
+		numerator = numSpin->value ();
+		denominator = denSpin->value ();
+		return kDlgItemOK;
+	}
+
+	return kDlgItemCancel;
+}
+
+
+// ---------------------------------------------------------------------------
 //	HostRunDialog — dispatch to the appropriate Qt dialog
 // ---------------------------------------------------------------------------
 
