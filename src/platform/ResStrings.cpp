@@ -232,7 +232,7 @@ static const struct item _ResStrTable[] = {
 	{ kStr_MenuProfileDump, "&Dump" },
 #endif
 
-	{ kStr_MenuAbout, "About Palm OS(R) Emulator" },
+	{ kStr_MenuAbout, "About POSE64" },
 #if PLATFORM_WINDOWS
 
 	{ kStr_MenuQuit, "E&xit\tQ" },

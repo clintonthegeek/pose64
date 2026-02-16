@@ -458,29 +458,96 @@ static EmDlgItemID PrvHostReset (EmDlgFn /*fn*/, void* userData)
 {
 	EmResetType& choice = *(EmResetType*) userData;
 
-	QMessageBox dlg;
+	QDialog dlg;
 	dlg.setWindowTitle ("Reset");
-	dlg.setText ("Choose reset type:");
 
-	QPushButton* softBtn  = dlg.addButton ("Soft Reset",  QMessageBox::AcceptRole);
-	QPushButton* hardBtn  = dlg.addButton ("Hard Reset",  QMessageBox::DestructiveRole);
-	QPushButton* debugBtn = dlg.addButton ("Debug Reset", QMessageBox::ActionRole);
-	dlg.addButton (QMessageBox::Cancel);
+	QVBoxLayout* topLayout = new QVBoxLayout (&dlg);
 
-	dlg.setDefaultButton (softBtn);
+	// --- Reset Type group ---
+
+	QGroupBox* resetGroup = new QGroupBox ("Reset Type");
+	QGridLayout* resetLayout = new QGridLayout (resetGroup);
+
+	QPushButton* softBtn = new QPushButton ("Soft reset");
+	QLabel* softDesc = new QLabel (
+		"This is the same as inserting a pin in the reset hole on "
+		"a device.  It performs a standard reset.");
+	softDesc->setWordWrap (true);
+	resetLayout->addWidget (softBtn,  0, 0, Qt::AlignTop);
+	resetLayout->addWidget (softDesc, 0, 1);
+
+	QPushButton* hardBtn = new QPushButton ("Hard reset");
+	QLabel* hardDesc = new QLabel (
+		"This is the same as a Soft Reset while holding down "
+		"the Power key.  It erases the storage heap.");
+	hardDesc->setWordWrap (true);
+	resetLayout->addWidget (hardBtn,  1, 0, Qt::AlignTop);
+	resetLayout->addWidget (hardDesc, 1, 1);
+
+	QPushButton* debugBtn = new QPushButton ("Debug reset");
+	QLabel* debugDesc = new QLabel (
+		"This is the same as a Soft Reset while holding down "
+		"the Page Down key.  It causes the ROM to execute "
+		"a DbgBreak early in the boot sequence.");
+	debugDesc->setWordWrap (true);
+	resetLayout->addWidget (debugBtn,  2, 0, Qt::AlignTop);
+	resetLayout->addWidget (debugDesc, 2, 1);
+
+	resetLayout->setColumnStretch (1, 1);
+	topLayout->addWidget (resetGroup);
+
+	// --- Extensions group ---
+
+	QGroupBox* extGroup = new QGroupBox ("Extensions");
+	QGridLayout* extLayout = new QGridLayout (extGroup);
+
+	QCheckBox* noExtCheck = new QCheckBox ("No extensions");
+	QLabel* noExtDesc = new QLabel (
+		"This is the same as a Soft Reset while holding down "
+		"the Page Up key.  It skips the loading of extensions, "
+		"patches, and certain libraries, as well as inhibiting "
+		"the sending of sysAppLaunchCmdSystemReset to "
+		"applications.");
+	noExtDesc->setWordWrap (true);
+	extLayout->addWidget (noExtCheck, 0, 0, Qt::AlignTop);
+	extLayout->addWidget (noExtDesc,  0, 1);
+
+	extLayout->setColumnStretch (1, 1);
+	topLayout->addWidget (extGroup);
+
+	// --- Cancel ---
+
+	QHBoxLayout* btnLayout = new QHBoxLayout;
+	btnLayout->addStretch ();
+	QPushButton* cancelBtn = new QPushButton ("Cancel");
+	btnLayout->addWidget (cancelBtn);
+	topLayout->addLayout (btnLayout);
+
+	softBtn->setDefault (true);
+
+	EmResetType result = kResetSoft;
+	bool accepted = false;
+
+	QObject::connect (softBtn, &QPushButton::clicked, [&]() {
+		result = kResetSoft; accepted = true; dlg.accept ();
+	});
+	QObject::connect (hardBtn, &QPushButton::clicked, [&]() {
+		result = kResetHard; accepted = true; dlg.accept ();
+	});
+	QObject::connect (debugBtn, &QPushButton::clicked, [&]() {
+		result = kResetDebug; accepted = true; dlg.accept ();
+	});
+	QObject::connect (cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+
 	dlg.exec ();
 
-	QAbstractButton* clicked = dlg.clickedButton ();
-
-	if (clicked == softBtn)
-		choice = kResetSoft;
-	else if (clicked == hardBtn)
-		choice = kResetHard;
-	else if (clicked == debugBtn)
-		choice = kResetDebug;
-	else
+	if (!accepted)
 		return kDlgItemCancel;
 
+	if (noExtCheck->isChecked ())
+		result = (EmResetType) ((int) result | kResetNoExt);
+
+	choice = result;
 	return kDlgItemOK;
 }
 
@@ -835,6 +902,7 @@ static EmDlgItemID PrvHostEditSkins (void)
 	Preference<bool> prefGremlin (kPrefKeyShowGremlinMode);
 	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
 	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
+	Preference<bool> prefFeather (kPrefKeyFeatheredEdges);
 
 	QDialog dlg;
 	dlg.setWindowTitle ("Skins");
@@ -878,6 +946,10 @@ static EmDlgItemID PrvHostEditSkins (void)
 	framelessCheck->setChecked (*prefFrameless);
 	topLayout->addWidget (framelessCheck);
 
+	QCheckBox* featherCheck = new QCheckBox ("Feathered Edges (anti-aliased)");
+	featherCheck->setChecked (*prefFeather);
+	topLayout->addWidget (featherCheck);
+
 	QDialogButtonBox* buttons = new QDialogButtonBox (
 		QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	topLayout->addWidget (buttons);
@@ -914,6 +986,10 @@ static EmDlgItemID PrvHostEditSkins (void)
 		{
 			Preference<bool> p (kPrefKeyFramelessWindow);
 			p = framelessCheck->isChecked ();
+		}
+		{
+			Preference<bool> p (kPrefKeyFeatheredEdges);
+			p = featherCheck->isChecked ();
 		}
 
 		// Re-apply skin at new scale — reloads skin image, recalculates
@@ -2023,9 +2099,11 @@ EmDlgItemID EmDlg::HostRunAboutBox (const void* parameters)
 	QMessageBox aboutBox;
 	aboutBox.setWindowTitle ("About POSE64");
 	aboutBox.setTextFormat (Qt::RichText);
+	QString version = QApplication::applicationVersion ();
 	aboutBox.setText (
 		"<b>POSE64</b> - Palm OS Emulator<br>"
-		"64-bit Qt6 Port<br><br>"
+		"Version " + version + "<br><br>"
+		"64-bit Qt6 Port<br>"
 		"Based on Palm OS Emulator 3.5<br>"
 		"Copyright &copy; 1999-2001 Palm, Inc.<br><br>"
 		"<a href=\"https://github.com/clintonthegeek/pose64\">"

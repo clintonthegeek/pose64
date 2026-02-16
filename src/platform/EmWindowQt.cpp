@@ -96,10 +96,16 @@ static QBitmap PrvMaskFromEmPixMap (const EmPixMap& mask)
 //		PrvApplyMaskAlpha
 // ---------------------------------------------------------------------------
 // Apply a 1-bpp EmPixMap mask as the alpha channel of a QImage.
-// Where mask bit=0 (outside skin), set alpha to 0 (transparent).
-// Where mask bit=1 (inside skin), keep alpha at 255 (opaque).
+//
+// When feather=true, uses the classic GIMP anti-alias trick: erode the binary
+// mask inward by 1 pixel, then apply a small Gaussian blur (sigma ~1, radius 2).
+// The erosion keeps the blur from extending past the original skin boundary,
+// producing a smooth 2-3 pixel feathered edge right at the skin outline.
+//
+// When feather=false, applies a hard binary alpha (0 or 255).
 
-static void PrvApplyMaskAlpha (QImage& image, const EmPixMap& mask)
+static void PrvApplyMaskAlpha (QImage& image, const EmPixMap& mask,
+							   bool feather)
 {
 	EmPoint msize = mask.GetSize ();
 	int mw = msize.fX;
@@ -124,26 +130,122 @@ static void PrvApplyMaskAlpha (QImage& image, const EmPixMap& mask)
 	EmPixMapRowBytes maskRowBytes = mask.GetRowBytes ();
 	const uint8_t* maskBits = static_cast<const uint8_t*> (bits);
 
-	int h = (ih < mh) ? ih : mh;
 	int w = (iw < mw) ? iw : mw;
+	int h = (ih < mh) ? ih : mh;
+
+	// --- Step 1: Convert 1-bpp mask to 8-bit alpha (0 or 255) ---
+
+	vector<uint8_t> alpha (w * h);
 
 	for (int y = 0; y < h; ++y)
 	{
 		const uint8_t* maskRow = maskBits + y * maskRowBytes;
-		uint32_t* imgRow = reinterpret_cast<uint32_t*> (image.scanLine (y));
-
 		for (int x = 0; x < w; ++x)
 		{
-			// MSB-first: bit for pixel x is at byte x/8, bit 7-(x%8)
 			int byteIdx = x >> 3;
 			int bitIdx  = 7 - (x & 7);
-			bool opaque = (maskRow[byteIdx] >> bitIdx) & 1;
+			alpha[y * w + x] = ((maskRow[byteIdx] >> bitIdx) & 1) ? 255 : 0;
+		}
+	}
 
-			if (!opaque)
+	// --- Step 2 & 3: Erode + Gaussian blur (feather only) ---
+
+	if (feather)
+	{
+		// Erode by 1 pixel (8-connected): any opaque pixel adjacent to a
+		// transparent pixel (or the image edge) becomes transparent.
+		vector<uint8_t> eroded (w * h);
+
+		for (int y = 0; y < h; ++y)
+		{
+			for (int x = 0; x < w; ++x)
 			{
-				// Set pixel to fully transparent
-				imgRow[x] = 0x00000000;
+				if (alpha[y * w + x] == 0)
+				{
+					eroded[y * w + x] = 0;
+					continue;
+				}
+
+				bool edge = false;
+				for (int dy = -1; dy <= 1 && !edge; ++dy)
+				{
+					for (int dx = -1; dx <= 1 && !edge; ++dx)
+					{
+						int nx = x + dx;
+						int ny = y + dy;
+						if (nx < 0 || ny < 0 || nx >= w || ny >= h
+							|| alpha[ny * w + nx] == 0)
+						{
+							edge = true;
+						}
+					}
+				}
+
+				eroded[y * w + x] = edge ? 0 : 255;
 			}
+		}
+
+		// Separable Gaussian blur (sigma ~1.0, radius 2).
+		// Binomial approximation kernel: [1, 4, 6, 4, 1]
+		static const int kernel[5] = { 1, 4, 6, 4, 1 };
+		static const int kRadius = 2;
+
+		// Horizontal pass: eroded → temp
+		vector<uint8_t> temp (w * h);
+
+		for (int y = 0; y < h; ++y)
+		{
+			for (int x = 0; x < w; ++x)
+			{
+				int sum = 0;
+				int wt  = 0;
+				for (int k = -kRadius; k <= kRadius; ++k)
+				{
+					int sx = x + k;
+					if (sx >= 0 && sx < w)
+					{
+						sum += eroded[y * w + sx] * kernel[k + kRadius];
+						wt  += kernel[k + kRadius];
+					}
+				}
+				temp[y * w + x] = (uint8_t)(sum / wt);
+			}
+		}
+
+		// Vertical pass: temp → alpha (overwrite original)
+		for (int y = 0; y < h; ++y)
+		{
+			for (int x = 0; x < w; ++x)
+			{
+				int sum = 0;
+				int wt  = 0;
+				for (int k = -kRadius; k <= kRadius; ++k)
+				{
+					int sy = y + k;
+					if (sy >= 0 && sy < h)
+					{
+						sum += temp[sy * w + x] * kernel[k + kRadius];
+						wt  += kernel[k + kRadius];
+					}
+				}
+				alpha[y * w + x] = (uint8_t)(sum / wt);
+			}
+		}
+	}
+
+	// --- Final: Apply alpha to image ---
+
+	for (int y = 0; y < h; ++y)
+	{
+		uint32_t* imgRow = reinterpret_cast<uint32_t*> (image.scanLine (y));
+		for (int x = 0; x < w; ++x)
+		{
+			uint8_t a = alpha[y * w + x];
+			if (a == 0)
+				imgRow[x] = 0x00000000;
+			else if (a < 255)
+				imgRow[x] = ((uint32_t)a << 24) | (imgRow[x] & 0x00FFFFFF);
+			// a == 255: pixel unchanged (fully opaque)
 		}
 	}
 }
@@ -181,7 +283,7 @@ EmWindowQt::EmWindowQt () :
 	EmAssert (gHostWindow == NULL);
 	gHostWindow = this;
 
-	setWindowTitle ("POSE64 - Palm OS Emulator");
+	setWindowTitle ("POSE64");
 
 	// Enable keyboard focus
 	setFocusPolicy (Qt::StrongFocus);
@@ -658,16 +760,6 @@ QImage EmWindowQt::emPixMapToQImage (const EmPixMap& pixmap)
 
 void EmWindowQt::HostWindowReset (void)
 {
-	// Get the desired client size from the skin region.
-	EmRect newBounds = this->GetCurrentSkinRegion ().Bounds ();
-	EmCoord w = newBounds.Width ();
-	EmCoord h = newBounds.Height ();
-
-	if (w == 0)
-		w = kDefaultWidth;
-	if (h == 0)
-		h = kDefaultHeight;
-
 	// Invalidate cached skin so it gets re-rendered
 	fSkinValid = false;
 
@@ -681,17 +773,25 @@ void EmWindowQt::HostWindowReset (void)
 	fButtonFrameVisible = false;
 	fLEDVisible = false;
 
-	// Read frameless / on-top preferences up front — used in several
-	// places below.
+	// Read frameless / on-top / feather preferences up front.
 	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
 	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
+	Preference<bool> prefFeather (kPrefKeyFeatheredEdges);
 
 	// Pre-render the skin image for paintEvent (Qt retained-mode).
 	// PaintScreen only paints the case on specific triggers, but
 	// paintEvent can fire anytime after resize, so we need the
 	// skin QImage ready now.
+	//
+	// The widget is sized to match the skin IMAGE dimensions (not the
+	// mask region bounds).  This ensures LCD coordinates (which are in
+	// skin image space) map 1:1 to widget pixels.  The mask/alpha
+	// channel handles visual and input clipping of edge pixels.
 	const EmPixMap& skin = GetCurrentSkin ();
-	if (skin.GetSize ().fX > 0 && skin.GetSize ().fY > 0)
+	int w = skin.GetSize ().fX;
+	int h = skin.GetSize ().fY;
+
+	if (w > 0 && h > 0)
 	{
 		fSkinImage = emPixMapToQImage (skin);
 		fSkinValid = true;
@@ -700,8 +800,18 @@ void EmWindowQt::HostWindowReset (void)
 		// the non-skin area is visually transparent (Wayland
 		// compositors don't clip visuals via setMask alone).
 		if (*prefFrameless)
-			PrvApplyMaskAlpha (fSkinImage, GetCurrentSkinMask ());
+			PrvApplyMaskAlpha (fSkinImage, GetCurrentSkinMask (),
+							   *prefFeather);
 	}
+
+	if (w <= 0)
+		w = kDefaultWidth;
+	if (h <= 0)
+		h = kDefaultHeight;
+
+	// Clear old mask before resize — on Wayland, a stale larger mask
+	// can prevent the window from shrinking to a smaller scale.
+	clearMask ();
 
 	// Resize the window.  Skin dimensions are logical pixel sizes.
 	// paintEvent uses drawImage(rect(), ...) to scale the skin image
@@ -855,8 +965,10 @@ void EmWindowQt::HostPaintCase (const EmScreenUpdateInfo& info)
 	// When frameless, apply the mask as alpha so the non-skin area
 	// is visually transparent.
 	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
+	Preference<bool> prefFeather (kPrefKeyFeatheredEdges);
 	if (*prefFrameless)
-		PrvApplyMaskAlpha (fSkinImage, GetCurrentSkinMask ());
+		PrvApplyMaskAlpha (fSkinImage, GetCurrentSkinMask (),
+						   *prefFeather);
 
 	// Clear overlays — they get redrawn by their respective Host* calls
 	fButtonFrameVisible = false;

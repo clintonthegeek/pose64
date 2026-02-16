@@ -44,7 +44,7 @@ int main (int argc, char** argv)
 	QApplication qtApp (argc, argv);
 	qtApp.setApplicationName ("POSE64");
 	qtApp.setOrganizationName ("POSE64");
-	qtApp.setApplicationVersion ("2.0.0");
+	qtApp.setApplicationVersion ("1.0");
 
 	// Create preferences and application objects on the stack,
 	// exactly as in the FLTK main().

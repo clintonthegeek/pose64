@@ -122,6 +122,7 @@ void EmWindow::WindowInit (void)
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyBackgroundColor, this);
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyStayOnTop, this);
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyFramelessWindow, this);
+	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyFeatheredEdges, this);
 
 	// Restore the window location.
 
@@ -802,6 +803,7 @@ void EmWindow::PrefsChanged (PrefKeyType key)
 		::PrefKeysEqual (key, kPrefKeyShowGremlinMode) ||
 		::PrefKeysEqual (key, kPrefKeyBackgroundColor) ||
 		::PrefKeysEqual (key, kPrefKeyFramelessWindow) ||
+		::PrefKeysEqual (key, kPrefKeyFeatheredEdges) ||
 		::PrefKeysEqual (key, kPrefKeyStayOnTop))
 	{
 		fNeedWindowReset = true;
