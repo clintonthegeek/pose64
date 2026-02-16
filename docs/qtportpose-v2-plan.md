@@ -488,13 +488,28 @@ m68k-palmos-objdump -s -j .data /tmp/check.o
 PalmOS boots from a fresh ROM load all the way to the system setup screen.
 The cascading heap corruption errors on soft reset are eliminated.
 
+### Storage Heap Error (Resolved)
+
+An initial test showed a "Date & Time (4.0) just wrote to memory location
+0x0004076A, which is in the storage heap" error. This turned out to be caused
+by the `sizeof(SysLibTblEntryType)` bug (32 on LP64 vs 16 on m68k) which was
+already included in the Phase 5 commit. The wrong library table stride caused
+POSE to misidentify library functions during boot, disrupting the trap patching
+system. With the correct stride, the ROM's csDSelect register writes correctly
+toggle `fProtect_SRAMSet` (the hardware SRAM write-protection flag), and the
+storage heap error no longer appears.
+
+Key insight: `fProtect_SRAMSet` is not a static flag -- it is dynamically
+driven by bit 0x2000 of the DragonBall VZ `csDSelect` chip-select register.
+The ROM clears this bit before writing to the storage heap and sets it back
+after. The `EmRegsVZ::csDSelectWrite` handler updates `fProtect_SRAMSet`
+whenever the register is written.
+
 ### Known Remaining Issue
 
-POSE's MetaMemory storage heap write protection fires a warning dialog during
-boot: "Date & Time (4.0) just wrote to memory location 0x0004076A, which is in
-the storage heap." This is POSE's debugging aid catching a legitimate PalmOS ROM
-operation -- the same dialog appeared in the original 32-bit POSE. It is not an
-LP64 bug.
+After running for a while, the LCD display may become "squished" (rendered at
+wrong dimensions). This appears to be a screen rendering issue in the Qt
+painting code, not an LP64 bug. Investigation pending.
 
 ---
 
