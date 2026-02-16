@@ -249,6 +249,9 @@ EmPrvMenuItem	kPrvMenuItems[] =
 	{ kCommandBreakpoints,		kStr_MenuBreakpoints },
 	{ kCommandEmulationSpeed,	kStr_MenuEmulationSpeed },
 
+	{ kCommandTimerAccurate,	kStr_MenuTimerAccurate },
+	{ kCommandTimerLegacy,		kStr_MenuTimerLegacy },
+
 	{ kCommandSpeedQuarter,		kStr_MenuSpeedQuarter },
 	{ kCommandSpeedHalf,		kStr_MenuSpeedHalf },
 	{ kCommandSpeed1x,			kStr_MenuSpeed1x },
@@ -256,6 +259,7 @@ EmPrvMenuItem	kPrvMenuItems[] =
 	{ kCommandSpeed4x,			kStr_MenuSpeed4x },
 	{ kCommandSpeed8x,			kStr_MenuSpeed8x },
 	{ kCommandSpeedMax,			kStr_MenuSpeedMax },
+	{ kCommandSpeedManual,		kStr_MenuSpeedManual },
 
 	{ kCommandGremlinsNew,		kStr_MenuGremlinsNew },
 	{ kCommandGremlinsSuspend,	kStr_MenuGremlinsSuspend },
@@ -602,14 +606,18 @@ void PrvInitializeMenus (Bool alternateLayout)
 	// Create the "Emulation Speed" sub-menu.
 
 	EmMenuItemList	subMenuSpeed;
+	::PrvAddMenuItem (subMenuSpeed, kCommandTimerAccurate);
+	::PrvAddMenuItem (subMenuSpeed, kCommandTimerLegacy);
+	::PrvAddMenuItem (subMenuSpeed, __________);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedQuarter);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedHalf);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed1x);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed2x);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed4x);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed8x);
-	::PrvAddMenuItem (subMenuSpeed, __________);
 	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedMax);
+	::PrvAddMenuItem (subMenuSpeed, __________);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedManual);
 
 	// Create the Full menubar.
 
@@ -949,6 +957,9 @@ Bool PrvGetItemStatus (const EmMenuItem& item)
 		case kCommandBreakpoints:		return true;
 		case kCommandEmulationSpeed:	return true;
 
+		case kCommandTimerAccurate:		return true;
+		case kCommandTimerLegacy:		return true;
+
 		case kCommandSpeedQuarter:		return true;
 		case kCommandSpeedHalf:			return true;
 		case kCommandSpeed1x:			return true;
@@ -956,6 +967,7 @@ Bool PrvGetItemStatus (const EmMenuItem& item)
 		case kCommandSpeed4x:			return true;
 		case kCommandSpeed8x:			return true;
 		case kCommandSpeedMax:			return true;
+		case kCommandSpeedManual:		return true;
 
 		case kCommandGremlinsNew:		return gSession != NULL && Hordes::CanNew ();
 		case kCommandGremlinsSuspend:	return gSession != NULL && Hordes::CanSuspend ();
@@ -1003,6 +1015,16 @@ Bool PrvGetItemStatus (const EmMenuItem& item)
 Bool PrvGetItemChecked (const EmMenuItem& item)
 {
 	EmCommandID	id = item.GetCommand ();
+
+	// Timer mode radio buttons
+	if (id == kCommandTimerAccurate || id == kCommandTimerLegacy)
+	{
+		Preference<long> prefAccuracy (kPrefKeyTimerAccuracy);
+		long accuracy = *prefAccuracy;
+
+		if (id == kCommandTimerAccurate)	return accuracy != 0;
+		if (id == kCommandTimerLegacy)		return accuracy == 0;
+	}
 
 	if (id < kCommandSpeedQuarter || id > kCommandSpeedMax)
 		return false;

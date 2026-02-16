@@ -75,6 +75,9 @@ enum EmCommandID
 	kCommandBreakpoints,
 	kCommandEmulationSpeed,
 
+	kCommandTimerAccurate,
+	kCommandTimerLegacy,
+
 	kCommandSpeedQuarter,
 	kCommandSpeedHalf,
 	kCommandSpeed1x,
@@ -82,6 +85,7 @@ enum EmCommandID
 	kCommandSpeed4x,
 	kCommandSpeed8x,
 	kCommandSpeedMax,
+	kCommandSpeedManual,
 
 	kCommandGremlinsNew,
 	kCommandGremlinsSuspend,

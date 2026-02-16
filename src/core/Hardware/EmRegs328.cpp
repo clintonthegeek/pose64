@@ -2826,3 +2826,12 @@ void EmRegs328::PrvGetPalette (RGBList& thePalette)
 }
 
 
+// ---------------------------------------------------------------------------
+//		EmRegs328::SetAccurateTimers
+// ---------------------------------------------------------------------------
+
+void EmRegs328::SetAccurateTimers (bool accurate)
+{
+	fAccurateTimers = accurate;
+	fTmr2CycleAccum = 0;
+}

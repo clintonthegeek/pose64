@@ -536,6 +536,17 @@ void EmHAL::DTRChanged (int uartNum)
 
 
 // ---------------------------------------------------------------------------
+//		EmHAL::SetAccurateTimers
+// ---------------------------------------------------------------------------
+
+void EmHAL::SetAccurateTimers (bool accurate)
+{
+	EmAssert (EmHAL::GetRootHandler());
+	EmHAL::GetRootHandler()->SetAccurateTimers (accurate);
+}
+
+
+// ---------------------------------------------------------------------------
 //		� EmHAL::GetVibrateOn
 // ---------------------------------------------------------------------------
 
@@ -908,6 +919,16 @@ Bool EmHALHandler::GetDTR (int uartNum)
 	}
 
 	return false;
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmHALHandler::SetAccurateTimers
+// ---------------------------------------------------------------------------
+
+void EmHALHandler::SetAccurateTimers (bool)
+{
+	// Default: do nothing. Overridden by EmRegsXX.
 }
 
 

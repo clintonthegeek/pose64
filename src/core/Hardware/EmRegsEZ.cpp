@@ -2734,3 +2734,14 @@ void EmRegsEZ::PrvGetPalette (RGBList& thePalette)
 		thePalette[color].fBlue 	= (UInt8) (bb + db * color / (numColors - 1));
 	}
 }
+
+
+// ---------------------------------------------------------------------------
+//		EmRegsEZ::SetAccurateTimers
+// ---------------------------------------------------------------------------
+
+void EmRegsEZ::SetAccurateTimers (bool accurate)
+{
+	fAccurateTimers = accurate;
+	fTmr1CycleAccum = 0;
+}

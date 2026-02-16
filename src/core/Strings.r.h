@@ -206,6 +206,9 @@
 #define kStr_MenuSpeed4x				1454
 #define kStr_MenuSpeed8x				1455
 #define kStr_MenuSpeedMax				1456
+#define kStr_MenuTimerAccurate			1457
+#define kStr_MenuTimerLegacy			1458
+#define kStr_MenuSpeedManual			1459
 
 #define kStr_MenuGremlinsNew			1440
 #define kStr_MenuGremlinsSuspend		1441

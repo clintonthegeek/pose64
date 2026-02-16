@@ -16,6 +16,8 @@
 
 #include "EmCommands.h"			// EmCommandID
 #include "EmDlg.h"				// EmDlg, DoEditPreferences, etc.
+#include "EmHAL.h"				// EmHAL::SetAccurateTimers
+#include "PreferenceMgr.h"		// Preference, kPrefKeyTimerAccuracy
 #include "EmDocument.h"			// EmDocument::AskNewSession, etc.
 #include "EmErrCodes.h"			// kError_OnlySameType
 #include "EmEventPlayback.h"	// EmEventPlayback::ReplayEvents
@@ -83,6 +85,9 @@ kCommand[] =
 	{ kCommandHostFS,			&EmApplication::DoHostFS,		kStr_CmdHostFSOptions	},
 	{ kCommandBreakpoints,		&EmApplication::DoBreakpoints,	kStr_CmdBreakpoints		},
 
+	{ kCommandTimerAccurate,	&EmApplication::DoTimerMode,	0						},
+	{ kCommandTimerLegacy,		&EmApplication::DoTimerMode,	0						},
+
 	{ kCommandSpeedQuarter,		&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeedHalf,		&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeed1x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
@@ -90,6 +95,7 @@ kCommand[] =
 	{ kCommandSpeed4x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeed8x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeedMax,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeedManual,		&EmApplication::DoNothing,		0						},
 
 	{ kCommandEventReplay,		&EmApplication::DoReplay,		kStr_CmdEventReplay		},
 	{ kCommandEventMinimize,	&EmApplication::DoMinimize,		kStr_CmdEventMinimize	},
@@ -1066,6 +1072,22 @@ void EmApplication::DoSetSpeed (EmCommandID cmd)
 
 	if (gSession)
 		gSession->fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmApplication::DoTimerMode
+// ---------------------------------------------------------------------------
+// Toggle between accurate and legacy timer modes.
+
+void EmApplication::DoTimerMode (EmCommandID cmd)
+{
+	long accuracy = (cmd == kCommandTimerAccurate) ? 1 : 0;
+	Preference<long> p (kPrefKeyTimerAccuracy);
+	p = accuracy;
+
+	if (gSession)
+		EmHAL::SetAccurateTimers (accuracy != 0);
 }
 
 
