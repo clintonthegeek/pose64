@@ -25,6 +25,7 @@
 
 #include <QApplication>
 #include <QTimer>
+#include <QSurfaceFormat>
 
 #include <cstdio>
 #include <exception>
@@ -32,6 +33,13 @@
 int main (int argc, char** argv)
 {
 	setvbuf (stderr, NULL, _IONBF, 0);  // unbuffered stderr for diagnostics
+
+	// Request an alpha channel in the default surface format.  Without
+	// this, WA_TranslucentBackground has no effect because the window
+	// surface is created as opaque RGB (no alpha plane).
+	QSurfaceFormat fmt = QSurfaceFormat::defaultFormat ();
+	fmt.setAlphaBufferSize (8);
+	QSurfaceFormat::setDefaultFormat (fmt);
 
 	QApplication qtApp (argc, argv);
 	qtApp.setApplicationName ("POSE64");

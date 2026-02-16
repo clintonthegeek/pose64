@@ -97,6 +97,8 @@ private:
 	QRect fLEDRect;
 	QColor fLEDColor;
 	bool fLEDVisible;
+
+	// (unused — drag-to-move uses QWindow::startSystemMove())
 };
 
 extern EmWindowQt* gHostWindow;

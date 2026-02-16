@@ -834,6 +834,7 @@ static EmDlgItemID PrvHostEditSkins (void)
 	Preference<bool> prefDebug (kPrefKeyShowDebugMode);
 	Preference<bool> prefGremlin (kPrefKeyShowGremlinMode);
 	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
+	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
 
 	QDialog dlg;
 	dlg.setWindowTitle ("Skins");
@@ -873,6 +874,10 @@ static EmDlgItemID PrvHostEditSkins (void)
 	onTopCheck->setChecked (*prefOnTop);
 	topLayout->addWidget (onTopCheck);
 
+	QCheckBox* framelessCheck = new QCheckBox ("Frameless Window (skin-shaped)");
+	framelessCheck->setChecked (*prefFrameless);
+	topLayout->addWidget (framelessCheck);
+
 	QDialogButtonBox* buttons = new QDialogButtonBox (
 		QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	topLayout->addWidget (buttons);
@@ -905,6 +910,10 @@ static EmDlgItemID PrvHostEditSkins (void)
 		{
 			Preference<bool> p (kPrefKeyStayOnTop);
 			p = onTopCheck->isChecked ();
+		}
+		{
+			Preference<bool> p (kPrefKeyFramelessWindow);
+			p = framelessCheck->isChecked ();
 		}
 
 		// Re-apply skin at new scale — reloads skin image, recalculates

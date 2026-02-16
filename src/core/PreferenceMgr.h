@@ -393,6 +393,7 @@ extern EmulatorPreferences* gEmuPrefs;
 	DO_TO_PREF(ShowDebugMode,		bool,				(true))					\
 	DO_TO_PREF(ShowGremlinMode,		bool,				(true))					\
 	DO_TO_PREF(StayOnTop,			bool,				(false))				\
+	DO_TO_PREF(FramelessWindow,		bool,				(true))				\
 																				\
 	DO_TO_PREF(WarningOff,			EmErrorHandlingOption,	(kShow))			\
 	DO_TO_PREF(ErrorOff,			EmErrorHandlingOption,	(kShow))			\

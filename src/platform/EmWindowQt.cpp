@@ -27,9 +27,13 @@
 #include <QCloseEvent>
 #include <QPainter>
 #include <QPen>
+#include <QBitmap>
 #include <QApplication>
 #include <QScreen>
 #include <QMenu>
+#include <QWindow>
+
+#include "Skins.h"
 
 #include <cstdio>
 
@@ -37,6 +41,112 @@ using namespace std;
 
 const int kDefaultWidth = 220;
 const int kDefaultHeight = 330;
+
+
+// ---------------------------------------------------------------------------
+//		PrvMaskFromEmPixMap
+// ---------------------------------------------------------------------------
+// Convert a 1-bpp EmPixMap mask to a QBitmap.  The EmPixMap uses MSB-first
+// bit order, matching QImage::Format_Mono.  In the mask, bit=1 means opaque
+// (inside the skin) and bit=0 means transparent (outside).
+//
+// In QBitmap, Qt::color1 (bit=1) = opaque/foreground, Qt::color0 (bit=0) =
+// transparent/background.  The raw bits match directly, so we use
+// Qt::MonoOnly to prevent QBitmap::fromImage from doing luminance conversion.
+
+static QBitmap PrvMaskFromEmPixMap (const EmPixMap& mask)
+{
+	EmPoint size = mask.GetSize ();
+	int w = size.fX;
+	int h = size.fY;
+
+	if (w <= 0 || h <= 0)
+		return QBitmap ();
+
+	const void* bits = mask.GetBits ();
+	if (!bits)
+		return QBitmap ();
+
+	EmPixMapRowBytes srcRowBytes = mask.GetRowBytes ();
+
+	// Build a fresh QImage and copy row by row.  EmPixMap 1-bpp is
+	// MSB-first (matching Format_Mono) but may have different row
+	// padding than Qt expects.
+	QImage img (w, h, QImage::Format_Mono);
+	img.setColor (0, qRgb (255, 255, 255));	// bit 0 = white (transparent in mask)
+	img.setColor (1, qRgb (0, 0, 0));			// bit 1 = black (opaque in mask)
+
+	int dstRowBytes = img.bytesPerLine ();
+	const uint8_t* src = static_cast<const uint8_t*> (bits);
+
+	int copyBytes = (srcRowBytes < dstRowBytes) ? srcRowBytes : dstRowBytes;
+	for (int y = 0; y < h; ++y)
+	{
+		memcpy (img.scanLine (y), src + y * srcRowBytes, copyBytes);
+	}
+
+	// In QBitmap/setMask: 1-bits (black/color1) = opaque, 0-bits (white/color0) = transparent.
+	// The EmPixMap mask convention is the same (1=opaque), so the raw bits
+	// can be used directly.  Qt::MonoOnly prevents luminance re-quantization.
+	return QBitmap::fromImage (img, Qt::MonoOnly);
+}
+
+
+// ---------------------------------------------------------------------------
+//		PrvApplyMaskAlpha
+// ---------------------------------------------------------------------------
+// Apply a 1-bpp EmPixMap mask as the alpha channel of a QImage.
+// Where mask bit=0 (outside skin), set alpha to 0 (transparent).
+// Where mask bit=1 (inside skin), keep alpha at 255 (opaque).
+
+static void PrvApplyMaskAlpha (QImage& image, const EmPixMap& mask)
+{
+	EmPoint msize = mask.GetSize ();
+	int mw = msize.fX;
+	int mh = msize.fY;
+	int iw = image.width ();
+	int ih = image.height ();
+
+	if (mw <= 0 || mh <= 0)
+		return;
+
+	const void* bits = mask.GetBits ();
+	if (!bits)
+		return;
+
+	// Convert image to ARGB32 if needed so we can set alpha.
+	if (image.format () != QImage::Format_ARGB32 &&
+		image.format () != QImage::Format_ARGB32_Premultiplied)
+	{
+		image = image.convertToFormat (QImage::Format_ARGB32);
+	}
+
+	EmPixMapRowBytes maskRowBytes = mask.GetRowBytes ();
+	const uint8_t* maskBits = static_cast<const uint8_t*> (bits);
+
+	int h = (ih < mh) ? ih : mh;
+	int w = (iw < mw) ? iw : mw;
+
+	for (int y = 0; y < h; ++y)
+	{
+		const uint8_t* maskRow = maskBits + y * maskRowBytes;
+		uint32_t* imgRow = reinterpret_cast<uint32_t*> (image.scanLine (y));
+
+		for (int x = 0; x < w; ++x)
+		{
+			// MSB-first: bit for pixel x is at byte x/8, bit 7-(x%8)
+			int byteIdx = x >> 3;
+			int bitIdx  = 7 - (x & 7);
+			bool opaque = (maskRow[byteIdx] >> bitIdx) & 1;
+
+			if (!opaque)
+			{
+				// Set pixel to fully transparent
+				imgRow[x] = 0x00000000;
+			}
+		}
+	}
+}
 
 EmWindowQt* gHostWindow;
 
@@ -72,13 +182,23 @@ EmWindowQt::EmWindowQt () :
 	gHostWindow = this;
 
 	setWindowTitle ("POSE64 - Palm OS Emulator");
-	resize (kDefaultWidth, kDefaultHeight);
-
-	// Ensure the user can't freely resize this window.
-	setFixedSize (kDefaultWidth, kDefaultHeight);
 
 	// Enable keyboard focus
 	setFocusPolicy (Qt::StrongFocus);
+
+	// Set WA_TranslucentBackground BEFORE the native window is created
+	// (i.e. before show() is ever called).  This tells Qt to request an
+	// alpha-capable surface from the compositor.  Same approach as Konsole.
+	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
+	if (*prefFrameless)
+	{
+		setAttribute (Qt::WA_TranslucentBackground, true);
+	}
+
+	// Load the generic skin so the window has a proper appearance
+	// even before a session is created.  WindowResetDefault() calls
+	// HostWindowReset() which handles sizing and flag application.
+	WindowResetDefault ();
 }
 
 
@@ -139,23 +259,24 @@ void EmWindowQt::paintEvent (QPaintEvent*)
 {
 	QPainter painter (this);
 
+	// Always draw the skin as background — even before a session exists,
+	// WindowResetDefault() has loaded the generic skin.  The skin image
+	// has alpha=0 in masked (non-skin) areas, so default SourceOver
+	// blending over the transparent background (WA_TranslucentBackground
+	// + alpha surface format) produces correct transparency.
+	if (!fSkinImage.isNull ())
+	{
+		painter.drawImage (rect (), fSkinImage);
+	}
+
+	// Only draw LCD, button, and LED overlays when a session exists.
 	if (gDocument)
 	{
-		// Draw skin (device case) as background, scaled to fill the widget.
-		// On HiDPI displays the skin image pixels != logical pixels, so
-		// we must scale rather than drawing at (0,0) 1:1.
-		if (!fSkinImage.isNull ())
-		{
-			painter.drawImage (rect (), fSkinImage);
-		}
-
-		// Draw LCD contents on top
 		if (!fLCDImage.isNull ())
 		{
 			painter.drawImage (fLCDRect, fLCDImage);
 		}
 
-		// Draw button press highlight
 		if (fButtonFrameVisible)
 		{
 			painter.setPen (QPen (fButtonFrameColor, 2));
@@ -163,20 +284,12 @@ void EmWindowQt::paintEvent (QPaintEvent*)
 			painter.drawRect (fButtonFrame);
 		}
 
-		// Draw LED indicator
 		if (fLEDVisible)
 		{
 			painter.setPen (Qt::NoPen);
 			painter.setBrush (fLEDColor);
 			painter.drawEllipse (fLEDRect);
 		}
-	}
-	else
-	{
-		// No session — show help message
-		painter.fillRect (rect (), Qt::lightGray);
-		painter.drawText (rect (), Qt::AlignCenter,
-						  "Right-click for menu");
 	}
 }
 
@@ -198,7 +311,28 @@ void EmWindowQt::mousePressEvent (QMouseEvent* event)
 
 	if (event->button () == Qt::LeftButton)
 	{
+		// If no session exists, any left-click starts a window drag.
+		if (!gSession)
+		{
+			// Use system move for Wayland compatibility.
+			if (windowHandle ())
+				windowHandle ()->startSystemMove ();
+			return;
+		}
+
+		// Check what skin element was clicked.  If it's empty skin area
+		// (kElement_None or kElement_Frame), start a window drag.
 		EmPoint pt (event->pos ().x (), event->pos ().y ());
+		SkinElementType what = ::SkinTestPoint (pt);
+
+		if (what == kElement_None || what == kElement_Frame)
+		{
+			// Use system move for Wayland compatibility.
+			if (windowHandle ())
+				windowHandle ()->startSystemMove ();
+			return;
+		}
+
 		HandlePenEvent (pt, true);
 	}
 }
@@ -547,6 +681,11 @@ void EmWindowQt::HostWindowReset (void)
 	fButtonFrameVisible = false;
 	fLEDVisible = false;
 
+	// Read frameless / on-top preferences up front — used in several
+	// places below.
+	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
+	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
+
 	// Pre-render the skin image for paintEvent (Qt retained-mode).
 	// PaintScreen only paints the case on specific triggers, but
 	// paintEvent can fire anytime after resize, so we need the
@@ -556,14 +695,13 @@ void EmWindowQt::HostWindowReset (void)
 	{
 		fSkinImage = emPixMapToQImage (skin);
 		fSkinValid = true;
-	}
 
-	fprintf (stderr, "WINDOW: HostWindowReset skinRegion bounds=(%d,%d,%d,%d) w=%d h=%d skinImg=%dx%d\n",
-		(int)newBounds.fLeft, (int)newBounds.fTop,
-		(int)newBounds.fRight, (int)newBounds.fBottom,
-		(int)w, (int)h,
-		fSkinImage.isNull () ? 0 : fSkinImage.width (),
-		fSkinImage.isNull () ? 0 : fSkinImage.height ());
+		// When frameless, apply the mask as the alpha channel so
+		// the non-skin area is visually transparent (Wayland
+		// compositors don't clip visuals via setMask alone).
+		if (*prefFrameless)
+			PrvApplyMaskAlpha (fSkinImage, GetCurrentSkinMask ());
+	}
 
 	// Resize the window.  Skin dimensions are logical pixel sizes.
 	// paintEvent uses drawImage(rect(), ...) to scale the skin image
@@ -573,31 +711,55 @@ void EmWindowQt::HostWindowReset (void)
 	resize ((int)w, (int)h);
 	setFixedSize ((int)w, (int)h);
 
-	fprintf (stderr, "WINDOW: after setFixedSize actual size=%dx%d\n",
-		width (), height ());
-
-	// Apply Stay On Top preference.  setWindowFlags() hides the widget,
-	// so we must call show() after — but only if we were already visible.
-	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
-	Qt::WindowFlags flags = windowFlags ();
+	// Apply Frameless Window and Stay On Top preferences.
+	// setWindowFlags() hides the widget, so we must call show()
+	// after — but only if we were already visible.
+	Qt::WindowFlags flags = Qt::Window;
+	if (*prefFrameless)
+		flags |= Qt::FramelessWindowHint;
 	if (*prefOnTop)
 		flags |= Qt::WindowStaysOnTopHint;
-	else
-		flags &= ~Qt::WindowStaysOnTopHint;
 
 	if (flags != windowFlags ())
 	{
 		bool wasVisible = isVisible ();
 		setWindowFlags (flags);
+
+		// Set WA_TranslucentBackground before show() so the native
+		// window surface is created with an alpha channel from the
+		// start (same ordering Konsole uses).
+		setAttribute (Qt::WA_TranslucentBackground, *prefFrameless);
+
 		if (wasVisible)
 			show ();
+	}
+	else
+	{
+		// Flags unchanged, but ensure the attribute is still set
+		// (it may have been lost to a prior setWindowFlags call).
+		setAttribute (Qt::WA_TranslucentBackground, *prefFrameless);
+	}
+
+	// Apply window mask (clips input on all platforms, visual on X11).
+	if (*prefFrameless)
+	{
+		QBitmap qmask = PrvMaskFromEmPixMap (GetCurrentSkinMask ());
+		if (!qmask.isNull ())
+			setMask (qmask);
+		else
+			clearMask ();
+	}
+	else
+	{
+		clearMask ();
 	}
 
 	// Force a full PaintScreen cycle to re-render the LCD at the new
 	// scale before we paint.  PaintScreen(true, true) redraws the case
 	// and the entire LCD, populating fLCDImage/fLCDRect with correct
 	// new-scale data.  Then repaint() synchronously blits it all.
-	this->PaintScreen (true, true);
+	if (gSession)
+		this->PaintScreen (true, true);
 	repaint ();
 }
 
@@ -689,6 +851,12 @@ void EmWindowQt::HostPaintCase (const EmScreenUpdateInfo& info)
 	const EmPixMap& skin = GetCurrentSkin ();
 	fSkinImage = emPixMapToQImage (skin);
 	fSkinValid = true;
+
+	// When frameless, apply the mask as alpha so the non-skin area
+	// is visually transparent.
+	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
+	if (*prefFrameless)
+		PrvApplyMaskAlpha (fSkinImage, GetCurrentSkinMask ());
 
 	// Clear overlays — they get redrawn by their respective Host* calls
 	fButtonFrameVisible = false;

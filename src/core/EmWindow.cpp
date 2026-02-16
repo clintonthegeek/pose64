@@ -121,6 +121,7 @@ void EmWindow::WindowInit (void)
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyShowGremlinMode, this);
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyBackgroundColor, this);
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyStayOnTop, this);
+	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyFramelessWindow, this);
 
 	// Restore the window location.
 
@@ -150,10 +151,6 @@ void EmWindow::WindowInit (void)
 	// Show the window.
 
 	this->HostWindowShow ();
-
-	// Make the window stay on top if it is set as such.
-
-	this->HostWindowStayOnTop ();
 }
 
 
@@ -183,12 +180,11 @@ void EmWindow::WindowReset (void)
 
 	// Create a one-bpp mask of the skin.
 
-	EmPixMap	mask;
-	fSkinBase.CreateMask (mask);
+	fSkinBase.CreateMask (fSkinMask);
 
 	// Convert it to a region.
 
-	fSkinRegion = mask.CreateRegion ();
+	fSkinRegion = fSkinMask.CreateRegion ();
 
 	// Clear our color caches.  They'll get filled again on demand.
 
@@ -211,6 +207,23 @@ void EmWindow::WindowReset (void)
 	// Now convert this all to platform-specific data structures.
 	// This will also resize the window.
 
+	this->HostWindowReset ();
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmWindow::WindowResetDefault
+// ---------------------------------------------------------------------------
+// Load the generic skin for the no-session state.  Unlike WindowReset() this
+// does not require gSession or call SkinSetSkin().
+
+void EmWindow::WindowResetDefault (void)
+{
+	this->GetDefaultSkin (fSkinBase);
+	fSkinBase.CreateMask (fSkinMask);
+	fSkinRegion = fSkinMask.CreateRegion ();
+	fSkinCurrent = EmPixMap ();
+	fPrevLCDColors.clear ();
 	this->HostWindowReset ();
 }
 
@@ -787,17 +800,15 @@ void EmWindow::PrefsChanged (PrefKeyType key)
 		::PrefKeysEqual (key, kPrefKeySkins) ||
 		::PrefKeysEqual (key, kPrefKeyShowDebugMode) ||
 		::PrefKeysEqual (key, kPrefKeyShowGremlinMode) ||
-		::PrefKeysEqual (key, kPrefKeyBackgroundColor))
+		::PrefKeysEqual (key, kPrefKeyBackgroundColor) ||
+		::PrefKeysEqual (key, kPrefKeyFramelessWindow) ||
+		::PrefKeysEqual (key, kPrefKeyStayOnTop))
 	{
 		fNeedWindowReset = true;
 	}
 	else if (::PrefKeysEqual (key, kPrefKeyBackgroundColor))
 	{
 		fNeedWindowInvalidate = true;
-	}
-	else if (::PrefKeysEqual (key, kPrefKeyStayOnTop))
-	{
-		this->HostWindowStayOnTop ();
 	}
 }
 
@@ -1131,6 +1142,16 @@ const RGBList& EmWindow::GetCurrentSkinColors (Bool polite)
 const EmRegion& EmWindow::GetCurrentSkinRegion (void)
 {
 	return fSkinRegion;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmWindow::GetCurrentSkinMask
+// ---------------------------------------------------------------------------
+
+const EmPixMap& EmWindow::GetCurrentSkinMask (void)
+{
+	return fSkinMask;
 }
 
 
