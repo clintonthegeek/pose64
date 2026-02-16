@@ -122,7 +122,7 @@ EmCPU68K*	gCPU68K;
 // code can be more efficient if "counter" can be cached in a register
 // instead of being a static or global variable.
 
-#define CYCLE(sleeping)															\
+#define CYCLE(sleeping, cycles)													\
 {																				\
 	/* Don't do anything if we're in the middle of an ATrap call.  We don't */	\
 	/* need interrupts firing or tmr counters incrementing. */					\
@@ -132,7 +132,7 @@ EmCPU68K*	gCPU68K;
 	{																			\
 		/* Perform CPU-specific idling. */										\
 																				\
-		EmHAL::Cycle (sleeping);												\
+		EmHAL::Cycle (sleeping, cycles);										\
 																				\
 		/* Perform expensive operations. */										\
 																				\
@@ -354,6 +354,8 @@ void EmCPU68K::Execute (void)
 	// mode, and we need to wind our way back down to that spot.
 	// -----------------------------------------------------------------------
 
+	int cycles = 0;
+
 	if ((spcflags & SPCFLAG_STOP) != 0)
 		goto StoppedLoop;
 
@@ -473,7 +475,8 @@ void EmCPU68K::Execute (void)
 #endif
 		opcode = do_get_mem_word (pc_p);
 
-		fCycleCount += (functable[opcode]) (opcode);
+		cycles = (functable[opcode]) (opcode);
+		fCycleCount += cycles;
 		// =======================================================================
 
 #if HAS_PROFILING
@@ -517,7 +520,7 @@ void EmCPU68K::Execute (void)
 
 		// Perform periodic tasks.
 
-		CYCLE (false);
+		CYCLE (false, cycles);
 
 StoppedLoop:
 
@@ -861,7 +864,7 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 
 		// Perform periodic tasks.
 
-		CYCLE (true);
+		CYCLE (true, 0);
 
 		// Process an interrupt (see if it's time to wake up).
 

@@ -587,10 +587,10 @@ EmHALHandler::~EmHALHandler (void)
 //		� EmHALHandler::Cycle
 // ---------------------------------------------------------------------------
 
-void EmHALHandler::Cycle (Bool sleeping)
+void EmHALHandler::Cycle (Bool sleeping, int cycles)
 {
 	EmAssert (this->GetNextHandler());
-	this->GetNextHandler()->Cycle (sleeping);
+	this->GetNextHandler()->Cycle (sleeping, cycles);
 }
 
 

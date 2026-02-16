@@ -42,7 +42,7 @@ class EmRegsEZ : public EmRegs, public EmHALHandler
 		virtual uint32			GetAddressRange			(void);
 
 		// EmHALHandler overrides
-		virtual void			Cycle					(Bool sleeping);
+		virtual void			Cycle					(Bool sleeping, int cycles);
 		virtual void			CycleSlowly				(Bool sleeping);
 
 		virtual void			ButtonEvent				(SkinElementType, Bool buttonIsDown);

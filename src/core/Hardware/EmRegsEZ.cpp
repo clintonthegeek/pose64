@@ -645,7 +645,7 @@ uint32 EmRegsEZ::GetAddressRange (void)
 // Emulator::Execute.  Interestingly, the loop runs 3% FASTER if this function
 // is in its own separate function instead of being inline.
 
-void EmRegsEZ::Cycle (Bool sleeping)
+void EmRegsEZ::Cycle (Bool sleeping, int cycles)
 {
 #if _DEBUG
 	#define increment	20

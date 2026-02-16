@@ -48,7 +48,7 @@ class EmHALHandler
 								EmHALHandler			(void);
 		virtual					~EmHALHandler			(void);
 
-		virtual void			Cycle					(Bool sleeping);
+		virtual void			Cycle					(Bool sleeping, int cycles);
 		virtual void			CycleSlowly				(Bool sleeping);
 
 		virtual void			ButtonEvent				(SkinElementType, Bool buttonIsDown);
@@ -106,7 +106,7 @@ class EmHAL
 		static void				RemoveHandler			(EmHALHandler*);
 		static void				EnsureCoverage			(void);
 
-		static void				Cycle					(Bool sleeping);
+		static void				Cycle					(Bool sleeping, int cycles);
 		static void				CycleSlowly				(Bool sleeping);
 
 		static void				ButtonEvent				(SkinElementType, Bool buttonIsDown);
@@ -156,10 +156,10 @@ class EmHAL
 		static EmHALHandler*	fgRootHandler;
 };
 
-inline void EmHAL::Cycle (Bool sleeping)
+inline void EmHAL::Cycle (Bool sleeping, int cycles)
 {
 	EmAssert (EmHAL::GetRootHandler());
-	EmHAL::GetRootHandler()->Cycle (sleeping);
+	EmHAL::GetRootHandler()->Cycle (sleeping, cycles);
 }
 
 

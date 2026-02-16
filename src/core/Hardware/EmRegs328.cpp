@@ -811,7 +811,7 @@ static void PrvCalibrate (uint16 tmrCompare)
 }
 #endif
 
-void EmRegs328::Cycle (Bool sleeping)
+void EmRegs328::Cycle (Bool sleeping, int cycles)
 {
 #if 0
 	// Cycle is *very* sensitive to timing issue.  With this section
