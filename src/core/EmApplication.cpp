@@ -83,6 +83,14 @@ kCommand[] =
 	{ kCommandHostFS,			&EmApplication::DoHostFS,		kStr_CmdHostFSOptions	},
 	{ kCommandBreakpoints,		&EmApplication::DoBreakpoints,	kStr_CmdBreakpoints		},
 
+	{ kCommandSpeedQuarter,		&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeedHalf,		&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeed1x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeed2x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeed4x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeed8x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+	{ kCommandSpeedMax,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
+
 	{ kCommandEventReplay,		&EmApplication::DoReplay,		kStr_CmdEventReplay		},
 	{ kCommandEventMinimize,	&EmApplication::DoMinimize,		kStr_CmdEventMinimize	},
 
@@ -97,6 +105,7 @@ kCommand[] =
 	{ kCommandOpen,				&EmApplication::DoNothing,		0	},
 	{ kCommandImport,			&EmApplication::DoNothing,		0	},
 	{ kCommandSettings,			&EmApplication::DoNothing,		0	},
+	{ kCommandEmulationSpeed,	&EmApplication::DoNothing,		0	},
 	{ kCommandDivider,			&EmApplication::DoNothing,		0	}
 };
 
@@ -1029,6 +1038,34 @@ void EmApplication::DoHostFS (EmCommandID)
 void EmApplication::DoBreakpoints (EmCommandID)
 {
 	EmDlg::DoEditBreakpoints ();
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmApplication::DoSetSpeed
+// ---------------------------------------------------------------------------
+// Set the emulation speed from a menu selection.
+
+void EmApplication::DoSetSpeed (EmCommandID cmd)
+{
+	long speed = 0;
+	switch (cmd)
+	{
+		case kCommandSpeedQuarter:	speed = 25;		break;
+		case kCommandSpeedHalf:		speed = 50;		break;
+		case kCommandSpeed1x:		speed = 100;	break;
+		case kCommandSpeed2x:		speed = 200;	break;
+		case kCommandSpeed4x:		speed = 400;	break;
+		case kCommandSpeed8x:		speed = 800;	break;
+		case kCommandSpeedMax:		speed = 0;		break;
+		default: return;
+	}
+
+	Preference<long> p (kPrefKeyEmulationSpeed);
+	p = speed;
+
+	if (gSession)
+		gSession->fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
 }
 
 

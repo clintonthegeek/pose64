@@ -219,6 +219,15 @@ static const struct item _ResStrTable[] = {
 	{ kStr_MenuSkins, "&Skins...\tK" },
 	{ kStr_MenuHostFS, "&HostFS..." },
 	{ kStr_MenuBreakpoints, "&Breakpoints...\tB" },
+	{ kStr_MenuEmulationSpeed, "Emulation &Speed" },
+
+	{ kStr_MenuSpeedQuarter, "&Quarter Speed (0.25x)" },
+	{ kStr_MenuSpeedHalf, "&Half Speed (0.5x)" },
+	{ kStr_MenuSpeed1x, "Real-time (&1x)" },
+	{ kStr_MenuSpeed2x, "&Double Speed (2x)" },
+	{ kStr_MenuSpeed4x, "Q&uad Speed (4x)" },
+	{ kStr_MenuSpeed8x, "L&udicrous Speed (8x)" },
+	{ kStr_MenuSpeedMax, "&Maximum" },
 	{ kStr_MenuGremlinsNew, "&New...\tG" },
 	{ kStr_MenuGremlinsStep, "&Step" },
 	{ kStr_MenuGremlinsResume, "&Resume" },
@@ -354,6 +363,7 @@ static const struct item _ResStrTable[] = {
 	{ kStr_CmdTracingOptions, "open the Trace Options dialog box" },
 	{ kStr_CmdSkins, "open the Skins dialog box" },
 	{ kStr_CmdBreakpoints, "open the Breakpoints dialog box" },
+	{ kStr_CmdSetSpeed, "set emulation speed" },
 
 	{ kStr_CmdGremlinNew, "start the gremlin" },
 	{ kStr_CmdGremlinSuspend, "suspend the gremlin" },

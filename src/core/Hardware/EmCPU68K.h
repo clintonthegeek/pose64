@@ -318,6 +318,10 @@ class EmCPU68K : public EmCPU
 		Hook68KNewPCList		fHookNewPC;
 		Hook68KNewSPList		fHookNewSP;
 
+		int			fThrottlePrevSpeed = 0;
+		uint32		fThrottleBaseCycles = 0;
+		int64_t		fThrottleBaseTimeUs = 0;
+
 #if REGISTER_HISTORY
 		#define kRegHistorySize	512
 		long					fRegHistoryIndex;

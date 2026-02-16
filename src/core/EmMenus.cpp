@@ -36,6 +36,7 @@ static void		PrvSetSubMenu		(EmMenuItemList&, EmCommandID, EmMenuItemList&);
 static void		PrvUpdateMruMenus	(const EmFileRefList&, EmCommandID, EmMenuItemList&);
 static void		PrvCollectFiles		(EmFileRefList&, EmFileRefList&);
 static Bool		PrvGetItemStatus	(const EmMenuItem& item);
+static Bool		PrvGetItemChecked	(const EmMenuItem& item);
 static void		PrvPrefsChanged		(PrefKeyType key, void*);
 static EmMenuID	PrvPreferredMenuID	(EmMenuID);
 
@@ -246,6 +247,15 @@ EmPrvMenuItem	kPrvMenuItems[] =
 	{ kCommandSkins,			kStr_MenuSkins },
 	{ kCommandHostFS,			kStr_MenuHostFS },
 	{ kCommandBreakpoints,		kStr_MenuBreakpoints },
+	{ kCommandEmulationSpeed,	kStr_MenuEmulationSpeed },
+
+	{ kCommandSpeedQuarter,		kStr_MenuSpeedQuarter },
+	{ kCommandSpeedHalf,		kStr_MenuSpeedHalf },
+	{ kCommandSpeed1x,			kStr_MenuSpeed1x },
+	{ kCommandSpeed2x,			kStr_MenuSpeed2x },
+	{ kCommandSpeed4x,			kStr_MenuSpeed4x },
+	{ kCommandSpeed8x,			kStr_MenuSpeed8x },
+	{ kCommandSpeedMax,			kStr_MenuSpeedMax },
 
 	{ kCommandGremlinsNew,		kStr_MenuGremlinsNew },
 	{ kCommandGremlinsSuspend,	kStr_MenuGremlinsSuspend },
@@ -438,6 +448,7 @@ void MenuUpdateMenuItemStatus (EmMenuItemList& menu)
 		else
 		{
 			iter->SetIsActive (::PrvGetItemStatus (*iter));
+			iter->SetIsChecked (::PrvGetItemChecked (*iter));
 		}
 
 		++iter;
@@ -588,6 +599,18 @@ void PrvInitializeMenus (Bool alternateLayout)
 	::PrvAddMenuItem (subMenuSettings, kCommandHostFS);
 	::PrvAddMenuItem (subMenuSettings, kCommandBreakpoints);
 
+	// Create the "Emulation Speed" sub-menu.
+
+	EmMenuItemList	subMenuSpeed;
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedQuarter);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedHalf);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed1x);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed2x);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed4x);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeed8x);
+	::PrvAddMenuItem (subMenuSpeed, __________);
+	::PrvAddMenuItem (subMenuSpeed, kCommandSpeedMax);
+
 	// Create the Full menubar.
 
 	::PrvAddMenuItem (gMenuMenubar, kCommandFile);
@@ -617,6 +640,7 @@ void PrvInitializeMenus (Bool alternateLayout)
 	::PrvAddMenuItem (gMenuPopupMenu, kCommandReset);
 	::PrvAddMenuItem (gMenuPopupMenu, kCommandDownloadROM);
 	::PrvAddMenuItem (gMenuPopupMenu, __________);
+	::PrvAddMenuItem (gMenuPopupMenu, kCommandEmulationSpeed);
 	::PrvAddMenuItem (gMenuPopupMenu, kCommandGremlins);
 #if HAS_PROFILING
 	::PrvAddMenuItem (gMenuPopupMenu, kCommandProfile);
@@ -695,6 +719,7 @@ void PrvInitializeMenus (Bool alternateLayout)
 	::PrvSetSubMenu (gMenuPopupMenu, kCommandProfile, subMenuProfile);
 #endif
 	::PrvSetSubMenu (gMenuPopupMenu, kCommandSettings, subMenuSettings);
+	::PrvSetSubMenu (gMenuPopupMenu, kCommandEmulationSpeed, subMenuSpeed);
 
 	::PrvSetSubMenu (gMenuPartiallyBoundPopupMenu, kCommandOpen, subMenuOpen);
 	::PrvSetSubMenu (gMenuPartiallyBoundPopupMenu, kCommandImport, subMenuImport);
@@ -922,6 +947,15 @@ Bool PrvGetItemStatus (const EmMenuItem& item)
 		case kCommandSkins:				return true;
 		case kCommandHostFS:			return true;
 		case kCommandBreakpoints:		return true;
+		case kCommandEmulationSpeed:	return true;
+
+		case kCommandSpeedQuarter:		return true;
+		case kCommandSpeedHalf:			return true;
+		case kCommandSpeed1x:			return true;
+		case kCommandSpeed2x:			return true;
+		case kCommandSpeed4x:			return true;
+		case kCommandSpeed8x:			return true;
+		case kCommandSpeedMax:			return true;
 
 		case kCommandGremlinsNew:		return gSession != NULL && Hordes::CanNew ();
 		case kCommandGremlinsSuspend:	return gSession != NULL && Hordes::CanSuspend ();
@@ -962,7 +996,43 @@ Bool PrvGetItemStatus (const EmMenuItem& item)
 
 
 // ---------------------------------------------------------------------------
-//		� PrvGetItemStatus
+//		PrvGetItemChecked
+// ---------------------------------------------------------------------------
+// Return whether the given menu item should be checked.
+
+Bool PrvGetItemChecked (const EmMenuItem& item)
+{
+	EmCommandID	id = item.GetCommand ();
+
+	if (id < kCommandSpeedQuarter || id > kCommandSpeedMax)
+		return false;
+
+	Preference<long> prefSpeed (kPrefKeyEmulationSpeed);
+	long speed = *prefSpeed;
+
+	switch (id)
+	{
+		case kCommandSpeedQuarter:	return speed == 25;
+		case kCommandSpeedHalf:		return speed == 50;
+		case kCommandSpeed1x:		return speed == 100;
+		case kCommandSpeed2x:		return speed == 200;
+		case kCommandSpeed4x:		return speed == 400;
+		case kCommandSpeed8x:		return speed == 800;
+
+		// Maximum is checked for speed == 0 and for any unrecognized
+		// value (e.g. stale preferences from an earlier encoding).
+		case kCommandSpeedMax:		return speed != 25 && speed != 50
+											&& speed != 100 && speed != 200
+											&& speed != 400 && speed != 800;
+		default: break;
+	}
+
+	return false;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� PrvPrefsChanged
 // ---------------------------------------------------------------------------
 // Respond to the preference change by invalidating one of our flags.  This
 // flag will be inspected later when getting a menu to display.

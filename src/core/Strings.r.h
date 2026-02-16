@@ -197,6 +197,15 @@
 #define kStr_MenuSkins					1435
 #define kStr_MenuHostFS					1436
 #define kStr_MenuBreakpoints			1437
+#define kStr_MenuEmulationSpeed			1438
+
+#define kStr_MenuSpeedQuarter			1450
+#define kStr_MenuSpeedHalf				1451
+#define kStr_MenuSpeed1x				1452
+#define kStr_MenuSpeed2x				1453
+#define kStr_MenuSpeed4x				1454
+#define kStr_MenuSpeed8x				1455
+#define kStr_MenuSpeedMax				1456
 
 #define kStr_MenuGremlinsNew			1440
 #define kStr_MenuGremlinsSuspend		1441
@@ -338,6 +347,7 @@
 #define kStr_CmdBreakpoints			2245
 #define kStr_CmdTracingOptions		2246
 #define kStr_CmdHostFSOptions		2247
+#define kStr_CmdSetSpeed			2248
 
 #define kStr_CmdGremlinNew			2250
 #define kStr_CmdGremlinSuspend		2251

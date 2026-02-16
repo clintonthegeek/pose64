@@ -19,6 +19,8 @@
 #include "EmThreadSafeQueue.h"	// EmThreadSafeQueue
 #include "Skins.h"				// SkinElementType
 
+#include <atomic>				// std::atomic
+
 #if HAS_OMNI_THREAD
 #include "omnithread.h" 		// omni_thread, omni_mutex, omni_condition
 #endif
@@ -154,31 +156,6 @@ enum EmStopMethod
 					// UI.  The request may *hang* if the CPU thread is in
 					// a state such that it never reaches a system call.
 };
-
-
-// ---------------------------------------------------------------------------
-#pragma mark EmButtonEvent
-// ---------------------------------------------------------------------------
-
-/*
-**	Struct containing all data for a button event (that is, when the user
-**	clicks the mouse on a hard button, or presses an FKEY bound to one of
-**	the hard buttons).
-*/
-
-struct EmButtonEvent
-{
-	EmButtonEvent (SkinElementType button, Bool isDown) :
-		fButton (button),
-		fButtonIsDown (isDown)
-	{
-	}
-
-	SkinElementType	fButton;
-	Bool			fButtonIsDown;
-};
-
-typedef EmThreadSafeQueue<EmButtonEvent>	EmButtonQueue;
 
 
 // ---------------------------------------------------------------------------
@@ -476,10 +453,19 @@ class EmSession
 		// These methods are protected by their own mutex, and can be called
 		// by any thread.
 
-		void					PostButtonEvent		(const EmButtonEvent&, Bool postNow = false);
-		Bool					HasButtonEvent		(void);
-		EmButtonEvent			PeekButtonEvent		(void);
-		EmButtonEvent			GetButtonEvent		(void);
+		// State-based button input (replaces event queue).
+		// UI thread writes, CPU thread reads in CycleSlowly.
+		struct ButtonChanges {
+			uint32 pressed;		// bits that transitioned 0 → 1
+			uint32 released;	// bits that transitioned 1 → 0
+		};
+
+		void					SetButtonDown		(SkinElementType);
+		void					SetButtonUp			(SkinElementType);
+		void					SetButtonTap		(SkinElementType);
+		ButtonChanges			PollButtonChanges	(void);
+		Bool					HasButtonActivity	(void);
+		void					ClearButtonState	(void);
 
 		void					PostKeyEvent		(const EmKeyEvent&);
 		Bool					HasKeyEvent			(void);
@@ -681,12 +667,21 @@ class EmSession
 		EmResetType				fResetType;
 
 	private:
-		EmButtonQueue			fButtonQueue;
+		std::atomic<uint32>		fButtonState{0};		// pressed buttons (UI writes)
+		std::atomic<uint32>		fButtonTaps{0};			// tap requests (auto-release)
+		std::atomic<uint32>		fButtonReleaseRequests{0}; // pending releases (UI writes)
+		uint32					fButtonPrevState = 0;	// CPU-thread only
+		uint32					fButtonAutoRelease = 0;	// CPU-thread only
+		uint32					fButtonCooldown = 0;	// CPU-thread only
+
 		EmKeyQueue				fKeyQueue;
 		EmPenQueue				fPenQueue;
 
 		EmPenEvent				fLastPenEvent;
 		uint32					fBootKeys;
+
+	public:
+		std::atomic<int>			fEmulationSpeed{0};		// 0=max, 1=1x, 2=2x, 4=4x, 8=8x
 
 	private:
 		InstructionBreakFuncList	fInstructionBreakFuncs;

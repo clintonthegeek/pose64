@@ -73,6 +73,15 @@ enum EmCommandID
 	kCommandSkins,
 	kCommandHostFS,
 	kCommandBreakpoints,
+	kCommandEmulationSpeed,
+
+	kCommandSpeedQuarter,
+	kCommandSpeedHalf,
+	kCommandSpeed1x,
+	kCommandSpeed2x,
+	kCommandSpeed4x,
+	kCommandSpeed8x,
+	kCommandSpeedMax,
 
 	kCommandGremlinsNew,
 	kCommandGremlinsSuspend,

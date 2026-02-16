@@ -29,6 +29,9 @@
 #include "StringData.h"			// kExceptionNames
 #include "UAE.h"				// cpuop_func, etc.
 
+#include <sys/time.h>			// gettimeofday
+#include <unistd.h>				// usleep
+
 #include <algorithm>			// find
 
 using namespace std;
@@ -700,7 +703,7 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 	// If we're running Gremlins and the device goes to sleep (as opposed
 	// to just dozing), pretend the user clicked on the Power button).
 
-	if (EmHAL::GetAsleep () && !session->HasButtonEvent ())
+	if (EmHAL::GetAsleep () && !session->HasButtonActivity ())
 	{
 		// Turns Hordes off for a moment, as pen events are rejected
 		// when it's running!
@@ -793,11 +796,7 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 
 		if (hordesWasOn || playbackWasOn || minimizationWasOn)
 		{
-			EmButtonEvent	event (kElement_PowerButton, true);
-			session->PostButtonEvent (event, true);
-
-			event.fButtonIsDown = false;
-			session->PostButtonEvent (event);
+			session->SetButtonTap (kElement_PowerButton);
 		}
 
 		if (hordesWasOn)
@@ -901,6 +900,48 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 	// Do some platform-specific stuff.
 
 	Platform::CycleSlowly ();
+
+	// Speed throttle
+	int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
+	if (speed > 0)
+	{
+		struct timeval tv;
+		gettimeofday (&tv, NULL);
+		int64_t nowUs = (int64_t) tv.tv_sec * 1000000LL + tv.tv_usec;
+
+		if (speed != fThrottlePrevSpeed || fThrottleBaseTimeUs == 0)
+		{
+			fThrottleBaseCycles = fCycleCount;
+			fThrottleBaseTimeUs = nowUs;
+			fThrottlePrevSpeed = speed;
+		}
+		else
+		{
+			uint32 elapsed = fCycleCount - fThrottleBaseCycles;
+			int32 clockFreq = EmHAL::GetSystemClockFrequency ();
+			if (clockFreq > 0)
+			{
+				int64_t emulatedUs = (int64_t) elapsed * 1000000LL / clockFreq;
+				int64_t targetWallUs = emulatedUs * 100 / speed;
+				int64_t actualWallUs = nowUs - fThrottleBaseTimeUs;
+				int64_t sleepUs = targetWallUs - actualWallUs;
+
+				if (sleepUs > 0)
+					usleep ((useconds_t) sleepUs);
+				else if (sleepUs < -100000)
+				{
+					// More than 100ms behind — reset to prevent catch-up burst
+					fThrottleBaseCycles = fCycleCount;
+					fThrottleBaseTimeUs = nowUs;
+				}
+			}
+		}
+	}
+	else
+	{
+		fThrottlePrevSpeed = 0;
+		fThrottleBaseTimeUs = 0;
+	}
 
 #if HAS_OMNI_THREAD
 	// Check to see if some external thread has asked us to quit.

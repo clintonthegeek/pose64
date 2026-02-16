@@ -638,6 +638,11 @@ void EmWindowQt::buildQMenu (QMenu& qmenu, const EmMenuItemList& items)
 				QString::fromStdString (item.GetTitle ()));
 			action->setData (QVariant (static_cast<int> (item.GetCommand ())));
 			action->setEnabled (item.GetIsActive ());
+			if (item.GetIsChecked ())
+			{
+				action->setCheckable (true);
+				action->setChecked (true);
+			}
 			if (item.GetShortcut ())
 			{
 				action->setShortcut (

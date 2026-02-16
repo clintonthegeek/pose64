@@ -21,7 +21,7 @@
 #include "EmErrCodes.h"			// kError_InvalidSessionFile
 #include "EmEventPlayback.h"	// EmEventPlayback::ReplayingEvents
 #include "EmException.h"		// EmExceptionTopLevelAction
-#include "EmHAL.h"				// EmHAL::ButtonEvent
+#include "EmHAL.h"				// EmHAL::ButtonEvent (ReleaseBootKeys)
 #include "EmMemory.h"			// Memory::ResetBankHandlers
 #include "EmMinimize.h"			// EmMinimize::RealLoadInitialState
 #include "EmStreamFile.h"		// EmStreamFile
@@ -45,9 +45,6 @@
 using namespace std;
 
 EmSession*	gSession;
-
-static uint32	gLastButtonEvent;
-const uint32	kButtonEventThreshold = 100;
 
 #ifndef NDEBUG
 Bool	gIterating = false;
@@ -125,13 +122,26 @@ EmSession::EmSession (void) :
 	fMinimizeLoadState (false),
 	fDeferredErrs (),
 	fResetType (kResetSys),
-	fButtonQueue (),
 	fKeyQueue (),
 	fPenQueue (),
 	fLastPenEvent (EmPoint (-1, -1), false),
 	fBootKeys (0)
 {
 	fSuspendState.fAllCounters = 0;
+
+	Preference<long> prefSpeed (kPrefKeyEmulationSpeed);
+	long speed = *prefSpeed;
+
+	// Migrate old encoding (1=1x, 2=2x, 4=4x, 8=8x) to percentage encoding.
+	switch (speed)
+	{
+		case 1: speed = 100; break;
+		case 2: speed = 200; break;
+		case 4: speed = 400; break;
+		case 8: speed = 800; break;
+	}
+
+	fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
 
 	EmAssert (gSession == NULL);
 	gSession = this;
@@ -502,7 +512,7 @@ void EmSession::Reset (EmResetType resetType)
 
 	if ((resetType & kResetTypeMask) != kResetSys)
 	{
-		fButtonQueue.Clear ();
+		this->ClearButtonState ();
 		fKeyQueue.Clear ();
 		fPenQueue.Clear ();
 	}
@@ -1586,56 +1596,166 @@ void EmSession::UnblockDialog (void)
 #pragma mark -
 
 // ---------------------------------------------------------------------------
-//		� EmSession::PostButtonEvent
-//		� EmSession::HasButtonEvent
-//		� EmSession::PeekButtonEvent
-//		� EmSession::GetButtonEvent
+//		� EmSession::SetButtonDown
 // ---------------------------------------------------------------------------
+// Called by the UI thread when a skin button is pressed (mouse down).
 
-void EmSession::PostButtonEvent (const EmButtonEvent& event, Bool postNow)
+void EmSession::SetButtonDown (SkinElementType button)
 {
 	if (!::PrvCanBotherCPU())
 		return;
 
-	fButtonQueue.Put (event);
+	uint32	mask = 1U << (int) button;
+	fButtonState.fetch_or (mask, std::memory_order_release);
+}
 
-	if (postNow)
+
+// ---------------------------------------------------------------------------
+//		� EmSession::SetButtonUp
+// ---------------------------------------------------------------------------
+// Called by the UI thread when a skin button is released (mouse up).
+
+void EmSession::SetButtonUp (SkinElementType button)
+{
+	uint32	mask = 1U << (int) button;
+	fButtonReleaseRequests.fetch_or (mask, std::memory_order_release);
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmSession::SetButtonTap
+// ---------------------------------------------------------------------------
+// Called by the UI thread for keyboard shortcuts (F1-F4) and menu actions
+// (HotSync).  Sets the button pressed and marks it for auto-release so that
+// a quick press/release pair isn't lost between CycleSlowly polls.
+
+void EmSession::SetButtonTap (SkinElementType button)
+{
+	if (!::PrvCanBotherCPU())
+		return;
+
+	uint32	mask = 1U << (int) button;
+	fButtonTaps.fetch_or (mask, std::memory_order_release);
+	fButtonState.fetch_or (mask, std::memory_order_release);
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmSession::PollButtonChanges
+// ---------------------------------------------------------------------------
+// Called from CycleSlowly (CPU thread) to detect button state changes.
+// Returns bitmasks of pressed/released buttons.  The caller (the hardware
+// handler's CycleSlowly) is responsible for dispatching ButtonEvent and
+// HotSyncEvent on its own instance, matching the original non-virtual
+// dispatch pattern (EmRegsVZ::ButtonEvent, not EmHAL::ButtonEvent).
+
+EmSession::ButtonChanges EmSession::PollButtonChanges (void)
+{
+	// Cooldown: after dispatching any button change, suppress further
+	// changes for a few CycleSlowly intervals.  This replaces the
+	// original 100 ms wall-clock throttle (kButtonEventThreshold) and
+	// gives PalmOS — especially older ROMs that use level-triggered
+	// port-D interrupts — enough emulated time to read and acknowledge
+	// the key registers before the state changes again.
+	//
+	// At 16 MHz (DragonBall 328/EZ) each CycleSlowly interval ≈ 2 ms
+	// emulated time, so 5 intervals ≈ 10 ms.  At 33 MHz (VZ) it's
+	// about 5 ms.  Both are generous for an ISR + event-post cycle.
+
+	static const uint32	kButtonCooldownCycles = 5;
+
+	if (fButtonCooldown > 0)
 	{
-		gLastButtonEvent = Platform::GetMilliseconds () - kButtonEventThreshold;
+		--fButtonCooldown;
+		ButtonChanges result = { 0, 0 };
+		return result;
 	}
-}
 
+	// Step 1: Auto-release any buttons that were tapped in a previous
+	// cycle.  Just clear the state bits — edge detection in step 3
+	// will pick up the 1→0 transition and include it in the returned
+	// mask.
 
-Bool EmSession::HasButtonEvent (void)
-{
-	// Don't feed hardware events out too quickly.  Otherwise, the OS
-	// may not have time to react to the register changes.
-
-	uint32	now = Platform::GetMilliseconds ();
-
-	if (now - gLastButtonEvent < kButtonEventThreshold)
+	if (fButtonAutoRelease != 0)
 	{
-		return false;
+		fButtonState.fetch_and (~fButtonAutoRelease, std::memory_order_release);
+		fButtonAutoRelease = 0;
 	}
 
-	return fButtonQueue.GetUsed () > 0;
+	// Step 2: Process pending release requests from SetButtonUp.
+	// Only clear state bits for buttons whose press has already been
+	// dispatched (bit is in fButtonPrevState).  This guarantees the
+	// press edge is visible for at least one poll before the release.
+
+	uint32	releaseReqs = fButtonReleaseRequests.exchange (0, std::memory_order_acquire);
+	if (releaseReqs != 0)
+	{
+		uint32	canRelease = releaseReqs & fButtonPrevState;
+		if (canRelease != 0)
+			fButtonState.fetch_and (~canRelease, std::memory_order_release);
+
+		// Defer releases for buttons whose press hasn't been dispatched yet.
+		uint32	deferred = releaseReqs & ~fButtonPrevState;
+		if (deferred != 0)
+			fButtonReleaseRequests.fetch_or (deferred, std::memory_order_release);
+	}
+
+	// Step 3: Read current state and detect edges.
+
+	uint32	currentState = fButtonState.load (std::memory_order_acquire);
+	uint32	changed = currentState ^ fButtonPrevState;
+
+	ButtonChanges result;
+	result.pressed  = changed & currentState;		// 0→1 transitions
+	result.released = changed & fButtonPrevState;	// 1→0 transitions
+
+	// If anything changed, start the cooldown so the next change is
+	// held off for a few cycles.
+
+	if (result.pressed != 0 || result.released != 0)
+		fButtonCooldown = kButtonCooldownCycles;
+
+	// Step 4: Move tap bits to auto-release for next cycle.
+
+	uint32	taps = fButtonTaps.exchange (0, std::memory_order_acquire);
+	fButtonAutoRelease = taps & currentState;
+
+	// Step 5: Remember current state for next poll.
+
+	fButtonPrevState = currentState;
+
+	return result;
 }
 
 
-EmButtonEvent EmSession::PeekButtonEvent (void)
+// ---------------------------------------------------------------------------
+//		� EmSession::HasButtonActivity
+// ---------------------------------------------------------------------------
+// Returns true if any button is currently pressed or there are pending taps.
+// Used by the sleep check in EmCPU68K.
+
+Bool EmSession::HasButtonActivity (void)
 {
-	return fButtonQueue.Peek ();
+	return fButtonState.load (std::memory_order_acquire) != 0 ||
+		   fButtonTaps.load (std::memory_order_acquire) != 0 ||
+		   fButtonReleaseRequests.load (std::memory_order_acquire) != 0 ||
+		   fButtonAutoRelease != 0;
 }
 
 
-EmButtonEvent EmSession::GetButtonEvent (void)
+// ---------------------------------------------------------------------------
+//		� EmSession::ClearButtonState
+// ---------------------------------------------------------------------------
+// Reset all button state.  Called during Reset.
+
+void EmSession::ClearButtonState (void)
 {
-	// Don't feed hardware events out too quickly.  Otherwise, the OS
-	// may not have time to react to the register changes.
-
-	gLastButtonEvent = Platform::GetMilliseconds ();
-
-	return fButtonQueue.Get ();
+	fButtonState.store (0, std::memory_order_release);
+	fButtonTaps.store (0, std::memory_order_release);
+	fButtonReleaseRequests.store (0, std::memory_order_release);
+	fButtonPrevState = 0;
+	fButtonAutoRelease = 0;
+	fButtonCooldown = 0;
 }
 
 

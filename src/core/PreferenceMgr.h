@@ -408,6 +408,8 @@ extern EmulatorPreferences* gEmuPrefs;
 	DO_TO_PREF(FfsHome,				string,				(""))					\
 																				\
 	DO_TO_PREF(SlotList,			SlotInfoList,		())						\
+																				\
+	DO_TO_PREF(EmulationSpeed,		long,				(0))						\
 
 
 // Declare all the keys
