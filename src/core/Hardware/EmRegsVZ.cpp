@@ -680,14 +680,14 @@ void EmRegsVZ::SetSubBankHandlers (void)
 	INSTALL_HANDLER (StdRead,			StdWrite,				pwm2Width);
 	INSTALL_HANDLER (StdRead,			NullWrite,				pwm2Counter);
 
-	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Control);
+	INSTALL_HANDLER (StdRead,			tmr1ControlWrite,		tmr1Control);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Prescaler);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Compare);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Capture);
 	INSTALL_HANDLER (StdRead,			NullWrite,				tmr1Counter);
 	INSTALL_HANDLER (tmr1StatusRead,	tmr1StatusWrite,		tmr1Status);
 
-	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Control);
+	INSTALL_HANDLER (StdRead,			tmr2ControlWrite,		tmr2Control);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Prescaler);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Compare);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Capture);
@@ -2101,6 +2101,54 @@ void EmRegsVZ::tmr2StatusWrite (emuptr address, int size, uint32 value)
 
 		EmRegsVZ::UpdateInterrupts ();
 	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		PrvUpdateTimerShift  (VZ)
+// ---------------------------------------------------------------------------
+
+static void PrvUpdateTimerShift (uint16 controlReg, int& shift, int& shiftMask)
+{
+	uint16 clkSrc = controlReg & hwrVZ328TmrControlClkSrcMask;
+
+	switch (clkSrc)
+	{
+		case hwrVZ328TmrControlClkSrcSysBy16:
+			shift = 4;
+			shiftMask = 0xF;
+			break;
+		case hwrVZ328TmrControlClkSrcSys:
+		case hwrVZ328TmrControlClkSrcTIN:
+		case hwrVZ328TmrControlClkSrc32KHz:
+		default:
+			shift = 0;
+			shiftMask = 0;
+			break;
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmRegsVZ::tmr1ControlWrite
+// ---------------------------------------------------------------------------
+
+void EmRegsVZ::tmr1ControlWrite (emuptr address, int size, uint32 value)
+{
+	EmRegsVZ::StdWrite (address, size, value);
+	PrvUpdateTimerShift (READ_REGISTER (tmr1Control), fTmr1Shift, fTmr1ShiftMask);
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmRegsVZ::tmr2ControlWrite
+// ---------------------------------------------------------------------------
+
+void EmRegsVZ::tmr2ControlWrite (emuptr address, int size, uint32 value)
+{
+	EmRegsVZ::StdWrite (address, size, value);
+	// VZ Timer 2 uses its own software prescaler in Cycle(),
+	// but cache shift for consistency.
 }
 
 

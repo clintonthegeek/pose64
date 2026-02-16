@@ -677,7 +677,7 @@ void EmRegs328::SetSubBankHandlers (void)
 	INSTALL_HANDLER (StdRead,			NullWrite,				tmr1Counter);
 	INSTALL_HANDLER (tmr1StatusRead,	tmr1StatusWrite,		tmr1Status);
 
-	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Control);
+	INSTALL_HANDLER (StdRead,			tmr2ControlWrite,		tmr2Control);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Prescaler);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Compare);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr2Capture);
@@ -1948,6 +1948,42 @@ void EmRegs328::tmr2StatusWrite (emuptr address, int size, uint32 value)
 
 		EmRegs328::UpdateInterrupts ();
 	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		PrvUpdateTimerShift  (328)
+// ---------------------------------------------------------------------------
+
+static void PrvUpdateTimerShift (uint16 controlReg, int& shift, int& shiftMask)
+{
+	uint16 clkSrc = controlReg & hwr328TmrControlClkSrcMask;
+
+	switch (clkSrc)
+	{
+		case hwr328TmrControlClkSrcSysBy16:
+			shift = 4;
+			shiftMask = 0xF;
+			break;
+		case hwr328TmrControlClkSrcSys:
+		case hwr328TmrControlClkSrcTIN:
+		case hwr328TmrControlClkSrc32KHz:
+		default:
+			shift = 0;
+			shiftMask = 0;
+			break;
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmRegs328::tmr2ControlWrite
+// ---------------------------------------------------------------------------
+
+void EmRegs328::tmr2ControlWrite (emuptr address, int size, uint32 value)
+{
+	EmRegs328::StdWrite (address, size, value);
+	PrvUpdateTimerShift (READ_REGISTER (tmr2Control), fTmr2Shift, fTmr2ShiftMask);
 }
 
 

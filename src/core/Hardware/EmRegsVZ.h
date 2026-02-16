@@ -90,7 +90,9 @@ class EmRegsVZ : public EmRegs, public EmHALHandler
 		void					intStatusHiWrite		(emuptr address, int size, uint32 value);
 		void					portXDataWrite			(emuptr address, int size, uint32 value);
 		void					portDIntReqEnWrite		(emuptr address, int size, uint32 value);
+		void					tmr1ControlWrite		(emuptr address, int size, uint32 value);
 		void					tmr1StatusWrite			(emuptr address, int size, uint32 value);
+		void					tmr2ControlWrite		(emuptr address, int size, uint32 value);
 		void					tmr2StatusWrite			(emuptr address, int size, uint32 value);
 		void					spiCont1Write			(emuptr address, int size, uint32 value);
 		void					spiMasterControlWrite	(emuptr address, int size, uint32 value);

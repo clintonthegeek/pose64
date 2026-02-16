@@ -553,7 +553,7 @@ void EmRegsEZ::SetSubBankHandlers (void)
 	INSTALL_HANDLER (StdRead,			StdWrite,				pwmPeriod);
 	INSTALL_HANDLER (StdRead,			NullWrite,				pwmCounter);
 
-	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Control);
+	INSTALL_HANDLER (StdRead,			tmr1ControlWrite,		tmr1Control);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Prescaler);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Compare);
 	INSTALL_HANDLER (StdRead,			StdWrite,				tmr1Capture);
@@ -1734,6 +1734,42 @@ void EmRegsEZ::tmr1StatusWrite (emuptr address, int size, uint32 value)
 
 		EmRegsEZ::UpdateInterrupts ();
 	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		PrvUpdateTimerShift  (EZ)
+// ---------------------------------------------------------------------------
+
+static void PrvUpdateTimerShift (uint16 controlReg, int& shift, int& shiftMask)
+{
+	uint16 clkSrc = controlReg & hwrEZ328TmrControlClkSrcMask;
+
+	switch (clkSrc)
+	{
+		case hwrEZ328TmrControlClkSrcSysBy16:
+			shift = 4;
+			shiftMask = 0xF;
+			break;
+		case hwrEZ328TmrControlClkSrcSys:
+		case hwrEZ328TmrControlClkSrcTIN:
+		case hwrEZ328TmrControlClkSrc32KHz:
+		default:
+			shift = 0;
+			shiftMask = 0;
+			break;
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmRegsEZ::tmr1ControlWrite
+// ---------------------------------------------------------------------------
+
+void EmRegsEZ::tmr1ControlWrite (emuptr address, int size, uint32 value)
+{
+	EmRegsEZ::StdWrite (address, size, value);
+	PrvUpdateTimerShift (READ_REGISTER (tmr1Control), fTmr1Shift, fTmr1ShiftMask);
 }
 
 
