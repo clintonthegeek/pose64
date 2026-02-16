@@ -409,7 +409,9 @@ extern EmulatorPreferences* gEmuPrefs;
 																				\
 	DO_TO_PREF(SlotList,			SlotInfoList,		())						\
 																				\
-	DO_TO_PREF(EmulationSpeed,		long,				(0))						\
+	DO_TO_PREF(EmulationSpeed,		long,				(0))					\
+																				\
+	DO_TO_PREF(TimerAccuracy,		long,				(1))					\
 
 
 // Declare all the keys

@@ -392,6 +392,12 @@ void EmRegs328::Reset (Bool hardwareReset)
 		fPortDEdge		= 0;
 		fPortDDataCount	= 0;
 
+		Preference<long> prefAccuracy (kPrefKeyTimerAccuracy);
+		fAccurateTimers = (*prefAccuracy != 0);
+		fTmr2CycleAccum = 0;
+		fTmr2Shift = 4;       // default: system/16
+		fTmr2ShiftMask = 0xF; // (1 << 4) - 1
+
 		// React to the new data in the UART registers.
 
 		Bool	sendTxData = false;

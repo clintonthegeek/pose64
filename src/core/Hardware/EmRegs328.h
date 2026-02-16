@@ -140,6 +140,11 @@ class EmRegs328 : public EmRegs, public EmHALHandler
 		uint32					fTick;
 		uint32					fCycle;
 
+		bool					fAccurateTimers;
+		int						fTmr2CycleAccum;
+		int						fTmr2Shift;
+		int						fTmr2ShiftMask;
+
 		EmUARTDragonball*		fUART;
 };
 
