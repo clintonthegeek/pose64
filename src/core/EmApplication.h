@@ -197,6 +197,7 @@ class EmApplication : public EmActionHandler
 		void					DoBreakpoints		(EmCommandID);
 		void					DoSetSpeed			(EmCommandID);
 		void					DoTimerMode			(EmCommandID);
+		void					DoSpeedManual		(EmCommandID);
 
 		void					DoReplay			(EmCommandID);
 		void					DoMinimize			(EmCommandID);

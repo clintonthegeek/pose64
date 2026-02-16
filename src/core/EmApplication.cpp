@@ -43,6 +43,10 @@
 #include "TracerPlatform.h"		// gTracer.Initialize();
 #endif
 
+#include <FL/fl_ask.H>			// fl_input
+#include <cstdlib>				// atoi
+#include <cstring>				// strchr
+
 using namespace std;
 
 typedef void (EmApplication::*EmCommandFn)(EmCommandID);
@@ -95,7 +99,7 @@ kCommand[] =
 	{ kCommandSpeed4x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeed8x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeedMax,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
-	{ kCommandSpeedManual,		&EmApplication::DoNothing,		0						},
+	{ kCommandSpeedManual,		&EmApplication::DoSpeedManual,	0						},
 
 	{ kCommandEventReplay,		&EmApplication::DoReplay,		kStr_CmdEventReplay		},
 	{ kCommandEventMinimize,	&EmApplication::DoMinimize,		kStr_CmdEventMinimize	},
@@ -1088,6 +1092,53 @@ void EmApplication::DoTimerMode (EmCommandID cmd)
 
 	if (gSession)
 		EmHAL::SetAccurateTimers (accuracy != 0);
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmApplication::DoSpeedManual
+// ---------------------------------------------------------------------------
+// Show a text input dialog for entering a speed as a fraction of real-time.
+// Accepts "N/D" format (e.g. "1/32" for 1/32x) or plain "N" (e.g. "3" for 3x).
+
+void EmApplication::DoSpeedManual (EmCommandID)
+{
+	const char* result = fl_input (
+		"Enter speed as a fraction of real-time\n"
+		"(e.g. \"1/32\" for 1/32x, \"3\" for 3x):",
+		"1/1");
+
+	if (!result)
+		return;
+
+	int numerator = 0;
+	int denominator = 1;
+
+	// Try parsing as "N/D"
+	const char* slash = strchr (result, '/');
+	if (slash)
+	{
+		numerator = atoi (result);
+		denominator = atoi (slash + 1);
+	}
+	else
+	{
+		// Try parsing as plain number (treat as Nx speed)
+		numerator = atoi (result);
+	}
+
+	if (numerator <= 0 || denominator <= 0)
+		return;
+
+	// Compute speed as percentage: (num / den) * 100
+	long speed = (long) numerator * 100 / denominator;
+	if (speed < 1) speed = 1;
+
+	Preference<long> p (kPrefKeyEmulationSpeed);
+	p = speed;
+
+	if (gSession)
+		gSession->fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
 }
 
 
