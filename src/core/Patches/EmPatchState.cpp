@@ -810,9 +810,9 @@ Err EmPatchState::CollectCurrentAppInfo (emuptr appInfoP, EmuAppInfo &newAppInfo
 
 	// Scarf some information out of the app info block.
 
-	newAppInfo.fDB			= (DmOpenRef)(uintptr_t) EmMemGet32 (appInfoP + offsetof (SysAppInfoType, dbP));
-	newAppInfo.fStackP		= EmMemGet32 (appInfoP + offsetof (SysAppInfoType, stackP));
-	newAppInfo.fMemOwnerID	= EmMemGet16 (appInfoP + offsetof (SysAppInfoType, memOwnerID));
+	newAppInfo.fDB			= (DmOpenRef)(uintptr_t) EmMemGet32 (appInfoP + 16 /* m68k offsetof(SysAppInfoType, dbP) */);
+	newAppInfo.fStackP		= EmMemGet32 (appInfoP + 20 /* m68k offsetof(SysAppInfoType, stackP) */);
+	newAppInfo.fMemOwnerID	= EmMemGet16 (appInfoP + 28 /* m68k offsetof(SysAppInfoType, memOwnerID) */);
 
 	// Determine the current stack range.  Under Palm OS 3.0 and later, this information
 	// is in the DatabaseInfo block.  Under earlier OSes, we only get the low-end of the stack
@@ -837,7 +837,7 @@ Err EmPatchState::CollectCurrentAppInfo (emuptr appInfoP, EmuAppInfo &newAppInfo
 	}
 	else
 	{
-		newAppInfo.fStackEndP = EmMemGet32 (appInfoP + offsetof (SysAppInfoType, stackEndP));
+		newAppInfo.fStackEndP = EmMemGet32 (appInfoP + 44 /* m68k offsetof(SysAppInfoType, stackEndP) */);
 	}
 
 	newAppInfo.fStackSize = newAppInfo.fStackEndP - newAppInfo.fStackP;

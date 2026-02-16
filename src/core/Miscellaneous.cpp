@@ -220,7 +220,7 @@ static Bool PrvFormObjectHasValidSize (FormPtr frm, FormObjectKind objType, UInt
 	if (objType == frmControlObj)
 	{
 		emuptr	ctrlPtr	= (emuptr)(uintptr_t) ::FrmGetObjectPtr (frm, objIndex);
-		uint8	style	= EmMemGet8 (ctrlPtr + offsetof (ControlType, style));
+		uint8	style	= EmMemGet8 (ctrlPtr + 16 /* m68k offsetof(ControlType, style) */);
 
 		if (style == popupTriggerCtl)
 		{
@@ -2124,13 +2124,13 @@ string GetLibraryName (uint16 refNum)
 
 	if (EmPatchState::OSMajorVersion () > 1)
 	{
-		libEntry		= sysLibTableP + refNum * sizeof (SysLibTblEntryType);
-		dispatchTblP	= EmMemGet32 (libEntry + offsetof (SysLibTblEntryType, dispatchTblP));
+		libEntry		= sysLibTableP + refNum * 16 /* m68k sizeof(SysLibTblEntryType) */;
+		dispatchTblP	= EmMemGet32 (libEntry + 0 /* offsetof(SysLibTblEntryType, dispatchTblP) */);
 	}
 	else
 	{
-		libEntry		= sysLibTableP + refNum * sizeof (SysLibTblEntryTypeV10);
-		dispatchTblP	= EmMemGet32 (libEntry + offsetof (SysLibTblEntryTypeV10, dispatchTblP));
+		libEntry		= sysLibTableP + refNum * 8 /* m68k sizeof(SysLibTblEntryTypeV10) */;
+		dispatchTblP	= EmMemGet32 (libEntry + 0 /* offsetof(SysLibTblEntryTypeV10, dispatchTblP) */);
 	}
 
 	// The first entry in the table is always the offset from the

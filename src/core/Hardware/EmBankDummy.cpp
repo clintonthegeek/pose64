@@ -165,7 +165,7 @@ void EmBankDummy::Dispose (void)
 
 void EmBankDummy::SetBankHandlers (void)
 {
-	Memory::InitializeBanks (gAddressBank, 0, 0xFFFF);
+	Memory::InitializeBanks (gAddressBank, 0, 0x10000);
 }
 
 
@@ -181,7 +181,9 @@ uint32 EmBankDummy::GetLong (emuptr address)
 	if (HackForHwrGetRAMSize (address))
 		return 0;
 
-	InvalidAccess (address, sizeof (uint32), true);
+	if (gMemAccessFlags.fValidate_DummyGet)
+		InvalidAccess (address, sizeof (uint32), true);
+
 	return ~0;
 }
 
@@ -198,7 +200,9 @@ uint32 EmBankDummy::GetWord (emuptr address)
 	if (HackForHwrGetRAMSize (address))
 		return 0;
 
-	InvalidAccess (address, sizeof (uint16), true);
+	if (gMemAccessFlags.fValidate_DummyGet)
+		InvalidAccess (address, sizeof (uint16), true);
+
 	return ~0;
 }
 
@@ -215,7 +219,9 @@ uint32 EmBankDummy::GetByte (emuptr address)
 	if (HackForHwrGetRAMSize (address))
 		return 0;
 
-	InvalidAccess (address, sizeof (uint8), true);
+	if (gMemAccessFlags.fValidate_DummyGet)
+		InvalidAccess (address, sizeof (uint8), true);
+
 	return ~0;
 }
 
@@ -232,7 +238,8 @@ void EmBankDummy::SetLong (emuptr address, uint32)
 	if (HackForHwrGetRAMSize (address))
 		return;
 
-	InvalidAccess (address, sizeof (uint32), true);
+	if (gMemAccessFlags.fValidate_DummySet)
+		InvalidAccess (address, sizeof (uint32), false);
 }
 
 
@@ -248,7 +255,8 @@ void EmBankDummy::SetWord (emuptr address, uint32)
 	if (HackForHwrGetRAMSize (address))
 		return;
 
-	InvalidAccess (address, sizeof (uint16), true);
+	if (gMemAccessFlags.fValidate_DummySet)
+		InvalidAccess (address, sizeof (uint16), false);
 }
 
 
@@ -264,7 +272,8 @@ void EmBankDummy::SetByte (emuptr address, uint32)
 	if (HackForHwrGetRAMSize (address))
 		return;
 
-	InvalidAccess (address, sizeof (uint8), true);
+	if (gMemAccessFlags.fValidate_DummySet)
+		InvalidAccess (address, sizeof (uint8), false);
 }
 
 

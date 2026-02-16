@@ -1740,7 +1740,7 @@ void EmPalmMPT::GetMPTInfo (const EmPalmHeap& heap, emuptr mptHdr)
 			break;
 	}
 
-	fSize = fMptHdrSize + fNumEntries * sizeof (MemPtr);
+	fSize = fMptHdrSize + fNumEntries * sizeof (emuptr);
 }
 
 

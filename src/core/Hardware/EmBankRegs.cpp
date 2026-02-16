@@ -297,7 +297,9 @@ uint32 EmBankRegs::GetLong (emuptr address)
 		return bank->GetLong (address);
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uint32), true);
+	if (gMemAccessFlags.fValidate_RegisterGet)
+		EmBankRegs::InvalidAccess (address, sizeof (uint32), true);
+
 	return ~0;
 }
 
@@ -340,7 +342,9 @@ uint32 EmBankRegs::GetWord (emuptr address)
 		return bank->GetWord (address);
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uint16), true);
+	if (gMemAccessFlags.fValidate_RegisterGet)
+		EmBankRegs::InvalidAccess (address, sizeof (uint16), true);
+
 	return ~0;
 }
 
@@ -376,7 +380,9 @@ uint32 EmBankRegs::GetByte (emuptr address)
 		return bank->GetByte (address);
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uint8), true);
+	if (gMemAccessFlags.fValidate_RegisterGet)
+		EmBankRegs::InvalidAccess (address, sizeof (uint8), true);
+
 	return ~0;
 }
 
@@ -432,7 +438,8 @@ void EmBankRegs::SetLong (emuptr address, uint32 value)
 		return;
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uint32), false);
+	if (gMemAccessFlags.fValidate_RegisterSet)
+		EmBankRegs::InvalidAccess (address, sizeof (uint32), false);
 }
 
 
@@ -481,7 +488,8 @@ void EmBankRegs::SetWord (emuptr address, uint32 value)
 		return;
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uint16), false);
+	if (gMemAccessFlags.fValidate_RegisterSet)
+		EmBankRegs::InvalidAccess (address, sizeof (uint16), false);
 }
 
 
@@ -523,7 +531,8 @@ void EmBankRegs::SetByte (emuptr address, uint32 value)
 		return;
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uint8), false);
+	if (gMemAccessFlags.fValidate_RegisterSet)
+		EmBankRegs::InvalidAccess (address, sizeof (uint8), false);
 }
 
 

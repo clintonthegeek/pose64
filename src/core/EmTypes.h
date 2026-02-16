@@ -44,6 +44,7 @@
 	typedef uint64_t			uint64;
 
 typedef uint32				emuptr;
+static_assert(sizeof(emuptr) == 4, "emuptr must be 4 bytes");
 
 typedef int 				Bool;
 

@@ -615,7 +615,7 @@ emuptr MetaMemory::GetSysGlobalsEnd (void)
 	CEnableFullAccess	munge;	// Remove blocks on memory access.
 
 	return EmLowMem_GetGlobal (sysDispatchTableP) + 
-			EmLowMem_GetGlobal (sysDispatchTableSize) * (sizeof (void*));
+			EmLowMem_GetGlobal (sysDispatchTableSize) * sizeof (emuptr);
 }
 // ---------------------------------------------------------------------------
 //		� MetaMemory::GetHeapHdrBegin
@@ -1222,7 +1222,7 @@ void MetaMemory::GWH_ExamineChunk (	const EmPalmChunk& chunk,
 
 		if (EmPatchState::HasMenuHandleEventBug () &&
 			info.forRead &&
-			info.size == sizeof (WinHandle) &&	// MenuPullDownType.menuWin
+			info.size == sizeof (emuptr) &&	// MenuPullDownType.menuWin
 			::InMenuHandleEvent ())
 		{
 			goto HideBug;

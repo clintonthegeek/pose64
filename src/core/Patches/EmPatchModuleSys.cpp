@@ -1421,9 +1421,9 @@ CallROMType SysHeadpatch::SysAppExit (void)
 	if (false /*LogLaunchCodes ()*/)
 	{
 		emuptr	dbP		= (emuptr)(uintptr_t) ((*appInfoP).dbP);
-		emuptr	openP	= EmMemGet32 (dbP + offsetof (DmAccessType, openP));
-		LocalID	dbID	= EmMemGet32 (openP + offsetof (DmOpenInfoType, hdrID));
-		UInt16	cardNo	= EmMemGet16 (openP + offsetof (DmOpenInfoType, cardNo));
+		emuptr	openP	= EmMemGet32 (dbP + 6 /* m68k offsetof(DmAccessType, openP) */);
+		LocalID	dbID	= EmMemGet32 (openP + 12 /* m68k offsetof(DmOpenInfoType, hdrID) */);
+		UInt16	cardNo	= EmMemGet16 (openP + 24 /* m68k offsetof(DmOpenInfoType, cardNo) */);
 
 		char	name[dmDBNameLength] = {0};
 		UInt32	type = 0;
@@ -2723,10 +2723,10 @@ void SysTailpatch::SysAppStartup (void)
 
 	if (false /*LogLaunchCodes ()*/)
 	{
-		emuptr	dbP		= EmMemGet32 (appInfoP + offsetof (SysAppInfoType, dbP));
-		emuptr	openP	= EmMemGet32 (dbP + offsetof (DmAccessType, openP));
-		LocalID	dbID	= EmMemGet32 (openP + offsetof (DmOpenInfoType, hdrID));
-		UInt16	cardNo	= EmMemGet16 (openP + offsetof (DmOpenInfoType, cardNo));
+		emuptr	dbP		= EmMemGet32 (appInfoP + 16 /* m68k offsetof(SysAppInfoType, dbP) */);
+		emuptr	openP	= EmMemGet32 (dbP + 6 /* m68k offsetof(DmAccessType, openP) */);
+		LocalID	dbID	= EmMemGet32 (openP + 12 /* m68k offsetof(DmOpenInfoType, hdrID) */);
+		UInt16	cardNo	= EmMemGet16 (openP + 24 /* m68k offsetof(DmOpenInfoType, cardNo) */);
 
 		char	name[dmDBNameLength] = {0};
 		UInt32	type = 0;
@@ -2746,7 +2746,7 @@ void SysTailpatch::SysAppStartup (void)
 		LogAppendMsg ("		creator:	%04lX",		creator);
 	}
 
-	Int16 cmd = EmMemGet16 (appInfoP + offsetof (SysAppInfoType, cmd));
+	Int16 cmd = EmMemGet16 (appInfoP + 0 /* m68k offsetof(SysAppInfoType, cmd) */);
 
 	EmuAppInfo	newAppInfo;
 	EmPatchState::CollectCurrentAppInfo (appInfoP, newAppInfo);

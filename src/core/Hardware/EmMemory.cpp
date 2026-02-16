@@ -189,10 +189,10 @@ Bool			gPCInROM;
 
 MemAccessFlags	gMemAccessFlags =
 {
-	MASTER_RUNTIME_VALIDATE_SWITCH,
-	MASTER_RUNTIME_VALIDATE_SWITCH,
-	MASTER_RUNTIME_VALIDATE_SWITCH,
-	MASTER_RUNTIME_VALIDATE_SWITCH,
+	false,									// fValidate_DummyGet: real HW returns 0xFF for unmapped reads
+	MASTER_RUNTIME_VALIDATE_SWITCH,			// fValidate_DummySet
+	false,									// fValidate_RegisterGet: real HW returns 0xFF for unmapped register reads
+	false,									// fValidate_RegisterSet: writes to unmapped registers are silently ignored
 	MASTER_RUNTIME_VALIDATE_SWITCH,
 	MASTER_RUNTIME_VALIDATE_SWITCH,
 	MASTER_RUNTIME_VALIDATE_SWITCH,

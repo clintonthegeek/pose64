@@ -1071,19 +1071,19 @@ static void StubEmPrintFormID (WinHandle winHandle, char* desc, char* eventText)
 			if (winPtr == exitWinPtr)
 				break;
 			
-			winHandle = (WinHandle)(uintptr_t) EmMemGet32 (winPtr + offsetof (WindowType, nextWindow));
+			winHandle = (WinHandle)(uintptr_t) EmMemGet32 (winPtr + 36 /* m68k offsetof(WindowType, nextWindow) */);
 			}
 		
 		
 		if (winHandle && /*winPtr->windowFlags.dialog*/
-			((EmMemGet16 (winPtr + offsetof (WindowType, windowFlags)) & 0x0200) != 0))
+			((EmMemGet16 (winPtr + 8 /* m68k offsetof(WindowType, windowFlags) */) & 0x0200) != 0))
 			{
 			string	title = StubEmFrmGetTitle((FormPtr)(uintptr_t) winPtr);
 			if (!title.empty())
 				sprintf (&eventText[strlen(eventText)],"%s: \"%s\"", desc, title.c_str());
 			else
 				sprintf (&eventText[strlen(eventText)],"%s ID: %ld", desc, /*frm->formId*/
-						EmMemGet16 (winPtr + offsetof (FormType, formId)));
+						EmMemGet16 (winPtr + 40 /* m68k offsetof(FormType, formId) */));
 			}
 		}
 }

@@ -168,7 +168,7 @@ uint8 EmLowMem::GetEvtMgrIdle (void)
 	**	};
 	*/
 
-	size_t	idleOffset = offsetof (SysEvtMgrGlobalsType, idle);
+	size_t	idleOffset = 37; /* m68k offsetof(SysEvtMgrGlobalsType, idle) */
 
 	// Under Palm OS 1.0, there was an extra 4-byte value at the
 	// location currently holding "gremlinsFlag", which is before
