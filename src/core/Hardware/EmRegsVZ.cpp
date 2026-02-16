@@ -806,38 +806,105 @@ uint32 EmRegsVZ::GetAddressRange (void)
 
 void EmRegsVZ::Cycle (Bool sleeping, int cycles)
 {
-#if _DEBUG
-	#define increment	20
-#else
-	#define increment	4
-#endif
+	// ===== Accurate timer path =====
 
-	// ===== Handle Timer 1 =====
+	if (fAccurateTimers && !sleeping)
+	{
+		// --- Timer 1 ---
+		if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlEnable) != 0)
+		{
+			fTmr1CycleAccum += cycles;
+			int ticks = fTmr1CycleAccum >> fTmr1Shift;
+			fTmr1CycleAccum &= fTmr1ShiftMask;
 
-	// Determine whether timer is enabled.
+			if (ticks > 0)
+			{
+				uint16 counter = READ_REGISTER (tmr1Counter) + ticks;
+				WRITE_REGISTER (tmr1Counter, counter);
 
+				if (counter > READ_REGISTER (tmr1Compare))
+				{
+					WRITE_REGISTER (tmr1Status, READ_REGISTER (tmr1Status) | hwrVZ328TmrStatusCompare);
+
+					if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlFreeRun) == 0)
+						WRITE_REGISTER (tmr1Counter, 0);
+
+					if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlEnInterrupt) != 0)
+					{
+						WRITE_REGISTER (intPendingLo, READ_REGISTER (intPendingLo) | hwrVZ328IntLoTimer);
+						EmRegsVZ::UpdateInterrupts ();
+					}
+				}
+			}
+		}
+
+		// --- Timer 2 (with software prescaler) ---
+		if ((READ_REGISTER (tmr2Control) & hwrVZ328TmrControlEnable) != 0)
+		{
+			static int prescaleCounter;
+
+			if ((prescaleCounter -= cycles) <= 0)
+			{
+				prescaleCounter = READ_REGISTER (tmr2Prescaler) * 1024;
+
+				fTmr2CycleAccum += cycles;
+				int t2ticks = fTmr2CycleAccum >> fTmr1Shift;
+				fTmr2CycleAccum &= fTmr1ShiftMask;
+
+				if (t2ticks > 0)
+				{
+					uint16 counter = READ_REGISTER (tmr2Counter) + t2ticks;
+					WRITE_REGISTER (tmr2Counter, counter);
+
+					if (counter > READ_REGISTER (tmr2Compare))
+					{
+						WRITE_REGISTER (tmr2Status, READ_REGISTER (tmr2Status) | hwrVZ328TmrStatusCompare);
+
+						if ((READ_REGISTER (tmr2Control) & hwrVZ328TmrControlFreeRun) == 0)
+							WRITE_REGISTER (tmr2Counter, 0);
+
+						if ((READ_REGISTER (tmr2Control) & hwrVZ328TmrControlEnInterrupt) != 0)
+						{
+							WRITE_REGISTER (intPendingLo, READ_REGISTER (intPendingLo) | hwrVZ328IntLoTimer2);
+							EmRegsVZ::UpdateInterrupts ();
+						}
+					}
+				}
+			}
+		}
+
+		// Gremlins time cascade
+		int grTicks = cycles >> fTmr1Shift;
+		if ((fCycle += grTicks) > READ_REGISTER (tmr1Compare))
+		{
+			fCycle = 0;
+			if (++fTick >= 100) { fTick = 0;
+				if (++fSec >= 60) { fSec = 0;
+					if (++fMin >= 60) { fMin = 0;
+						if (++fHour >= 24) { fHour = 0; }
+					}
+				}
+			}
+		}
+
+		return;
+	}
+
+	// ===== Legacy path (unchanged original code) =====
+
+	#define increment 4
+
+	// --- Timer 1 ---
 	if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlEnable) != 0)
 	{
-		// If so, increment the timer.
-
 		WRITE_REGISTER (tmr1Counter, READ_REGISTER (tmr1Counter) + (sleeping ? 1 : increment));
-
-		// Determine whether the timer has reached the specified count.
 
 		if (sleeping || READ_REGISTER (tmr1Counter) > READ_REGISTER (tmr1Compare))
 		{
-			// Flag the occurrence of the successful comparison.
-
 			WRITE_REGISTER (tmr1Status, READ_REGISTER (tmr1Status) | hwrVZ328TmrStatusCompare);
 
-			// If the Free Run/Restart flag is not set, clear the counter.
-
 			if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlFreeRun) == 0)
-			{
 				WRITE_REGISTER (tmr1Counter, 0);
-			}
-
-			// If the timer interrupt is enabled, post an interrupt.
 
 			if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlEnInterrupt) != 0)
 			{
@@ -847,44 +914,24 @@ void EmRegsVZ::Cycle (Bool sleeping, int cycles)
 		}
 	}
 
-	// ===== Handle Timer 2 =====
-	// ===== (Same code, just the name have been changed) =====
-
-	// Determine whether timer is enabled.
-
+	// --- Timer 2 (with prescaler) ---
 #if 1
 	if ((READ_REGISTER (tmr2Control) & hwrVZ328TmrControlEnable) != 0)
 	{
-		// Divide by the prescale amount.  We do this by decrementing
-		// a prescaler counter.  Only when this counter reaches zero
-		// do we increment the timer counter.
-
 		static int prescaleCounter;
 
 		if ((prescaleCounter -= (sleeping ? (increment * 1024) : increment)) <= 0)
 		{
 			prescaleCounter = READ_REGISTER (tmr2Prescaler) * 1024;
 
-			// If so, increment the timer.
-
 			WRITE_REGISTER (tmr2Counter, READ_REGISTER (tmr2Counter) + (sleeping ? 1 : increment));
-
-			// Determine whether the timer has reached the specified count.
 
 			if (sleeping || READ_REGISTER (tmr2Counter) > READ_REGISTER (tmr2Compare))
 			{
-				// Flag the occurrence of the successful comparison.
-
 				WRITE_REGISTER (tmr2Status, READ_REGISTER (tmr2Status) | hwrVZ328TmrStatusCompare);
 
-				// If the Free Run/Restart flag is not set, clear the counter.
-
 				if ((READ_REGISTER (tmr2Control) & hwrVZ328TmrControlFreeRun) == 0)
-				{
 					WRITE_REGISTER (tmr2Counter, 0);
-				}
-
-				// If the timer interrupt is enabled, post an interrupt.
 
 				if ((READ_REGISTER (tmr2Control) & hwrVZ328TmrControlEnInterrupt) != 0)
 				{
@@ -896,32 +943,20 @@ void EmRegsVZ::Cycle (Bool sleeping, int cycles)
 	}
 #endif
 
-	// ===== Handle time increment (used when running Gremlins) =====
-
+	// --- Gremlins time cascade ---
 	if ((fCycle += increment) > READ_REGISTER (tmr1Compare))
 	{
 		fCycle = 0;
-
-		if (++fTick >= 100)
-		{
-			fTick = 0;
-
-			if (++fSec >= 60)
-			{
-				fSec = 0;
-
-				if (++fMin >= 60)
-				{
-					fMin = 0;
-
-					if (++fHour >= 24)
-					{
-						fHour = 0;
-					}
+		if (++fTick >= 100) { fTick = 0;
+			if (++fSec >= 60) { fSec = 0;
+				if (++fMin >= 60) { fMin = 0;
+					if (++fHour >= 24) { fHour = 0; }
 				}
 			}
 		}
 	}
+
+	#undef increment
 }
 
 
