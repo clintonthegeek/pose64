@@ -770,94 +770,69 @@ uint32 EmRegs328::GetAddressRange (void)
 // Emulator::Execute.  Interestingly, the loop runs 3% FASTER if this function
 // is in its own separate function instead of being inline.
 
-#if 0
-static int		calibrated;
-static int		increment;
-static int		timesCalled;
-static uint32	startingTime;
-
-static void PrvCalibrate (uint16 tmrCompare)
-{
-	// Calibrate the the value by which we increment the counter.
-	// The counter is set up so that it times out after 10 milliseconds
-	// so that it can increment the Palm OS's tick counter 100 times
-	// a second.  We would like tmrCounter to surpass tmrCompare
-	// after 10 milliseconds.  So figure out by how much we need to
-	// increment it in order for that to happen.
-
-	// If timer is disabled; reset calibration.
-
-	if (tmrCompare == 0xFFFF)
-	{
-		startingTime = 0;
-	}
-
-	// If timer is enabled, restart calibration.
-
-	else if (startingTime == 0)
-	{
-		startingTime = Platform::GetMilliseconds();
-		timesCalled = 0;
-		increment = 1;
-	}
-
-	// If calibration is started, continue it.
-
-	else
-	{
-		timesCalled++;
-
-		uint32	now = Platform::GetMilliseconds();
-		if (now - startingTime > 100)
-		{
-			calibrated = true;
-			increment = tmrCompare / (timesCalled / 10);
-		}
-	}
-}
-#endif
-
 void EmRegs328::Cycle (Bool sleeping, int cycles)
 {
-#if 0
-	// Cycle is *very* sensitive to timing issue.  With this section
-	// of code, a Gremlins run can slow down by 5%.
-	if (!calibrated)
-	{
-		::PrvCalibrate (READ_REGISTER (tmr2Compare));
-	}
-#else
-	#if _DEBUG
-		#define increment	20
-	#else
-		#define increment	4
-	#endif
-#endif
+	// ===== Accurate timer path =====
 
-	// Determine whether timer 2 is enabled.
+	if (fAccurateTimers && !sleeping)
+	{
+		if ((READ_REGISTER (tmr2Control) & hwr328TmrControlEnable) != 0)
+		{
+			fTmr2CycleAccum += cycles;
+			int ticks = fTmr2CycleAccum >> fTmr2Shift;
+			fTmr2CycleAccum &= fTmr2ShiftMask;
+
+			if (ticks > 0)
+			{
+				uint16 counter = READ_REGISTER (tmr2Counter) + ticks;
+				WRITE_REGISTER (tmr2Counter, counter);
+
+				if (counter > READ_REGISTER (tmr2Compare))
+				{
+					WRITE_REGISTER (tmr2Status, READ_REGISTER (tmr2Status) | hwr328TmrStatusCompare);
+
+					if ((READ_REGISTER (tmr2Control) & hwr328TmrControlFreeRun) == 0)
+						WRITE_REGISTER (tmr2Counter, 0);
+
+					if ((READ_REGISTER (tmr2Control) & hwr328TmrControlEnInterrupt) != 0)
+					{
+						WRITE_REGISTER (intPendingLo, READ_REGISTER (intPendingLo) | hwr328IntLoTimer2);
+						EmRegs328::UpdateInterrupts ();
+					}
+				}
+			}
+		}
+
+		int grTicks = cycles >> fTmr2Shift;
+		if ((fCycle += grTicks) > READ_REGISTER (tmr2Compare))
+		{
+			fCycle = 0;
+			if (++fTick >= 100) { fTick = 0;
+				if (++fSec >= 60) { fSec = 0;
+					if (++fMin >= 60) { fMin = 0;
+						if (++fHour >= 24) { fHour = 0; }
+					}
+				}
+			}
+		}
+
+		return;
+	}
+
+	// ===== Legacy path (unchanged original code) =====
+
+	#define increment 4
 
 	if ((READ_REGISTER (tmr2Control) & hwr328TmrControlEnable) != 0)
 	{
-		// If so, increment the timer.
-
 		WRITE_REGISTER (tmr2Counter, READ_REGISTER (tmr2Counter) + (sleeping ? 1 : increment));
-
-		// Determine whether the timer has reached the specified count.
 
 		if (sleeping || READ_REGISTER (tmr2Counter) > READ_REGISTER (tmr2Compare))
 		{
-			// Flag the occurrence of the successful comparison.
-
 			WRITE_REGISTER (tmr2Status, READ_REGISTER (tmr2Status) | hwr328TmrStatusCompare);
 
-			// If the Free Run/Restart flag is not set, clear the counter.
-
 			if ((READ_REGISTER (tmr2Control) & hwr328TmrControlFreeRun) == 0)
-			{
 				WRITE_REGISTER (tmr2Counter, 0);
-			}
-
-			// If the timer interrupt is enabled, post an interrupt.
 
 			if ((READ_REGISTER (tmr2Control) & hwr328TmrControlEnInterrupt) != 0)
 			{
@@ -870,27 +845,16 @@ void EmRegs328::Cycle (Bool sleeping, int cycles)
 	if ((fCycle += increment) > READ_REGISTER (tmr2Compare))
 	{
 		fCycle = 0;
-
-		if (++fTick >= 100)
-		{
-			fTick = 0;
-
-			if (++fSec >= 60)
-			{
-				fSec = 0;
-
-				if (++fMin >= 60)
-				{
-					fMin = 0;
-
-					if (++fHour >= 24)
-					{
-						fHour = 0;
-					}
+		if (++fTick >= 100) { fTick = 0;
+			if (++fSec >= 60) { fSec = 0;
+				if (++fMin >= 60) { fMin = 0;
+					if (++fHour >= 24) { fHour = 0; }
 				}
 			}
 		}
 	}
+
+	#undef increment
 }
 
 
