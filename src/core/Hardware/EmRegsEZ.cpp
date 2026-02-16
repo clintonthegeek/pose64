@@ -653,36 +653,68 @@ uint32 EmRegsEZ::GetAddressRange (void)
 
 void EmRegsEZ::Cycle (Bool sleeping, int cycles)
 {
-#if _DEBUG
-	#define increment	20
-#else
-	#define increment	4
-#endif
+	// ===== Accurate timer path =====
 
-	// Determine whether timer is enabled.
+	if (fAccurateTimers && !sleeping)
+	{
+		if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlEnable) != 0)
+		{
+			fTmr1CycleAccum += cycles;
+			int ticks = fTmr1CycleAccum >> fTmr1Shift;
+			fTmr1CycleAccum &= fTmr1ShiftMask;
+
+			if (ticks > 0)
+			{
+				uint16 counter = READ_REGISTER (tmr1Counter) + ticks;
+				WRITE_REGISTER (tmr1Counter, counter);
+
+				if (counter > READ_REGISTER (tmr1Compare))
+				{
+					WRITE_REGISTER (tmr1Status, READ_REGISTER (tmr1Status) | hwrEZ328TmrStatusCompare);
+
+					if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlFreeRun) == 0)
+						WRITE_REGISTER (tmr1Counter, 0);
+
+					if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlEnInterrupt) != 0)
+					{
+						WRITE_REGISTER (intPendingLo, READ_REGISTER (intPendingLo) | hwrEZ328IntLoTimer);
+						EmRegsEZ::UpdateInterrupts ();
+					}
+				}
+			}
+		}
+
+		// Gremlins time cascade — use prescaled ticks
+		int grTicks = cycles >> fTmr1Shift;
+		if ((fCycle += grTicks) > READ_REGISTER (tmr1Compare))
+		{
+			fCycle = 0;
+			if (++fTick >= 100) { fTick = 0;
+				if (++fSec >= 60) { fSec = 0;
+					if (++fMin >= 60) { fMin = 0;
+						if (++fHour >= 24) { fHour = 0; }
+					}
+				}
+			}
+		}
+
+		return;
+	}
+
+	// ===== Legacy path (unchanged original code) =====
+
+	#define increment 4
 
 	if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlEnable) != 0)
 	{
-		// If so, increment the timer.
-
 		WRITE_REGISTER (tmr1Counter, READ_REGISTER (tmr1Counter) + (sleeping ? 1 : increment));
-
-		// Determine whether the timer has reached the specified count.
 
 		if (sleeping || READ_REGISTER (tmr1Counter) > READ_REGISTER (tmr1Compare))
 		{
-			// Flag the occurrence of the successful comparison.
-
 			WRITE_REGISTER (tmr1Status, READ_REGISTER (tmr1Status) | hwrEZ328TmrStatusCompare);
 
-			// If the Free Run/Restart flag is not set, clear the counter.
-
 			if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlFreeRun) == 0)
-			{
 				WRITE_REGISTER (tmr1Counter, 0);
-			}
-
-			// If the timer interrupt is enabled, post an interrupt.
 
 			if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlEnInterrupt) != 0)
 			{
@@ -695,27 +727,16 @@ void EmRegsEZ::Cycle (Bool sleeping, int cycles)
 	if ((fCycle += increment) > READ_REGISTER (tmr1Compare))
 	{
 		fCycle = 0;
-
-		if (++fTick >= 100)
-		{
-			fTick = 0;
-
-			if (++fSec >= 60)
-			{
-				fSec = 0;
-
-				if (++fMin >= 60)
-				{
-					fMin = 0;
-
-					if (++fHour >= 24)
-					{
-						fHour = 0;
-					}
+		if (++fTick >= 100) { fTick = 0;
+			if (++fSec >= 60) { fSec = 0;
+				if (++fMin >= 60) { fMin = 0;
+					if (++fHour >= 24) { fHour = 0; }
 				}
 			}
 		}
 	}
+
+	#undef increment
 }
 
 
