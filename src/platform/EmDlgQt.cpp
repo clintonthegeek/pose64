@@ -903,6 +903,7 @@ static EmDlgItemID PrvHostEditSkins (void)
 	Preference<bool> prefOnTop (kPrefKeyStayOnTop);
 	Preference<bool> prefFrameless (kPrefKeyFramelessWindow);
 	Preference<bool> prefFeather (kPrefKeyFeatheredEdges);
+	Preference<bool> prefTransparent (kPrefKeyTransparentLCD);
 
 	QDialog dlg;
 	dlg.setWindowTitle ("Skins");
@@ -950,6 +951,10 @@ static EmDlgItemID PrvHostEditSkins (void)
 	featherCheck->setChecked (*prefFeather);
 	topLayout->addWidget (featherCheck);
 
+	QCheckBox* transparentCheck = new QCheckBox ("Transparent LCD (skin shows through)");
+	transparentCheck->setChecked (*prefTransparent);
+	topLayout->addWidget (transparentCheck);
+
 	QDialogButtonBox* buttons = new QDialogButtonBox (
 		QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	topLayout->addWidget (buttons);
@@ -990,6 +995,10 @@ static EmDlgItemID PrvHostEditSkins (void)
 		{
 			Preference<bool> p (kPrefKeyFeatheredEdges);
 			p = featherCheck->isChecked ();
+		}
+		{
+			Preference<bool> p (kPrefKeyTransparentLCD);
+			p = transparentCheck->isChecked ();
 		}
 
 		// Re-apply skin at new scale — reloads skin image, recalculates

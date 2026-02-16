@@ -75,7 +75,8 @@ private:
 	void buildQMenu (QMenu& qmenu, const EmMenuItemList& items);
 
 	// Pixel format conversion
-	QImage emPixMapToQImage (const EmPixMap& pixmap);
+	QImage emPixMapToQImage (const EmPixMap& pixmap,
+							 bool transparentLCD = false);
 
 private:
 	// Screen state (only accessed from UI thread)
@@ -98,7 +99,9 @@ private:
 	QColor fLEDColor;
 	bool fLEDVisible;
 
-	// (unused — drag-to-move uses QWindow::startSystemMove())
+	// Backlight tint overlay (transparent LCD mode)
+	QColor fLCDTint;
+	bool fLCDTintActive;
 };
 
 extern EmWindowQt* gHostWindow;

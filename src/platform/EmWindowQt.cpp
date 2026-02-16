@@ -278,7 +278,8 @@ EmWindowQt::EmWindowQt () :
 	fMouseX (0),
 	fMouseY (0),
 	fButtonFrameVisible (false),
-	fLEDVisible (false)
+	fLEDVisible (false),
+	fLCDTintActive (false)
 {
 	EmAssert (gHostWindow == NULL);
 	gHostWindow = this;
@@ -374,6 +375,15 @@ void EmWindowQt::paintEvent (QPaintEvent*)
 	// Only draw LCD, button, and LED overlays when a session exists.
 	if (gDocument)
 	{
+		// When the backlight is on with transparent LCD, draw a
+		// semi-transparent color wash over the LCD area first.
+		// The skin texture shows through the tint, then the
+		// alpha-black LCD pixels composite on top.
+		if (fLCDTintActive)
+		{
+			painter.fillRect (fLCDRect, fLCDTint);
+		}
+
 		if (!fLCDImage.isNull ())
 		{
 			painter.drawImage (fLCDRect, fLCDImage);
@@ -644,7 +654,8 @@ void EmWindowQt::buildQMenu (QMenu& qmenu, const EmMenuItemList& items)
 // ---------------------------------------------------------------------------
 // Converts POSE EmPixMap to QImage.  Thread-safe (no QWidget calls).
 
-QImage EmWindowQt::emPixMapToQImage (const EmPixMap& pixmap)
+QImage EmWindowQt::emPixMapToQImage (const EmPixMap& pixmap,
+									  bool transparentLCD)
 {
 	EmPoint size = pixmap.GetSize ();
 	int w = size.fX;
@@ -711,6 +722,7 @@ QImage EmWindowQt::emPixMapToQImage (const EmPixMap& pixmap)
 		case kPixMapFormat8:
 		{
 			const RGBList& colors = pixmap.GetColorTable ();
+			int numColors = (int) colors.size ();
 			QImage img (w, h, QImage::Format_ARGB32);
 			const uint8_t* src = static_cast<const uint8_t*> (bits);
 			for (int y = 0; y < h; y++)
@@ -720,7 +732,12 @@ QImage EmWindowQt::emPixMapToQImage (const EmPixMap& pixmap)
 				for (int x = 0; x < w; x++)
 				{
 					uint8_t idx = srcRow[x];
-					if (idx < colors.size ())
+					if (transparentLCD && numColors > 1)
+					{
+						uint8_t a = (uint8_t)(idx * 255 / (numColors - 1));
+						dstRow[x] = ((uint32_t)a << 24);
+					}
+					else if (idx < numColors)
 					{
 						const RGBType& c = colors[idx];
 						dstRow[x] = 0xFF000000 | (c.fRed << 16) | (c.fGreen << 8) | c.fBlue;
@@ -736,9 +753,113 @@ QImage EmWindowQt::emPixMapToQImage (const EmPixMap& pixmap)
 
 		case kPixMapFormat1:
 		{
-			QImage tmp (static_cast<const uchar*> (bits), w, h, rowBytes,
-						QImage::Format_Mono);
-			return tmp.convertToFormat (QImage::Format_RGB32);
+			// 1-bpp indexed: use the color table from PrvGetPalette().
+			// Palm convention: index 0 = background (LCD green), index 1 = foreground (black).
+			// Qt's default Format_Mono color table is inverted (0=black, 1=white)
+			// and lacks the LCD green, so we must apply the color table manually.
+			//
+			// When transparentLCD: index 0 = fully transparent, index 1 = fully
+			// opaque black.  The skin's own LCD area color shows through.
+			const RGBList& colors = pixmap.GetColorTable ();
+			int numColors = (int) colors.size ();
+			QImage img (w, h, QImage::Format_ARGB32);
+			const uint8_t* src = static_cast<const uint8_t*> (bits);
+			for (int y = 0; y < h; y++)
+			{
+				const uint8_t* srcRow = src + y * rowBytes;
+				uint32_t* dstRow = reinterpret_cast<uint32_t*> (img.scanLine (y));
+				for (int x = 0; x < w; x++)
+				{
+					int byteIdx = x >> 3;
+					int bitIdx  = 7 - (x & 7);  // MSB first
+					uint8_t idx = (srcRow[byteIdx] >> bitIdx) & 1;
+					if (transparentLCD && numColors > 1)
+					{
+						uint8_t a = (uint8_t)(idx * 255 / (numColors - 1));
+						dstRow[x] = ((uint32_t)a << 24);
+					}
+					else if (idx < numColors)
+					{
+						const RGBType& c = colors[idx];
+						dstRow[x] = 0xFF000000 | (c.fRed << 16) | (c.fGreen << 8) | c.fBlue;
+					}
+					else
+					{
+						dstRow[x] = 0xFF000000;  // black fallback
+					}
+				}
+			}
+			return img;
+		}
+
+		case kPixMapFormat2:
+		{
+			// 2-bpp indexed (4-shade grayscale): apply color table.
+			const RGBList& colors = pixmap.GetColorTable ();
+			int numColors = (int) colors.size ();
+			QImage img (w, h, QImage::Format_ARGB32);
+			const uint8_t* src = static_cast<const uint8_t*> (bits);
+			for (int y = 0; y < h; y++)
+			{
+				const uint8_t* srcRow = src + y * rowBytes;
+				uint32_t* dstRow = reinterpret_cast<uint32_t*> (img.scanLine (y));
+				for (int x = 0; x < w; x++)
+				{
+					int byteIdx = x >> 2;
+					int shift   = 6 - ((x & 3) << 1);  // MSB first: pixels 0,1,2,3 at bits 6,4,2,0
+					uint8_t idx = (srcRow[byteIdx] >> shift) & 0x03;
+					if (transparentLCD && numColors > 1)
+					{
+						uint8_t a = (uint8_t)(idx * 255 / (numColors - 1));
+						dstRow[x] = ((uint32_t)a << 24);
+					}
+					else if (idx < numColors)
+					{
+						const RGBType& c = colors[idx];
+						dstRow[x] = 0xFF000000 | (c.fRed << 16) | (c.fGreen << 8) | c.fBlue;
+					}
+					else
+					{
+						dstRow[x] = 0xFF000000;
+					}
+				}
+			}
+			return img;
+		}
+
+		case kPixMapFormat4:
+		{
+			// 4-bpp indexed (16-shade grayscale): apply color table.
+			const RGBList& colors = pixmap.GetColorTable ();
+			int numColors = (int) colors.size ();
+			QImage img (w, h, QImage::Format_ARGB32);
+			const uint8_t* src = static_cast<const uint8_t*> (bits);
+			for (int y = 0; y < h; y++)
+			{
+				const uint8_t* srcRow = src + y * rowBytes;
+				uint32_t* dstRow = reinterpret_cast<uint32_t*> (img.scanLine (y));
+				for (int x = 0; x < w; x++)
+				{
+					int byteIdx = x >> 1;
+					int shift   = (x & 1) ? 0 : 4;  // MSB first: high nibble first
+					uint8_t idx = (srcRow[byteIdx] >> shift) & 0x0F;
+					if (transparentLCD && numColors > 1)
+					{
+						uint8_t a = (uint8_t)(idx * 255 / (numColors - 1));
+						dstRow[x] = ((uint32_t)a << 24);
+					}
+					else if (idx < numColors)
+					{
+						const RGBType& c = colors[idx];
+						dstRow[x] = 0xFF000000 | (c.fRed << 16) | (c.fGreen << 8) | c.fBlue;
+					}
+					else
+					{
+						dstRow[x] = 0xFF000000;
+					}
+				}
+			}
+			return img;
 		}
 
 		default:
@@ -987,7 +1108,31 @@ void EmWindowQt::HostPaintLCD (const EmScreenUpdateInfo& info,
 	// in info.fImage — the rest is uninitialized garbage.  Keep a
 	// persistent fLCDImage and merge only the dirty portion.
 
-	QImage newImage = emPixMapToQImage (info.fImage);
+	Preference<bool> prefTransparent (kPrefKeyTransparentLCD);
+	bool transparent = *prefTransparent;
+	QImage newImage = emPixMapToQImage (info.fImage, transparent);
+
+	// Detect backlight for transparent LCD mode.  When the palette's
+	// background color (index 0) differs from the skin's normal
+	// background, the backlight is on — use it as a color wash.
+	fLCDTintActive = false;
+	if (transparent)
+	{
+		const RGBList& colors = info.fImage.GetColorTable ();
+		if (!colors.empty ())
+		{
+			RGBType skinBg = ::SkinGetBackgroundColor ();
+			const RGBType& palBg = colors[0];
+
+			if (palBg.fRed != skinBg.fRed ||
+				palBg.fGreen != skinBg.fGreen ||
+				palBg.fBlue != skinBg.fBlue)
+			{
+				fLCDTint = QColor (palBg.fRed, palBg.fGreen, palBg.fBlue, 102);
+				fLCDTintActive = true;
+			}
+		}
+	}
 
 	int w = newImage.width ();
 	int h = newImage.height ();
