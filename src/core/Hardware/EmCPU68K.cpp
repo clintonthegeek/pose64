@@ -124,18 +124,17 @@ EmCPU68K*	gCPU68K;
 
 #define CYCLE(sleeping, cycles)													\
 {																				\
-	/* Don't do anything if we're in the middle of an ATrap call.  We don't */	\
-	/* need interrupts firing or tmr counters incrementing. */					\
-																				\
 	EmAssert (session);															\
+																				\
+	/* Always advance timers, even during nested execution.  Without this, */	\
+	/* a STOP instruction during a nested call can never be cleared because */	\
+	/* no timer interrupt fires.  (Matches DOSBox's approach of always */		\
+	/* firing PIC events at all nesting depths.) */								\
+	EmHAL::Cycle (sleeping, cycles);											\
+																				\
 	if (!session->IsNested ())													\
 	{																			\
-		/* Perform CPU-specific idling. */										\
-																				\
-		EmHAL::Cycle (sleeping, cycles);										\
-																				\
-		/* Perform expensive operations. */										\
-																				\
+		/* Perform expensive operations (throttle, LCD, UI sync). */			\
 		if (sleeping || ((++counter & 0x7FFF) == 0))							\
 		{																		\
 			this->CycleSlowly (sleeping);										\
@@ -613,6 +612,44 @@ Bool EmCPU68K::ExecuteSpecial (void)
 	EmAssert (fSession);
 	if (fSession->IsNested () != 0)
 	{
+		// Nested execution skips CycleSlowly (no throttle, no UI sync).
+		// The CYCLE macro still advances timers, so timer interrupts
+		// fire normally.  The UI thread can interrupt us via
+		// SPCFLAG_END_OF_CYCLE → CheckForBreak → fSuspendByUIThread.
+
+		if (regs.spcflags & SPCFLAG_STOP)
+		{
+			// Loop until an interrupt clears STOP or the UI thread
+			// requests a break.  We must not fall through to the
+			// Execute main loop while stopped — that would execute
+			// instructions past the STOP opcode.
+			while (regs.spcflags & SPCFLAG_STOP)
+			{
+				fCycleCount += 16;
+				EmHAL::Cycle (true, 16);
+
+				if (regs.spcflags & (SPCFLAG_INT | SPCFLAG_DOINT))
+				{
+					int32 interruptLevel = EmHAL::GetInterruptLevel ();
+					regs.spcflags &= ~(SPCFLAG_INT | SPCFLAG_DOINT);
+
+					if ((interruptLevel != -1) && (interruptLevel > regs.intmask))
+					{
+						this->ProcessInterrupt (interruptLevel);
+						regs.stopped = 0;
+						regs.spcflags &= ~SPCFLAG_STOP;
+					}
+				}
+
+				if (this->CheckForBreak ())
+					return true;
+
+				usleep (100);
+			}
+
+			return false;	// STOP cleared, continue execution
+		}
+
 		return this->CheckForBreak ();
 	}
 
@@ -864,6 +901,12 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 					int64_t emulatedUs = (int64_t) cyclesToNext * 1000000LL / clockFreq;
 					int64_t targetUs = emulatedUs * 100 / speed;
 
+					// Cap sleep to 10ms for UI responsiveness (matching
+					// WinUAE's fixed 1ms cap approach).  Low-clock devices
+					// can produce multi-second sleep values per timer period.
+					if (targetUs > 10000)
+						targetUs = 10000;
+
 					if (targetUs > 200)
 						usleep ((useconds_t) targetUs);
 				}
@@ -962,6 +1005,12 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 				int64_t targetWallUs = emulatedUs * 100 / speed;
 				int64_t actualWallUs = nowUs - fThrottleBaseTimeUs;
 				int64_t sleepUs = targetWallUs - actualWallUs;
+
+				// Cap sleep to 10ms for UI responsiveness.  During STOP
+				// mode the stopped loop can advance many emulated cycles
+				// per iteration, making the throttle think we're far ahead.
+				if (sleepUs > 10000)
+					sleepUs = 10000;
 
 				if (sleepUs > 500)
 				{
