@@ -824,7 +824,7 @@ void EmRegsVZ::Cycle (Bool sleeping, int cycles)
 				uint16 counter = READ_REGISTER (tmr1Counter) + ticks;
 				WRITE_REGISTER (tmr1Counter, counter);
 
-				if (counter > READ_REGISTER (tmr1Compare))
+				if (counter >= READ_REGISTER (tmr1Compare))
 				{
 					WRITE_REGISTER (tmr1Status, READ_REGISTER (tmr1Status) | hwrVZ328TmrStatusCompare);
 
@@ -858,7 +858,7 @@ void EmRegsVZ::Cycle (Bool sleeping, int cycles)
 					uint16 counter = READ_REGISTER (tmr2Counter) + t2ticks;
 					WRITE_REGISTER (tmr2Counter, counter);
 
-					if (counter > READ_REGISTER (tmr2Compare))
+					if (counter >= READ_REGISTER (tmr2Compare))
 					{
 						WRITE_REGISTER (tmr2Status, READ_REGISTER (tmr2Status) | hwrVZ328TmrStatusCompare);
 

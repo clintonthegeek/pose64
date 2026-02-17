@@ -787,7 +787,7 @@ void EmRegs328::Cycle (Bool sleeping, int cycles)
 				uint16 counter = READ_REGISTER (tmr2Counter) + ticks;
 				WRITE_REGISTER (tmr2Counter, counter);
 
-				if (counter > READ_REGISTER (tmr2Compare))
+				if (counter >= READ_REGISTER (tmr2Compare))
 				{
 					WRITE_REGISTER (tmr2Status, READ_REGISTER (tmr2Status) | hwr328TmrStatusCompare);
 

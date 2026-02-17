@@ -668,7 +668,7 @@ void EmRegsEZ::Cycle (Bool sleeping, int cycles)
 				uint16 counter = READ_REGISTER (tmr1Counter) + ticks;
 				WRITE_REGISTER (tmr1Counter, counter);
 
-				if (counter > READ_REGISTER (tmr1Compare))
+				if (counter >= READ_REGISTER (tmr1Compare))
 				{
 					WRITE_REGISTER (tmr1Status, READ_REGISTER (tmr1Status) | hwrEZ328TmrStatusCompare);
 
