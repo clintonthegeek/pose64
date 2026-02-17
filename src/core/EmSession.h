@@ -682,6 +682,7 @@ class EmSession
 
 	public:
 		std::atomic<int>			fEmulationSpeed{0};		// 0=max, 1=1x, 2=2x, 4=4x, 8=8x
+		std::atomic<int32>			fEffectiveClockFreq{0};	// 0 = lazy-init on first throttle call
 
 	private:
 		InstructionBreakFuncList	fInstructionBreakFuncs;

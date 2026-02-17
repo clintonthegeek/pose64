@@ -11124,7 +11124,7 @@ unsigned long REGPARAM2 op_4e74_3(uae_u32 opcode) /* RTD */
 unsigned long REGPARAM2 op_4e75_3(uae_u32 opcode) /* RTS */
 {
 {	m68k_do_rts();
-}return 2;
+}return 8; /* MC68000: 16 cycles (hidden get_long stack pop + prefetch refill) */
 }
 unsigned long REGPARAM2 op_4e76_3(uae_u32 opcode) /* TRAPV */
 {
@@ -11154,47 +11154,47 @@ unsigned long REGPARAM2 op_4e90_3(uae_u32 opcode) /* JSR */
 {{	uaecptr srca = m68k_areg(regs, srcreg);
 if (!Software_ProcessJSR_Ind (m68k_getpc(), srca))
 	m68k_do_jsr(m68k_getpc() + 2, srca);
-}}return 2;
+}}return 8; /* MC68000: 16 cycles (hidden put_long stack push + prefetch refill) */
 }
 unsigned long REGPARAM2 op_4ea8_3(uae_u32 opcode) /* JSR */
 {
 	uae_u32 srcreg = (opcode & 7);
 {{	uaecptr srca = m68k_areg(regs, srcreg) + (uae_s32)(uae_s16)get_iword(2);
 	m68k_do_jsr(m68k_getpc() + 4, srca);
-}}return 4;
+}}return 9; /* MC68000: 18 cycles */
 }
 unsigned long REGPARAM2 op_4eb0_3(uae_u32 opcode) /* JSR */
 {
 	uae_u32 srcreg = (opcode & 7);
 {{	uaecptr srca = get_disp_ea_000(m68k_areg(regs, srcreg), get_iword(2));
 	m68k_do_jsr(m68k_getpc() + 4, srca);
-}}return 4;
+}}return 11; /* MC68000: 22 cycles */
 }
 unsigned long REGPARAM2 op_4eb8_3(uae_u32 opcode) /* JSR */
 {
 {{	uaecptr srca = (uae_s32)(uae_s16)get_iword(2);
 	m68k_do_jsr(m68k_getpc() + 4, srca);
-}}return 4;
+}}return 9; /* MC68000: 18 cycles */
 }
 unsigned long REGPARAM2 op_4eb9_3(uae_u32 opcode) /* JSR */
 {
 {{	uaecptr srca = get_ilong(2);
 	m68k_do_jsr(m68k_getpc() + 6, srca);
-}}return 6;
+}}return 10; /* MC68000: 20 cycles */
 }
 unsigned long REGPARAM2 op_4eba_3(uae_u32 opcode) /* JSR */
 {
 {{	uaecptr srca = m68k_getpc () + 2;
 	srca += (uae_s32)(uae_s16)get_iword(2);
 	m68k_do_jsr(m68k_getpc() + 4, srca);
-}}return 4;
+}}return 9; /* MC68000: 18 cycles */
 }
 unsigned long REGPARAM2 op_4ebb_3(uae_u32 opcode) /* JSR */
 {
 {{	uaecptr tmppc = m68k_getpc() + 2;
 	uaecptr srca = get_disp_ea_000(tmppc, get_iword(2));
 	m68k_do_jsr(m68k_getpc() + 4, srca);
-}}return 4;
+}}return 11; /* MC68000: 22 cycles */
 }
 unsigned long REGPARAM2 op_4ed0_3(uae_u32 opcode) /* JMP */
 {
@@ -13849,7 +13849,7 @@ unsigned long REGPARAM2 op_6100_3(uae_u32 opcode) /* BSR */
 {{	uae_s16 src = get_iword(2);
 	uae_s32 s = (uae_s32)src + 2;
 	m68k_do_bsr(m68k_getpc() + 4, s);
-}}return 4;
+}}return 9; /* MC68000: 18 cycles */
 }
 unsigned long REGPARAM2 op_6101_3(uae_u32 opcode) /* BSR */
 {
@@ -13857,14 +13857,14 @@ unsigned long REGPARAM2 op_6101_3(uae_u32 opcode) /* BSR */
 {{	uae_u32 src = srcreg;
 	uae_s32 s = (uae_s32)src + 2;
 	m68k_do_bsr(m68k_getpc() + 2, s);
-}}return 2;
+}}return 9; /* MC68000: 18 cycles */
 }
 unsigned long REGPARAM2 op_61ff_3(uae_u32 opcode) /* BSR */
 {
 {{	uae_s32 src = get_ilong(2);
 	uae_s32 s = (uae_s32)src + 2;
 	m68k_do_bsr(m68k_getpc() + 6, s);
-}}return 6;
+}}return 10; /* MC68000: ~20 cycles (68020 BSR.L, hidden put_long stack push) */
 }
 unsigned long REGPARAM2 op_6200_3(uae_u32 opcode) /* Bcc */
 {

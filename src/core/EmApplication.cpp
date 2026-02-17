@@ -15,6 +15,7 @@
 #include "EmApplication.h"
 
 #include "EmCommands.h"			// EmCommandID
+#include "EmDevice.h"			// EmDevice::GetDeviceList
 #include "EmDlg.h"				// EmDlg, DoEditPreferences, etc.
 #include "EmHAL.h"				// EmHAL::SetAccurateTimers
 #include "PreferenceMgr.h"		// Preference, kPrefKeyTimerAccuracy
@@ -97,7 +98,6 @@ kCommand[] =
 	{ kCommandSpeed8x,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeedMax,			&EmApplication::DoSetSpeed,		kStr_CmdSetSpeed		},
 	{ kCommandSpeedManual,		&EmApplication::DoSpeedManual,	0						},
-
 	{ kCommandEventReplay,		&EmApplication::DoReplay,		kStr_CmdEventReplay		},
 	{ kCommandEventMinimize,	&EmApplication::DoMinimize,		kStr_CmdEventMinimize	},
 
@@ -1126,6 +1126,8 @@ void EmApplication::DoSpeedManual (EmCommandID)
 	if (gSession)
 		gSession->fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
 }
+
+
 
 
 // ---------------------------------------------------------------------------

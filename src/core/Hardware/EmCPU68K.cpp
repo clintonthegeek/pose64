@@ -27,6 +27,7 @@
 #include "Platform.h"			// GetMilliseconds
 #include "SessionFile.h"		// WriteDBallRegs, etc.
 #include "StringData.h"			// kExceptionNames
+#include "EmDeviceBenchmark.h"	// EmDeviceBenchmark_GetEffectiveClockFreq
 #include "UAE.h"				// cpuop_func, etc.
 
 #include <sys/time.h>			// gettimeofday
@@ -475,6 +476,7 @@ void EmCPU68K::Execute (void)
 		opcode = do_get_mem_word (pc_p);
 
 		cycles = (functable[opcode]) (opcode);
+		cycles = cycles * 2;
 		fCycleCount += cycles;
 		// =======================================================================
 
@@ -583,7 +585,7 @@ void EmCPU68K::ExecuteSimple (void)
 
 		EmOpcode68K	opcode;
 		opcode = get_iword (0);
-		fCycleCount += cpufunctbl[opcode] (opcode);
+		fCycleCount += cpufunctbl[opcode] (opcode) * 2;  // UAE returns half-speed cycle counts
 
 		this->Cycle (false);
 
@@ -895,7 +897,9 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 			int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
 			if (speed > 0)
 			{
-				int32 clockFreq = EmHAL::GetSystemClockFrequency ();
+				int32 clockFreq = fSession->fEffectiveClockFreq.load (std::memory_order_relaxed);
+				if (clockFreq <= 0)
+					clockFreq = EmHAL::GetSystemClockFrequency ();
 				if (clockFreq > 0)
 				{
 					int64_t emulatedUs = (int64_t) cyclesToNext * 1000000LL / clockFreq;
@@ -998,7 +1002,21 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 		else
 		{
 			uint32 elapsed = fCycleCount - fThrottleBaseCycles;
-			int32 clockFreq = EmHAL::GetSystemClockFrequency ();
+			int32 clockFreq = fSession->fEffectiveClockFreq.load (std::memory_order_relaxed);
+			if (clockFreq <= 0)
+			{
+				// Lazy init: HAL is now up, compute correction from benchmark data
+				int32 sysClk = EmHAL::GetSystemClockFrequency ();
+				if (sysClk > 0)
+				{
+					string deviceID = fSession->GetDevice ().GetIDString ();
+					clockFreq = EmDeviceBenchmark_GetEffectiveClockFreq (
+						deviceID.c_str (), sysClk);
+					fSession->fEffectiveClockFreq.store (clockFreq, std::memory_order_relaxed);
+				}
+				else
+					clockFreq = sysClk;
+			}
 			if (clockFreq > 0)
 			{
 				int64_t emulatedUs = (int64_t) elapsed * 1000000LL / clockFreq;
@@ -1006,9 +1024,6 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 				int64_t actualWallUs = nowUs - fThrottleBaseTimeUs;
 				int64_t sleepUs = targetWallUs - actualWallUs;
 
-				// Cap sleep to 10ms for UI responsiveness.  During STOP
-				// mode the stopped loop can advance many emulated cycles
-				// per iteration, making the throttle think we're far ahead.
 				if (sleepUs > 10000)
 					sleepUs = 10000;
 

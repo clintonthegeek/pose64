@@ -86,7 +86,6 @@ enum EmCommandID
 	kCommandSpeed8x,
 	kCommandSpeedMax,
 	kCommandSpeedManual,
-
 	kCommandGremlinsNew,
 	kCommandGremlinsSuspend,
 	kCommandGremlinsStep,

@@ -260,7 +260,6 @@ EmPrvMenuItem	kPrvMenuItems[] =
 	{ kCommandSpeed8x,			kStr_MenuSpeed8x },
 	{ kCommandSpeedMax,			kStr_MenuSpeedMax },
 	{ kCommandSpeedManual,		kStr_MenuSpeedManual },
-
 	{ kCommandGremlinsNew,		kStr_MenuGremlinsNew },
 	{ kCommandGremlinsSuspend,	kStr_MenuGremlinsSuspend },
 	{ kCommandGremlinsStep,		kStr_MenuGremlinsStep },
@@ -968,7 +967,6 @@ Bool PrvGetItemStatus (const EmMenuItem& item)
 		case kCommandSpeed8x:			return true;
 		case kCommandSpeedMax:			return true;
 		case kCommandSpeedManual:		return true;
-
 		case kCommandGremlinsNew:		return gSession != NULL && Hordes::CanNew ();
 		case kCommandGremlinsSuspend:	return gSession != NULL && Hordes::CanSuspend ();
 		case kCommandGremlinsStep:		return gSession != NULL && Hordes::CanStep ();
