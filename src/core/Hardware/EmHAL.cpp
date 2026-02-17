@@ -547,6 +547,29 @@ void EmHAL::SetAccurateTimers (bool accurate)
 
 
 // ---------------------------------------------------------------------------
+//		EmHAL::GetSleepCyclesPerTick
+// ---------------------------------------------------------------------------
+
+int EmHAL::GetSleepCyclesPerTick (void)
+{
+	if (!EmHAL::GetRootHandler())
+		return 16;	// safe default: system/16
+	return EmHAL::GetRootHandler()->GetSleepCyclesPerTick ();
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmHAL::GetCyclesUntilNextInterrupt
+// ---------------------------------------------------------------------------
+
+int32 EmHAL::GetCyclesUntilNextInterrupt (void)
+{
+	EmAssert (EmHAL::GetRootHandler ());
+	return EmHAL::GetRootHandler ()->GetCyclesUntilNextInterrupt ();
+}
+
+
+// ---------------------------------------------------------------------------
 //		� EmHAL::GetVibrateOn
 // ---------------------------------------------------------------------------
 
@@ -929,6 +952,30 @@ Bool EmHALHandler::GetDTR (int uartNum)
 void EmHALHandler::SetAccurateTimers (bool)
 {
 	// Default: do nothing. Overridden by EmRegsXX.
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmHALHandler::GetSleepCyclesPerTick
+// ---------------------------------------------------------------------------
+
+int EmHALHandler::GetSleepCyclesPerTick (void)
+{
+	// Default: system/16 prescaler = 16 cycles per timer tick.
+	return 16;
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmHALHandler::GetCyclesUntilNextInterrupt
+// ---------------------------------------------------------------------------
+
+int32 EmHALHandler::GetCyclesUntilNextInterrupt (void)
+{
+	EmHALHandler* nextHandler = this->GetNextHandler ();
+	if (nextHandler)
+		return nextHandler->GetCyclesUntilNextInterrupt ();
+	return 0x7FFFFFFF;
 }
 
 

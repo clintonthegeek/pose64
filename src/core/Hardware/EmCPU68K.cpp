@@ -820,9 +820,6 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 
 	int	counter = 0;
 
-	// While the CPU is stopped (because a STOP instruction was
-	// executed) do some idle tasks.
-
 #if HAS_DEAD_MANS_SWITCH
 	// -----------------------------------------------------------------------
 	// Put in a little dead-man's switch. If this function doesn't
@@ -834,11 +831,6 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 
 	do {
 #if HAS_DEAD_MANS_SWITCH
-		// -----------------------------------------------------------------------
-		// Put in a little dead-man's switch. If this function doesn't
-		// exit for a long time, let us get into the debugger.
-		// -----------------------------------------------------------------------
-
 		uint32 deadManNow = Platform::GetMilliseconds ();
 		if ((deadManNow - deadManStart) > 5000)
 		{
@@ -846,25 +838,44 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 		}
 #endif
 
-		// -----------------------------------------------------------------------
-		// Slow down processing so that the timer used
-		// to increment the tickcount doesn't run too quickly.
-		// -----------------------------------------------------------------------
+		// Calculate how many cycles until the next timer interrupt fires.
+		int32 cyclesToNext = EmHAL::GetCyclesUntilNextInterrupt ();
 
-#if __profile__
-	short	oldStatus = ProfilerGetStatus ();
-	ProfilerSetStatus (false);
-#endif
+		// Clamp to a reasonable range:
+		// - Minimum 16 cycles (don't advance by 0)
+		// - Maximum ~65536 cycles (~2ms at 33MHz) to stay responsive
+		if (cyclesToNext < 16)
+			cyclesToNext = 16;
+		if (cyclesToNext > 65536)
+			cyclesToNext = 65536;
 
-		Platform::Delay ();
+		// Advance timers by the calculated amount.  On real hardware,
+		// the oscillator keeps running during STOP — only the CPU core
+		// halts.  The timer peripheral still counts clock edges.
 
-#if __profile__
-	ProfilerSetStatus (oldStatus);
-#endif
+		fCycleCount += cyclesToNext;
+		EmHAL::Cycle (true, cyclesToNext);
 
-		// Perform periodic tasks.
+		// Throttle: sleep for the corresponding wall-clock time.
+		int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
+		if (speed > 0)
+		{
+			int32 clockFreq = EmHAL::GetSystemClockFrequency ();
+			if (clockFreq > 0)
+			{
+				int64_t emulatedUs = (int64_t) cyclesToNext * 1000000LL / clockFreq;
+				int64_t targetUs = emulatedUs * 100 / speed;
 
-		CYCLE (true, 0);
+				if (targetUs > 200)		// only sleep if > 200us (below this, usleep is unreliable)
+					usleep ((useconds_t) targetUs);
+			}
+		}
+
+		// Perform expensive periodic tasks (LCD update, button polling, etc.)
+		if ((++counter & 0x3F) == 0)
+		{
+			this->CycleSlowly (true);
+		}
 
 		// Process an interrupt (see if it's time to wake up).
 
@@ -906,6 +917,7 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 
 	// Speed throttle
 	int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
+
 	if (speed > 0)
 	{
 		struct timeval tv;
@@ -929,8 +941,16 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 				int64_t actualWallUs = nowUs - fThrottleBaseTimeUs;
 				int64_t sleepUs = targetWallUs - actualWallUs;
 
-				if (sleepUs > 0)
+				if (sleepUs > 500)
+				{
 					usleep ((useconds_t) sleepUs);
+				}
+				else if (sleepUs > 0)
+				{
+					// Sub-500us sleeps are unreliable on most systems.
+					// Yield the CPU instead of busy-waiting.
+					usleep (500);
+				}
 				else if (sleepUs < -100000)
 				{
 					// More than 100ms behind — reset to prevent catch-up burst

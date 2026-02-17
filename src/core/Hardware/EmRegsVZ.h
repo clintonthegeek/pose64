@@ -68,6 +68,8 @@ class EmRegsVZ : public EmRegs, public EmHALHandler
 		virtual Bool			GetAsleep				(void);
 
 		virtual void			SetAccurateTimers		(bool accurate);
+		virtual int				GetSleepCyclesPerTick	(void);
+		virtual int32			GetCyclesUntilNextInterrupt (void);
 
 		virtual uint8			GetPortInputValue		(int);
 		virtual uint8			GetPortInternalValue	(int);

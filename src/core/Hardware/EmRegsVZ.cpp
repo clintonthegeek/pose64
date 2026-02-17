@@ -30,6 +30,8 @@
 #include "SessionFile.h"		// WriteHwrDBallVZType, etc.
 #include "UAE.h"				// regs, SPCFLAG_INT
 
+#include <cstdio>				// fprintf (debug output)
+
 #include "PalmPack.h"
 #define NON_PORTABLE
 	#include "HwrMiscFlags.h"	// hwrMiscFlagID1
@@ -808,7 +810,7 @@ void EmRegsVZ::Cycle (Bool sleeping, int cycles)
 {
 	// ===== Accurate timer path =====
 
-	if (fAccurateTimers && !sleeping)
+	if (fAccurateTimers)
 	{
 		// --- Timer 1 ---
 		if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlEnable) != 0)
@@ -2161,6 +2163,7 @@ static void PrvUpdateTimerShift (uint16 controlReg, int& shift, int& shiftMask)
 			shiftMask = 0;
 			break;
 	}
+
 }
 
 
@@ -3235,4 +3238,42 @@ void EmRegsVZ::SetAccurateTimers (bool accurate)
 	fAccurateTimers = accurate;
 	fTmr1CycleAccum = 0;
 	fTmr2CycleAccum = 0;
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmRegsVZ::GetSleepCyclesPerTick
+// ---------------------------------------------------------------------------
+
+int EmRegsVZ::GetSleepCyclesPerTick (void)
+{
+	return 1 << fTmr1Shift;
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmRegsVZ::GetCyclesUntilNextInterrupt
+// ---------------------------------------------------------------------------
+
+int32 EmRegsVZ::GetCyclesUntilNextInterrupt (void)
+{
+	if (!fAccurateTimers)
+		return 0x7FFFFFFF;
+
+	if ((READ_REGISTER (tmr1Control) & hwrVZ328TmrControlEnable) == 0)
+		return 0x7FFFFFFF;
+
+	uint16 counter = READ_REGISTER (tmr1Counter);
+	uint16 compare = READ_REGISTER (tmr1Compare);
+
+	if (counter >= compare)
+		return 0;
+
+	int32 ticksRemaining = (int32) compare - (int32) counter;
+	int32 cyclesRemaining = (ticksRemaining << fTmr1Shift) - fTmr1CycleAccum;
+
+	if (cyclesRemaining < 0)
+		cyclesRemaining = 0;
+
+	return cyclesRemaining;
 }

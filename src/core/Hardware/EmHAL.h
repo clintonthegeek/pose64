@@ -86,6 +86,8 @@ class EmHALHandler
 		virtual Bool			GetDTR					(int uartNum);
 
 		virtual void			SetAccurateTimers		(bool accurate);
+		virtual int				GetSleepCyclesPerTick	(void);
+		virtual int32			GetCyclesUntilNextInterrupt (void);
 
 		virtual Bool			GetVibrateOn			(void);
 		virtual uint16			GetLEDState				(void);
@@ -151,6 +153,8 @@ class EmHAL
 		static void				DTRChanged				(int uartNum);
 
 		static void				SetAccurateTimers		(bool accurate);
+		static int				GetSleepCyclesPerTick	(void);
+		static int32			GetCyclesUntilNextInterrupt (void);
 
 		static Bool				GetVibrateOn			(void);
 		static uint16			GetLEDState				(void);

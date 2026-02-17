@@ -655,7 +655,7 @@ void EmRegsEZ::Cycle (Bool sleeping, int cycles)
 {
 	// ===== Accurate timer path =====
 
-	if (fAccurateTimers && !sleeping)
+	if (fAccurateTimers)
 	{
 		if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlEnable) != 0)
 		{
@@ -1780,6 +1780,7 @@ static void PrvUpdateTimerShift (uint16 controlReg, int& shift, int& shiftMask)
 			shiftMask = 0;
 			break;
 	}
+
 }
 
 
@@ -2744,4 +2745,42 @@ void EmRegsEZ::SetAccurateTimers (bool accurate)
 {
 	fAccurateTimers = accurate;
 	fTmr1CycleAccum = 0;
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmRegsEZ::GetSleepCyclesPerTick
+// ---------------------------------------------------------------------------
+
+int EmRegsEZ::GetSleepCyclesPerTick (void)
+{
+	return 1 << fTmr1Shift;
+}
+
+
+// ---------------------------------------------------------------------------
+//		EmRegsEZ::GetCyclesUntilNextInterrupt
+// ---------------------------------------------------------------------------
+
+int32 EmRegsEZ::GetCyclesUntilNextInterrupt (void)
+{
+	if (!fAccurateTimers)
+		return 0x7FFFFFFF;
+
+	if ((READ_REGISTER (tmr1Control) & hwrEZ328TmrControlEnable) == 0)
+		return 0x7FFFFFFF;
+
+	uint16 counter = READ_REGISTER (tmr1Counter);
+	uint16 compare = READ_REGISTER (tmr1Compare);
+
+	if (counter >= compare)
+		return 0;
+
+	int32 ticksRemaining = (int32) compare - (int32) counter;
+	int32 cyclesRemaining = (ticksRemaining << fTmr1Shift) - fTmr1CycleAccum;
+
+	if (cyclesRemaining < 0)
+		cyclesRemaining = 0;
+
+	return cyclesRemaining;
 }
