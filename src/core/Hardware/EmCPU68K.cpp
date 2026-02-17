@@ -879,9 +879,23 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 			EmHAL::Cycle (true, 16);
 		}
 
-		// Perform expensive periodic tasks (LCD update, button polling, etc.)
-		if ((++counter & 0xFFF) == 0)
+		// Perform expensive periodic tasks (LCD update, button polling,
+		// suspend checks via fSharedLock).  In the accurate path each
+		// iteration represents ~1-2ms of emulated time (a full timer
+		// period), so call CycleSlowly every iteration — we're already
+		// sleeping anyway.  In the legacy fallback path (16 cycles/iter),
+		// batch to every 4096 iterations (~65K cycles ≈ 2ms) like before.
+
+		++counter;
+		if (cyclesToNext >= 0x7FFFFFFF)
 		{
+			// Legacy fallback: small steps, batch CycleSlowly
+			if ((counter & 0xFFF) == 0)
+				this->CycleSlowly (true);
+		}
+		else
+		{
+			// Accurate path: call every iteration
 			this->CycleSlowly (true);
 		}
 
