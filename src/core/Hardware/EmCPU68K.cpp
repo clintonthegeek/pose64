@@ -841,38 +841,46 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 		// Calculate how many cycles until the next timer interrupt fires.
 		int32 cyclesToNext = EmHAL::GetCyclesUntilNextInterrupt ();
 
-		// Clamp to a reasonable range:
-		// - Minimum 16 cycles (don't advance by 0)
-		// - Maximum ~65536 cycles (~2ms at 33MHz) to stay responsive
-		if (cyclesToNext < 16)
-			cyclesToNext = 16;
-		if (cyclesToNext > 65536)
-			cyclesToNext = 65536;
-
-		// Advance timers by the calculated amount.  On real hardware,
-		// the oscillator keeps running during STOP — only the CPU core
-		// halts.  The timer peripheral still counts clock edges.
-
-		fCycleCount += cyclesToNext;
-		EmHAL::Cycle (true, cyclesToNext);
-
-		// Throttle: sleep for the corresponding wall-clock time.
-		int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
-		if (speed > 0)
+		if (cyclesToNext > 0 && cyclesToNext < 0x7FFFFFFF)
 		{
-			int32 clockFreq = EmHAL::GetSystemClockFrequency ();
-			if (clockFreq > 0)
-			{
-				int64_t emulatedUs = (int64_t) cyclesToNext * 1000000LL / clockFreq;
-				int64_t targetUs = emulatedUs * 100 / speed;
+			// Accurate timer is active and knows when the next interrupt fires.
+			// Advance by that amount (clamped) and sleep for the wall-clock equivalent.
 
-				if (targetUs > 200)		// only sleep if > 200us (below this, usleep is unreliable)
-					usleep ((useconds_t) targetUs);
+			if (cyclesToNext < 16)
+				cyclesToNext = 16;
+			if (cyclesToNext > 65536)
+				cyclesToNext = 65536;
+
+			fCycleCount += cyclesToNext;
+			EmHAL::Cycle (true, cyclesToNext);
+
+			// Throttle: sleep for the corresponding wall-clock time.
+			int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
+			if (speed > 0)
+			{
+				int32 clockFreq = EmHAL::GetSystemClockFrequency ();
+				if (clockFreq > 0)
+				{
+					int64_t emulatedUs = (int64_t) cyclesToNext * 1000000LL / clockFreq;
+					int64_t targetUs = emulatedUs * 100 / speed;
+
+					if (targetUs > 200)
+						usleep ((useconds_t) targetUs);
+				}
 			}
+		}
+		else
+		{
+			// Timer not available (accurate timers off, timer disabled, or
+			// counter already past compare).  Fall back to small fixed steps
+			// so the legacy Cycle() path can fire interrupts normally.
+
+			fCycleCount += 16;
+			EmHAL::Cycle (true, 16);
 		}
 
 		// Perform expensive periodic tasks (LCD update, button polling, etc.)
-		if ((++counter & 0x3F) == 0)
+		if ((++counter & 0xFFF) == 0)
 		{
 			this->CycleSlowly (true);
 		}
