@@ -481,6 +481,36 @@ void EmWindowQt::mouseMoveEvent (QMouseEvent* event)
 
 
 // ---------------------------------------------------------------------------
+//		PrvFindShortcutCommand
+// ---------------------------------------------------------------------------
+// Recursively search a menu item list for an active item whose shortcut
+// matches the given character (case-insensitive).  Returns kCommandNone
+// if no match is found.
+
+static EmCommandID PrvFindShortcutCommand (const EmMenuItemList& items, char ch)
+{
+	ch = (char) toupper ((unsigned char) ch);
+
+	for (const auto& item : items)
+	{
+		if (!item.GetChildren ().empty ())
+		{
+			EmCommandID cmd = PrvFindShortcutCommand (item.GetChildren (), ch);
+			if (cmd != kCommandNone)
+				return cmd;
+		}
+		else if (item.GetIsActive ()
+				 && toupper ((unsigned char) item.GetShortcut ()) == ch)
+		{
+			return item.GetCommand ();
+		}
+	}
+
+	return kCommandNone;
+}
+
+
+// ---------------------------------------------------------------------------
 //		EmWindowQt::keyPressEvent
 // ---------------------------------------------------------------------------
 // Map Qt key events to Palm key events.
@@ -488,9 +518,40 @@ void EmWindowQt::mouseMoveEvent (QMouseEvent* event)
 
 void EmWindowQt::keyPressEvent (QKeyEvent* event)
 {
-	if (event->modifiers () & (Qt::AltModifier | Qt::MetaModifier))
+	if (event->modifiers () & Qt::MetaModifier)
 	{
-		// Reserved for shortcuts
+		event->ignore ();
+		return;
+	}
+
+	// Alt+key: dispatch menu shortcut commands.
+	if (event->modifiers () & Qt::AltModifier)
+	{
+		int key = event->key ();
+		if (key >= Qt::Key_A && key <= Qt::Key_Z)
+		{
+			char ch = (char) (key & 0xFF);	// Qt::Key_A == 'A'
+			EmMenu* popupMenu = MenuFindMenu (kMenuPopupMenuPreferred);
+			if (popupMenu)
+			{
+				MenuUpdateMenuItemStatus (*popupMenu);
+				EmCommandID cmd = PrvFindShortcutCommand (*popupMenu, ch);
+				if (cmd != kCommandNone)
+				{
+					if (gDocument && gDocument->HandleCommand (cmd))
+					{
+						event->accept ();
+						return;
+					}
+					if (gApplication)
+					{
+						gApplication->HandleCommand (cmd);
+						event->accept ();
+						return;
+					}
+				}
+			}
+		}
 		event->ignore ();
 		return;
 	}
@@ -652,7 +713,7 @@ void EmWindowQt::buildQMenu (QMenu& qmenu, const EmMenuItemList& items)
 			if (item.GetShortcut ())
 			{
 				action->setShortcut (
-					QKeySequence (QString ("Ctrl+%1").arg (
+					QKeySequence (QString ("Alt+%1").arg (
 						QChar (item.GetShortcut ()))));
 			}
 		}
@@ -1121,6 +1182,13 @@ void EmWindowQt::HostPaintLCD (const EmScreenUpdateInfo& info,
 
 	Preference<bool> prefTransparent (kPrefKeyTransparentLCD);
 	bool transparent = *prefTransparent;
+
+	// Color devices (8-bpp+) need an opaque background — the alpha
+	// transparency technique only works for grayscale/mono displays
+	// where pixel index maps linearly to ink intensity.
+	if (transparent && info.fImage.GetDepth () >= 8)
+		transparent = false;
+
 	QImage newImage = emPixMapToQImage (info.fImage, transparent);
 
 	// Detect backlight for transparent LCD mode.  When the palette's
