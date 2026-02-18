@@ -5,9 +5,8 @@ running on modern x86_64 Linux without `-m32`.
 
 ## Status
 
-**Phase 4 complete** — the emulator boots PalmOS, renders the device skin,
-handles keyboard/mouse/pen input, and provides a full context menu with
-working session management and PRC installation.
+The emulator boots PalmOS, renders device skins, runs 3rd-party apps (SimCity,
+etc.), handles Gremlins automated testing, and is stable for extended sessions.
 
 ### What works
 
@@ -19,7 +18,7 @@ working session management and PRC installation.
 - Pen/mouse input
 - Keyboard input (F1-F4 hardware buttons, arrow keys, Page Up/Down, printable characters)
 - Context menu with full POSE menu system (right-click or F10)
-- Skin rendering (default gray skin with LCD area and button regions)
+- Skin rendering (JPEG skins from `.skin` files at 1x and 2x scales)
 - Button press visual feedback (highlight rectangle on hardware button clicks)
 - LED indicator (green power LED)
 - New Session dialog, session save prompt, file dialogs
@@ -28,28 +27,30 @@ working session management and PRC installation.
 - Common error/warning/info dialogs
 - Clipboard sync (bidirectional, text)
 - QTimer-based idle loop at ~10 Hz (replaces FLTK's `Fl::wait(0.1)`)
+- Gremlins automated testing (10,000+ events across multiple apps)
 
 ### What doesn't work yet
 
-- Skin image loading from `.skin` files (uses procedural default skin only)
 - Some menu commands (preferences, logging, debugging dialogs are stubs)
 - Database export
-- Gremlins
 - ReControl socket API (planned for Phase 7)
 
 ## Quick Start
 
 ```bash
-# Build the Qt6 port
-cd src/
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+# Build (release)
+cd build/
+cmake ../src
+make -j$(nproc)
 
-# Run with a session file
-./build/qtpose -psf /path/to/SomeProfile.psf
+# Run
+./qtpose
+
+# Run with a saved session
+./qtpose -psf /path/to/SomeProfile.psf
 ```
 
-Output binary: `src/build/qtpose`
+Output binary: `build/qtpose`
 
 ### Building the original 32-bit FLTK version
 
@@ -60,6 +61,45 @@ The original POSE 3.5 FLTK build is still available:
 ```
 
 Output binary: `src/Emulator_Src_3.5/BuildUnix/pose`
+
+## Debugging
+
+The build system has a `POSE_DEBUG` CMake option that enables ASAN, UBSAN,
+debug symbols, and POSE's dormant diagnostic history buffers — without
+touching the release build.
+
+```bash
+# Debug build (ASAN + UBSAN + debug symbols)
+cmake ../src -DPOSE_DEBUG=ON
+make -j$(nproc)
+
+# Run with leak detection
+ASAN_OPTIONS=detect_leaks=1 ./qtpose
+
+# Run under GDB (for CPU spike diagnosis)
+gdb --args ./qtpose
+(gdb) handle SIGPIPE nostop noprint pass
+(gdb) run
+# Ctrl+C during a spike, then: thread apply all bt
+
+# Profile with perf (no recompile needed)
+perf record -p $(pidof qtpose) -g --call-graph dwarf sleep 5
+perf report
+
+# Switch back to release
+cmake ../src -DPOSE_DEBUG=OFF
+make -j$(nproc)
+```
+
+The `POSE_DEBUG` build adds:
+- `-g3 -O1 -fno-omit-frame-pointer` for complete GDB stack traces
+- `-fsanitize=address,undefined` for memory and UB error detection
+- `-D_DEBUG` which activates 512-entry register/exception history buffers
+- An optional `-DPOSE_ASSERTIONS=ON` flag to enable all 1,194 `EmAssert()` calls
+
+See `docs/debugging-guide.md` for the full reference (sanitizer options, GDB
+workflows, history buffer inspection, strace/Valgrind usage, and the built-in
+logging system).
 
 ## Prerequisites
 
