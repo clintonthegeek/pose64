@@ -140,9 +140,10 @@ EmRegion::EmRegionImpl::EmRegionImpl (const EmCoord* s, long len) :
 		if (len <= 7)
 			fBuf = fRectBuf;
 		else
-			fBuf = new EmCoord[len];
+			fBuf = new EmCoord[len + 1];	// +1: CalcBounds reads s[next] past terminator on last band
 
 		memcpy (fBuf, s, len * sizeof (EmCoord));
+		fBuf[len] = 0;						// sentinel for CalcBounds look-ahead
 
 		CalcBounds ();
 	}

@@ -37,6 +37,22 @@ using namespace std;
 static LogStream*	gStdLog;
 uint8				gLogCache[kCachedPrefKeyDummy];
 
+// Aggregated flag: true when any Report*Access pref relevant to
+// META_CHECK is enabled.  Checked in the META_CHECK hot path to
+// skip the expensive InRAMOSComponent() heap scan.
+bool				gMetaCheckActive = false;
+
+static void PrvUpdateMetaCheckActive (void)
+{
+	gMetaCheckActive =
+		gLogCache[kCachedPrefKeyReportLowMemoryAccess]		||
+		gLogCache[kCachedPrefKeyReportSystemGlobalAccess]	||
+		gLogCache[kCachedPrefKeyReportScreenAccess]			||
+		gLogCache[kCachedPrefKeyReportMemMgrDataAccess]		||
+		gLogCache[kCachedPrefKeyReportFreeChunkAccess]		||
+		gLogCache[kCachedPrefKeyReportUnlockedChunkAccess];
+}
+
 
 LogStream*	LogGetStdLog (void)
 {
@@ -54,6 +70,8 @@ static void PrvPrefsChanged (PrefKeyType key, void*)
 	}
 
 	FOR_EACH_SCALAR_PREF (UPDATE_ONE_PREF)
+
+	PrvUpdateMetaCheckActive ();
 }
 
 
@@ -74,6 +92,8 @@ void LogStartup (void)
 	{
 		FOR_EACH_SCALAR_PREF (REGISTER_ONE_PREF)
 	}
+
+	PrvUpdateMetaCheckActive ();
 
 	EmAssert (gStdLog == NULL);
 	gStdLog = new LogStream ("Log");

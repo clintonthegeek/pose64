@@ -6,6 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_AUTOMOC ON)
 
+# Debug build: cmake ../src -DPOSE_DEBUG=ON
+# Enables: debug symbols, ASAN (leak detection), UBSAN, exception/register history
+# Keeps NDEBUG defined (assertions stay off — see docs/plans/2026-02-18-debug-build-methodology-design.md)
+# Phase 2: cmake ../src -DPOSE_DEBUG=ON -DPOSE_ASSERTIONS=ON (removes NDEBUG, enables all EmAssert)
+option(POSE_DEBUG "Enable debug symbols, ASAN, UBSAN, and diagnostic history" OFF)
+option(POSE_ASSERTIONS "Enable EmAssert assertions (remove NDEBUG). Requires POSE_DEBUG=ON" OFF)
+
 # Qt6
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Widgets)
 qt_standard_project_setup()
@@ -34,13 +41,12 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/ui
 )
 
-# Compiler definitions
+# Compiler definitions (common to all builds)
 add_definitions(
     -DPLATFORM_UNIX=1
     -D__PALMOS_TRAPS__=0
     -DEMULATION_LEVEL=EMULATION_UNIX
     -DHAS_PROFILING=0
-    -DNDEBUG
     -D_REENTRANT
     -DNoNanoSleep
     -DPthreadDraftVersion=10
@@ -57,6 +63,25 @@ add_definitions(
     -DDISABLE_JPEG_SUPPORT=1
 )
 
+# Debug vs Release definitions
+if(POSE_DEBUG)
+    message(STATUS ">>> POSE_DEBUG build: ASAN + UBSAN + debug symbols enabled")
+    # _DEBUG enables exception history and register history buffers
+    add_definitions(-D_DEBUG)
+    if(POSE_ASSERTIONS)
+        message(STATUS ">>> POSE_ASSERTIONS: EmAssert enabled (NDEBUG removed)")
+        # No NDEBUG — all 1194 EmAssert() calls are active
+    else()
+        message(STATUS ">>> Assertions OFF (NDEBUG defined) — safe for known false-positive issues")
+        add_definitions(-DNDEBUG)
+    endif()
+    # Qt debug output enabled (qDebug, qWarning work)
+else()
+    # Release build: assertions off, Qt debug off
+    add_definitions(-DNDEBUG)
+    add_definitions(-DQT_NO_DEBUG)
+endif()
+
 # Compiler flags — CRITICAL: no -fpermissive, no -Wno-int-to-pointer-cast
 add_compile_options(
     -fexceptions
@@ -71,6 +96,21 @@ add_compile_options(
     # C++ uses -fpermissive for this, which we leave disabled
     $<$<COMPILE_LANGUAGE:C>:-Werror=pointer-to-int-cast>
 )
+
+# Debug instrumentation flags
+if(POSE_DEBUG)
+    add_compile_options(
+        -g3                      # Full debug symbols (includes macro defs)
+        -O1                      # Light optimization (keeps ASAN fast, GDB readable)
+        -fno-omit-frame-pointer  # Complete stack traces
+        -fsanitize=address       # AddressSanitizer: OOB, use-after-free, leaks
+        -fsanitize=undefined     # UBSan: integer overflow, null deref, alignment
+    )
+    add_link_options(
+        -fsanitize=address
+        -fsanitize=undefined
+    )
+endif()
 
 # Collect all core source files
 file(GLOB_RECURSE CORE_SOURCES

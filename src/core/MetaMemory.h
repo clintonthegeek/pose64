@@ -18,6 +18,11 @@
 #include "EmPalmHeap.h"			// EmPalmHeap, EmPalmChunkList
 #include "ErrorHandling.h"		// Errors::EAccessType
 
+// True when any DRAM-related Report*Access preference is enabled.
+// When false, META_CHECK skips the expensive InRAMOSComponent() scan.
+// Updated by the logging preference cache in Logging.cpp.
+extern bool gMetaCheckActive;
+
 
 class MetaMemory
 {
@@ -432,6 +437,12 @@ inline Bool MetaMemory::IsCPUBreak (uint8* metaLocation)
 do {															\
 	/* Bypass: POSE internal reads (ProcessException, etc.) */	\
 	if (CEnableFullAccess::AccessOK ())							\
+		break;													\
+	/* Short-circuit when all Report*Access prefs are off.		\
+	   InRAMOSComponent() does an O(n) scan of every heap		\
+	   chunk — costs nothing when reporting is enabled but		\
+	   freezes the emulator (100% CPU) when it isn't. */		\
+	if (!gMetaCheckActive)										\
 		break;													\
 	/* Only fire violations for user app code in RAM. ROM code	\
 	   and RAM-resident OS components (UIAppShell, etc.) are	\

@@ -1373,7 +1373,7 @@ void PrvRememberHandle (emuptr h)
 
 		else
 		{
-			emuptr hDereffed = (emuptr)(uintptr_t) EmPalmHeap::DerefHandle ((MemHandle) h);
+			emuptr hDereffed = (emuptr)(uintptr_t) EmPalmHeap::DerefHandle ((MemHandle)(uintptr_t) h);
 
 			if (iter->ptr == hDereffed)
 			{

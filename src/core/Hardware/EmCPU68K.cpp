@@ -652,6 +652,30 @@ Bool EmCPU68K::ExecuteSpecial (void)
 			return false;	// STOP cleared, continue execution
 		}
 
+		// Process pending interrupts in nested mode.  Without this,
+		// PalmOS task switches deadlock: the ROM's scheduler needs a
+		// timer interrupt to preempt the current task, but the nested
+		// path was never delivering them.  The STOP loop above already
+		// processes interrupts — this extends the same logic to regular
+		// instruction execution.  Also clears the flags so we don't
+		// re-enter ExecuteSpecial on every subsequent cycle.
+
+		if (regs.spcflags & (SPCFLAG_INT | SPCFLAG_DOINT))
+		{
+			int32 interruptLevel = EmHAL::GetInterruptLevel ();
+			regs.spcflags &= ~(SPCFLAG_INT | SPCFLAG_DOINT);
+
+			if ((interruptLevel != -1) && (interruptLevel > regs.intmask))
+			{
+				this->ProcessInterrupt (interruptLevel);
+			}
+		}
+
+		if (regs.spcflags & SPCFLAG_END_OF_CYCLE)
+		{
+			regs.spcflags &= ~SPCFLAG_END_OF_CYCLE;
+		}
+
 		return this->CheckForBreak ();
 	}
 

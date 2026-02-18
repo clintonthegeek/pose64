@@ -1917,7 +1917,7 @@ Boolean Gremlins::SendCharsToType()
 		EmEventPlayback::RecordKeyEvent (theChar, 0, 0);
 		StubAppEnqueueKey(theChar, 0, 0);
 		PRINTF ("--- Gremlin #%ld Gremlins::SendCharsToType: key = %ld", (long) number, (long) theChar);
-		strcpy(&charsToType[0], &charsToType[charSize]);
+		memmove(&charsToType[0], &charsToType[charSize], strlen(&charsToType[charSize]) + 1);
 		return true;
 	}
 

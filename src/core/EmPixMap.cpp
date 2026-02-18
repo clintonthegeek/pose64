@@ -335,8 +335,11 @@ FOR_EACH_FORMAT_PAIR (DECLARE_CONVERTER)
 	}														\
 															\
 	/* Write out any partially filled out byte. */			\
+	/* Check for 0x80, not 0: when width is a multiple */	\
+	/* of 8, bitMask is reset to 0x80 after the last */		\
+	/* pixel — writing here would overflow the row. */		\
 															\
-	if (bitMask != 0)										\
+	if (bitMask != 0x80 && bitMask != 0)					\
 	{														\
 		*destPtr++ = aByte;									\
 	}
