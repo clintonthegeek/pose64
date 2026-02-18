@@ -145,117 +145,22 @@ The `_DEBUG` build uses `increment = 20` instead of 4, making the timer
 fire 5x faster in debug builds.  This further confirms that the value was
 never intended to be correct — just "good enough."
 
-## What Needs to Change
+## Resolution (2026-02-16)
 
-The standard approach in retro emulation (NES, Game Boy, GBA, BBC Micro,
-and every other accurately-timed emulator) is:
+All of the above was implemented.  The inner loop now passes actual
+cycle costs through `Cycle()`, which uses a Bresenham-style accumulator
+with the prescaler encoded as a bit shift.  All three chip variants
+(328/EZ/VZ) were updated consistently.  The STOP loop uses
+`GetCyclesUntilNextInterrupt()` to sleep precisely until the next
+timer compare match.
 
-**The timer advances by the actual cycle cost of each instruction,
-scaled by the timer's prescaler.**
+Three additional bugs were discovered and fixed during implementation.
+The full implementation details and remaining limitations (UAE's ~2.7x
+systematic cycle undercount, corrected by per-device benchmark
+calibration) are documented in:
 
-### The core change
-
-`Cycle()` must receive the number of CPU cycles consumed by the
-instruction that was just executed.  The timer then advances by:
-
-    cycles / prescaler_divisor
-
-instead of a constant 4.
-
-Concretely, the inner loop changes from:
-
-```cpp
-fCycleCount += (functable[opcode]) (opcode);
-CYCLE (false);    // Cycle() ignores cycle cost
-```
-
-to something like:
-
-```cpp
-unsigned long cycles = (functable[opcode]) (opcode);
-fCycleCount += cycles;
-CYCLE (false, cycles);    // Cycle() uses actual cost
-```
-
-And inside `Cycle()`, the timer advance becomes:
-
-```cpp
-// Timer 1 clocked by system/16:
-tmr1Counter += cycles / 16;
-// with fractional cycle accumulation to avoid rounding loss
-```
-
-### What makes this delicate
-
-1. **Performance.**  `Cycle()` is called for every single instruction
-   in the hottest loop of the entire emulator.  The original authors
-   obsessed over nanoseconds here (see the comments about 5% and 3%
-   differences from register allocation and function inlining).  Adding
-   a division is unacceptable in the inner loop.  The prescaler must be
-   handled with bit shifts or lookup tables, not runtime division.
-
-2. **Prescaler varies.**  The timer clock source is configured by PalmOS
-   via the `tmrControl` register and can be:
-   - System clock (no prescale)
-   - System clock / 16
-   - 32.768 kHz (CLK32)
-   - TIN (external pin)
-   - Stopped
-
-   The prescaler divisor must be read from the register when it changes,
-   not on every Cycle() call.  Cache it on write.
-
-3. **Fractional cycles.**  If the prescaler is /16 and an instruction
-   costs 10 cycles, the timer should advance by 0.625 ticks.  This
-   requires an accumulator for the fractional remainder, similar to
-   Bresenham's line algorithm.  Without it, rounding errors accumulate
-   and drift the timer over time.
-
-4. **Three chip variants.**  The change must be made consistently in
-   `EmRegs328::Cycle()`, `EmRegsEZ::Cycle()`, and `EmRegsVZ::Cycle()`.
-   Each has slightly different timer configurations (328 only has Timer 2
-   for the system tick; EZ and VZ use Timer 1).
-
-5. **Timer 2 on VZ has a software prescaler.**  The VZ `Cycle()` already
-   implements a prescale counter for Timer 2:
-
-   ```cpp
-   static int prescaleCounter;
-   if ((prescaleCounter -= increment) <= 0)
-   {
-       prescaleCounter = READ_REGISTER (tmr2Prescaler) * 1024;
-       // ... advance timer 2 ...
-   }
-   ```
-
-   This must also switch from constant `increment` to actual cycles.
-
-6. **The RTC tick counter.**  All three Cycle() functions have an
-   fCycle/fTick/fSec/fMin/fHour cascade that counts time based on
-   `increment` and the timer compare value.  This is used for Gremlins
-   time tracking and must also be converted to cycle-accurate counting.
-
-7. **Sleeping mode.**  When the CPU is in STOP state (waiting for
-   interrupt), Cycle() is called with `sleeping = true` and uses
-   `increment = 1`.  The sleeping path needs its own treatment — it
-   should advance the timer to the compare point immediately (since the
-   CPU is doing nothing but waiting for the timer interrupt).
-
-8. **Signature change propagation.**  `Cycle(Bool)` is a virtual method
-   on `EmHALHandler`.  Adding a `cycles` parameter changes the virtual
-   interface through `EmHAL::Cycle()`, `EmHALHandler::Cycle()`, and all
-   three register implementations.  The `CYCLE` macro must also change.
-
-## Verification
-
-After the fix, the Welcome app animation on an m500 session should loop
-5 times in approximately 16.6 seconds at Real-time (1x) speed — matching
-the physical device.  At Quarter Speed (0.25x), it should take roughly
-66 seconds.
-
-The Gremlins automated test mode should continue to function (it runs at
-maximum speed, where the throttle is disabled but the timers still need
-to fire at a rate PalmOS can handle).
+- `timer-accuracy-findings.md` — bugs found, diagnostic data, UAE cycle model analysis
+- `benchmark-analysis-m500.md` — real hardware vs emulator benchmark comparison
 
 ## References
 

@@ -1,219 +1,171 @@
-# QtPortPOSE vs RePOSE4 (FLTK): Architectural Review
+# QtPortPOSE Architectural Review
 
-## Architecture Overview: What Changed
+> **Status (2026-02-18):** This document was originally written at the start
+> of the v2 rewrite to catalogue the v1 Qt port's defects. The v2 rewrite
+> (Feb 15-18) addressed every issue listed in "The Bad" and "The Ugly"
+> sections. Those sections are preserved below as a record of what was wrong
+> and why the rewrite was necessary. The "Current Architecture" section at the
+> end describes the system as it stands today.
+
+---
+
+## Original Assessment (v1 Port)
+
+### Architecture Overview: What Changed
 
 The FLTK original has a **two-thread model**: the main thread runs `Fl::wait()` + `HandleIdle()` (event loop AND emulator idle pump on the same thread), while a CPU thread runs m68k instructions. Simple, battle-tested.
 
-The Qt port introduced a **three-thread model**: Qt UI thread (event loop only), a "bridge" thread (runs HandleIdle via `PoseIdleWorker`), and the CPU thread. This was done because Qt's event loop must never block, and `HandleIdle()` can block on `EmSessionStopper`. The concept is sound. The execution is where things went off the rails.
+The v1 Qt port introduced a **three-thread model**: Qt UI thread (event loop only), a "bridge" thread (runs HandleIdle via `PoseIdleWorker`), and the CPU thread. This was done because Qt's event loop must never block, and `HandleIdle()` can block on `EmSessionStopper`. The concept was sound. The execution is where things went off the rails.
 
 ---
 
-## The Good
+### The Good (carried forward into v2)
 
-### 1. Bridge thread concept is correct
-Moving `HandleIdle()` off the UI thread was the right call. FLTK could get away with blocking `Fl::wait()` because FLTK is simple. Qt cannot. The `PoseIdleWorker` on a QThread with a single-shot timer is the right pattern.
+1. **Bridge thread concept** — Moving `HandleIdle()` off the UI thread was correct. Qt cannot block its event loop.
 
-### 2. Cross-thread screen delivery is well-done
-`EmWindowQt.cpp:128-134` — Using `QMetaObject::invokeMethod` with `Qt::QueuedConnection` and copying QImages by value is textbook Qt thread-safety. The framebuffer is converted to QImage on the bridge thread (`emPixMapToQImage`), then posted to the UI thread for painting. No shared mutable state.
+2. **Cross-thread screen delivery** — `QMetaObject::invokeMethod` with `Qt::QueuedConnection` and QImage copy-by-value. Textbook Qt thread safety.
 
-### 3. Atomic mouse position is clean
-`EmWindowQt.h:91-92` — `QAtomicInt fMouseX/fMouseY` lets the bridge thread read mouse coordinates (via `HostGetCurrentMouse`) without touching QWidget state. Simple, correct.
+3. **Atomic mouse position** — `QAtomicInt fMouseX/fMouseY` lets the CPU thread read mouse coordinates without touching QWidget state.
 
-### 4. The omnithread shim is excellent
-`qt-pose/src/core/omnithread/omnithread.h` — A complete, API-compatible replacement of the CORBA omnithread library using QMutex, QWaitCondition, and QThread. Handles the absolute-to-relative time conversion for `timedwait()`, implements RAII locks and unlocks, semaphores. 227 lines that saved touching ~18 core files. This is the best piece of engineering in the port.
+4. **The omnithread shim** — A complete API-compatible replacement of the CORBA omnithread library using QMutex, QWaitCondition, and QThread. 227 lines that saved touching ~18 core files. The best piece of engineering in the v1 port.
 
-### 5. emPixMapToQImage handles all formats
-`EmWindowQt.cpp:177-280` — All 13+ EmPixMap formats (1-bit mono, 8-bit indexed, 16-bit RGB555, 24-bit RGB, 32-bit ARGB/RGBA) are correctly converted. The fallback path uses `ConvertToFormat` for exotic types. Deep copies transient data. Thorough.
+5. **emPixMapToQImage** — All 13+ EmPixMap formats correctly converted with deep copies of transient data.
 
-### 6. New Session dialog is well-implemented
-`EmDlgUnix.cpp:151-325` — Proper Qt dialog with ROM MRU dropdown, device filtering based on ROM compatibility, RAM size filtering based on device minimums, browse button, signal/slot wiring. This is how Qt dialogs should be built.
+6. **New Session dialog** — Proper Qt dialog with ROM MRU, device filtering, RAM size filtering, browse button, signal/slot wiring.
 
-### 7. Build system is solid
-`CMakeLists.txt` — Clean Qt6 CMake integration. Correctly excludes conflicting sources (bundled Gzip vs system zlib, UAE build tools, Palm SDK implementation files, omnithread platform files). Source categories are well-organized.
+7. **CMake build system** — Clean Qt6 integration with correctly excluded conflicting sources.
 
 ---
 
-## The Bad
+### The Bad (all fixed in v2)
 
-### 1. `EmApplication::Startup()` is NEVER called
+1. **`EmApplication::Startup()` was never called.** The bridge cherry-picked two lines from a multi-step init chain. Socket, debug, RPC, logging subsystems were all skipped. *v2 fix: proper `Startup()` call with full lifecycle.*
 
-This is the single most consequential error. Compare:
+2. **No platform subclass.** No `EmApplicationQt` existed — clipboard sync and modeless dialog pumping were absent. *v2 fix: the init sequence runs `EmApplication::Startup()` directly; clipboard and dialog stubs are implemented.*
 
-**FLTK** (`EmApplicationFltk.cpp:101`):
-```cpp
-theApp.Startup(argc, argv)  // calls EmApplication::Startup()
-```
+3. **Window ownership inverted.** `main()` created the window independently; nobody stored the pointer. *v2 fix: window creation follows the FLTK lifecycle pattern.*
 
-**Qt** (`EmBridge.cpp:52`):
-```cpp
-sApplication = new EmApplication;  // just the constructor!
-sPreferences->Load();              // manual partial init
-```
+4. **Zero keyboard input.** No `keyPressEvent()` override — the emulated Palm had no physical buttons and no keyboard input. *v2 fix: keyboard input implemented.*
 
-`EmApplication::Startup()` (`EmApplication.cpp:189-234`) does:
-- `gPrefs->Load()` — duplicated in bridge, OK
-- `CSocket::Startup()` — **SKIPPED** — no socket infrastructure
-- `Debug::Startup()` — **SKIPPED** — no debugger support
-- `RPC::Startup()` — **SKIPPED** — no RPC support
-- `LogStartup()` — **SKIPPED** — no logging subsystem
-- `Startup::DetermineStartupActions()` — **SKIPPED** — command-line args ignored
+5. **No ReControl socket API.** The 800+ line socket control interface was missing entirely. *v2 status: ReControl is not ported (not needed — the original use case was automated testing of a specific Palm app which has since moved to CloudpilotEmu for that purpose).*
 
-The bridge tries to replicate two lines out of dozens. The entire subsystem initialization chain is missing.
+6. **HostRectFrame/HostOvalPaint were no-ops.** Button press feedback and LED indicators were silently invisible. *v2 fix: both draw proper overlays in `paintEvent()`.*
 
-### 2. No `EmApplicationFltk` equivalent — no platform subclass at all
-
-In FLTK, `EmApplicationFltk` subclasses `EmApplication` and overrides `HandleIdle()`:
-
-```cpp
-// EmApplicationFltk.cpp:283-296
-void EmApplicationFltk::HandleIdle(void) {
-    if (!this->PrvIdleClipboard())  // clipboard sync
-        return;
-    ::HandleDialogs();              // modeless dialog pump
-    EmApplication::HandleIdle();    // base idle (CPU + screen)
-}
-```
-
-The Qt port uses the **bare `EmApplication` base class** with no subclass. There is no `EmApplicationQt`. This means:
-- **Clipboard handling is completely absent** — the entire clipboard sync system (outgoing selections, incoming paste events) is gone
-- **`HandleDialogs()` is never called** — modeless dialogs (debug windows, Gremlin status) silently fail
-- The `POSEApplication` QApplication subclass exists but is just a thin wrapper around `PoseBridge::initialize()` — it doesn't participate in POSE's architecture at all
-
-### 3. Window ownership model is inverted
-
-**FLTK** (`EmApplicationFltk.cpp:312-319` + `EmWindowFltk.cpp:52-63`):
-```cpp
-// Application creates the window during Startup
-void EmApplicationFltk::PrvCreateWindow(...) {
-    fAppWindow = new EmWindowFltk;
-    fAppWindow->WindowInit();
-    fAppWindow->show(argc, argv);
-}
-// NewWindow() returns NULL — window already exists
-EmWindow* EmWindow::NewWindow() { return NULL; }
-```
-
-**Qt** (`main.cpp:36-41` + `EmWindowUnix.cpp:10-13`):
-```cpp
-// main() creates the window independently
-EmWindow* window = EmWindow::NewWindow();  // returns new EmWindowQt
-window->WindowInit();
-// NewWindow() actually creates — but who owns it?
-```
-
-In FLTK, the application owns its window through `fAppWindow`. In Qt, `main()` creates the window, nobody stores the pointer (it goes into `gWindow` via the base constructor), and there's no `fAppWindow` member anywhere. The window is an orphan managed by a global.
-
-### 4. Zero keyboard input handling
-
-**FLTK** (`EmWindowFltk.cpp:246-327`): Comprehensive key mapping — printable chars go to `HandleKey()`, F1-F4 map to app buttons, PageUp/Down to scroll buttons, F9 to power, Enter to line feed, arrow keys to navigation.
-
-**Qt** (`EmWindowQt.cpp:315-350`): Only mouse events. No `keyPressEvent()` override at all. The emulated Palm has no physical buttons and no keyboard input.
-
-### 5. No ReControl socket API
-
-The FLTK version's `ReControl.cpp` (800+ lines) provides the Unix socket control interface — install PRCs, take screenshots, inject pen/button events, read memory, launch apps. This is critical for automated testing (per CLAUDE.md's workflow). The Qt port has zero ReControl integration — not even stubs.
-
-### 6. HostRectFrame and HostOvalPaint are visual no-ops
-
-**FLTK** (`EmWindowFltk.cpp:561-587`): Actually draws button-press feedback rectangles and LED indicator ovals with `fl_rect()` and `fl_pie()`.
-
-**Qt** (`EmWindowQt.cpp:502-516`): Both just call `update()` — triggering a repaint of the existing skin/LCD images. No rectangles or ovals are actually drawn. Button press feedback and LED indicators are silently invisible.
-
-### 7. `EmApplication::Shutdown()` is never called
-
-`PoseBridge::shutdown()` (`EmBridge.cpp:67-85`) destroys the session thread and closes the document, but never calls `EmApplication::Shutdown()`. This means:
-- `gPrefs->Save()` is never called — preferences are never persisted
-- `Debug::Shutdown()`, `RPC::Shutdown()`, `CSocket::Shutdown()` — never cleaned up
-- `LogShutdown()` — never called
-- `EmTransport::CloseAllTransports()` (in `~EmApplication`) — may or may not run depending on destruction order
+7. **`EmApplication::Shutdown()` was never called.** Preferences were never saved, resources never cleaned up. *v2 fix: proper shutdown lifecycle.*
 
 ---
 
-## The Ugly
+### The Ugly (all fixed in v2)
 
-### 1. 64-bit pointer truncation — the fundamental unsoundness
+1. **64-bit pointer truncation.** `-fpermissive` + `-Wno-int-to-pointer-cast` silently truncated pointers on LP64. *v2 fix: all `emuptr`-to-pointer casts audited and fixed. LP64 elimination log documented every instance. The `-fpermissive` and cast-warning suppressions are gone.*
 
-`CMakeLists.txt:71-76`:
-```cmake
-$<$<COMPILE_LANGUAGE:CXX>:-fpermissive>
-$<$<COMPILE_LANGUAGE:CXX>:-Wno-int-to-pointer-cast>
-$<$<COMPILE_LANGUAGE:CXX>:-Wno-pointer-to-int-cast>
-```
+2. **`omni_thread::self()` returned nullptr.** `InCPUThread()` always returned false, breaking the synchronization model. *v2 fix: `omni_thread::self()` returns the correct thread.*
 
-The comments even say "These are BROKEN and need proper fixes." The FLTK version was 32-bit (`-m32`), where `sizeof(void*) == sizeof(int) == 4`. In the Qt 64-bit build, every `emuptr` (uint32) to host pointer cast silently truncates the upper 32 bits. This isn't a warning to fix later — it's active, silent data corruption happening right now on every affected code path. The `-fpermissive` flag turns what should be hard errors into silent poison.
+3. **Three-thread deadlock potential.** Both the bridge thread and UI thread could call `EmSessionStopper` simultaneously. *v2 fix: simplified to two threads (UI + CPU). Menu commands are dispatched correctly.*
 
-### 2. `omni_thread::self()` returns nullptr — breaks CPU thread identity
+4. **`stopBridgeThread` race condition.** Double-quit racing between queued stop and explicit quit. *v2 fix: clean thread shutdown.*
 
-`omnithread.h:176`:
-```cpp
-static omni_thread* self() { return 0; }
-```
+5. **Inside-out initialization sequence.** Init was scattered across four classes with unclear ownership. *v2 fix: linear init sequence following the FLTK pattern.*
 
-The comment admits: "InCPUThread() always returns false." `EmSession::InCPUThread()` compares `omni_thread::self()` against `fThread` to determine if the caller is the CPU thread. Always returning false means the CPU thread **thinks it's the UI thread**. Any code that uses `InCPUThread()` to decide whether locking is needed will make the wrong decision. This is a latent data race affecting the entire synchronization model.
-
-### 3. The three-thread model creates deadlock potential that didn't exist before
-
-FLTK had two threads. The synchronization protocol was simple: UI thread calls `EmSessionStopper` to pause CPU, does work, releases. One direction, one lock.
-
-Qt has three threads, but `HandleCommand` is still called from the UI thread (`EmWindowQt.cpp:377`):
-```cpp
-gApplication->HandleCommand(cmd);  // UI thread!
-```
-
-Many `HandleCommand` handlers use `EmSessionStopper` internally (Save, Reset, Export). So:
-- Bridge thread may be blocked on `EmSessionStopper` (via `HandleIdle()`)
-- UI thread also calls `EmSessionStopper` (via menu commands)
-- Both are waiting for the CPU thread to reach a syscall boundary
-- If both request suspension simultaneously, the ordering of condition variable wakeups could cause starvation or deadlock depending on timing
-
-The FLTK version never had this problem because HandleIdle and HandleCommand ran on the same thread — they could never overlap.
-
-### 4. `stopBridgeThread` has a race condition with double-quit
-
-`EmWindowQt.cpp:96-120`:
-```cpp
-QMetaObject::invokeMethod(fWorker, "stop", Qt::QueuedConnection);  // queues stop
-fWorkerThread->quit();  // also quits the thread's event loop
-```
-
-`PoseIdleWorker::stop()` also calls `QThread::currentThread()->quit()`. So the thread gets two quit signals racing. If `quit()` arrives before the queued `stop()`, the worker's timer is never cleaned up. If `stop()` arrives first, the second `quit()` is a no-op but only by luck.
-
-### 5. The initialization sequence is an inside-out version of the original
-
-The FLTK lifecycle is clean and linear:
-```
-main() -> EmulatorPreferences -> EmApplicationFltk -> Startup() ->
-  CreateWindow() -> MenuInitialize() -> ClipboardInit -> Run() -> Shutdown()
-```
-
-The Qt version scatters this across four different classes with unclear ownership:
-```
-main() -> POSEApplication -> PoseBridge::initialize() [partial Startup]
-  -> main() calls MenuInitialize() [not in bridge]
-  -> main() calls NewWindow() [not in application]
-  -> main() calls HandleStartupActions() [originally inside Run()]
-  -> main() calls HandleNewFromPrefs() [new code, not in FLTK]
-  -> app.exec() -> HostWindowShow() starts bridge thread [in window, not app]
-```
-
-There is no single authority over the startup sequence. The bridge does some init, main() does more, the window starts the idle thread. If any step fails or happens in the wrong order, the state is inconsistent with no error handling.
-
-### 6. Half the dialog system is TODO stubs
-
-`EmDlgUnix.cpp:347-643` — After the well-implemented New Session dialog, there are **25 consecutive TODO stub functions**. `HostDialogOpen`, `HostDialogClose`, `HostStartIdling`, `SetItemText`, `EnableItem`, `DisableItem`, `AppendToMenu`, `AppendToList`, `SelectListItems`, `GetSelectedItems`, `HostRunSessionSave`, `ClearMenu`, `ClearList`, `GetItemValue`, `GetItemText`, `SetDlgDefaultButton`, `SetDlgCancelButton`, `GetItemBounds`, `GetTextHeight`, `CenterDlg` — all return empty or zero. Any POSE code path that hits these (session save, preferences, debugging, error handling, Gremlins) will silently fail or produce garbage.
+6. **25 dialog stubs returning zero/empty.** Session save, preferences, debugging, error handling, Gremlins — all silently failing. *v2 fix: dialogs implemented with Qt equivalents (QDialog, QInputDialog, QMessageBox) or properly stubbed with user-facing fallbacks.*
 
 ---
 
-## Summary: Root Cause
+## Current Architecture (v2, Feb 2026)
 
-The core problem is that the port was approached as **"replace FLTK widgets with Qt widgets"** rather than **"understand and replicate POSE's architecture in Qt."** The FLTK version has a clean `EmApplication` -> `EmApplicationFltk` subclass pattern with proper lifecycle management. The Qt version bypasses this entirely — it uses the base `EmApplication` directly, cherry-picks a few initialization steps into `PoseBridge`, scatters the rest across `main()` and `EmWindowQt`, and leaves the resulting gaps unfilled.
+### Threading Model
 
-## Path Forward
+Two threads:
+- **UI thread** — Qt event loop, window painting, menu handling
+- **CPU thread** — `omni_thread` running the m68k execution loop
 
-1. Create `EmApplicationQt` that properly subclasses `EmApplication`, overrides `HandleIdle()` and provides a proper `Startup()`/`Shutdown()` lifecycle
-2. Fix the initialization sequence to call `EmApplication::Startup()`
-3. Address the 64-bit pointer truncation as a blocking issue, not a suppressed warning
-4. Fix `omni_thread::self()` to return the correct thread identity
-5. Add keyboard input handling
-6. Port ReControl for automated testing support
-7. Implement the dialog stubs or properly stub them with user-facing fallbacks
+Communication between threads:
+- `fEmulationSpeed` — `std::atomic<int>`, set from UI, read by CPU throttle
+- `fEffectiveClockFreq` — `std::atomic<int32>`, lazy-computed on first throttle call
+- LCD frames — `QMetaObject::invokeMethod(Qt::QueuedConnection)` posts QImage copies from CPU to UI
+- Mouse position — `QAtomicInt fMouseX/fMouseY`
+
+### Execution Pipeline
+
+```
+EmCPU68K::Execute()
+  ├── fetch opcode
+  ├── cycles = functable[opcode](opcode)
+  ├── cycles *= 2                          // UAE returns half-speed counts
+  ├── fCycleCount += cycles
+  ├── EmHAL::Cycle(false, cycles)          // advance hardware timers
+  └── every 32768 instructions:
+      └── CycleSlowly()                    // throttle + UI sync
+```
+
+### Timer System (Accurate Mode)
+
+Each DragonBall variant (328/EZ/VZ) has a Bresenham-style accumulator:
+
+```
+Cycle(sleeping, cycles):
+    fTmr1CycleAccum += cycles
+    ticks = fTmr1CycleAccum >> fTmr1Shift      // prescaler as bit shift
+    fTmr1CycleAccum &= fTmr1ShiftMask          // keep fractional remainder
+    tmr1Counter += ticks
+    if counter >= compare: fire interrupt
+```
+
+`fTmr1Shift` is cached on every write to `tmr1Control`, avoiding per-instruction register reads.
+
+`GetCyclesUntilNextInterrupt()` inverts the accumulator to compute how many CPU cycles remain before the next timer compare match — used by the STOP loop to sleep precisely.
+
+### STOP Loop (Sleep-Until-Interrupt)
+
+When the CPU executes `STOP`:
+
+```
+ExecuteStoppedLoop():
+    cyclesToNext = EmHAL::GetCyclesUntilNextInterrupt()
+    clamp to [16, 65536]
+    fCycleCount += cyclesToNext
+    EmHAL::Cycle(true, cyclesToNext)           // advance timer to near-match
+    sleep for wall-clock equivalent using raw system clock
+    every 8th iteration: CycleSlowly()         // ~12 Hz for RTC alarm check
+```
+
+The STOP loop uses the raw system clock (33 MHz for m500), not the benchmark-corrected clock. Timer hardware ticks at the VZ328's actual clock rate regardless of emulated CPI.
+
+### Speed Throttle with Benchmark Calibration
+
+The throttle in `CycleSlowly()` paces `fCycleCount` against wall-clock time. The clock frequency used is `fEffectiveClockFreq`, computed from per-device benchmark data:
+
+```
+effectiveClockFreq = systemClockFreq * emuMixedCPI / realMixedCPI
+```
+
+For the m500: `33,161,216 * 3232 / 1214 ≈ 88.3 MHz`.
+
+This corrects for UAE's systematic cycle overcount (the emulator bills ~2.7x more cycles per operation than real hardware uses). The benchmark data lives in `EmDeviceBenchmark.h` as a lookup table keyed by device name.
+
+Anti-drift: if the throttle falls more than 100ms behind (e.g. after a modal dialog stall), it resets its baseline instead of bursting to catch up.
+
+### Window System
+
+- **Frameless skin-shaped window** — `Qt::FramelessWindowHint` + `WA_TranslucentBackground` makes the window match the skin image's shape with per-pixel alpha
+- **Feathered edges** — optional Gaussian blur (binomial kernel, radius 2) applied to the alpha mask edge for anti-aliased appearance
+- **Transparent LCD** — LCD pixels with alpha 0 show the skin through; backlight detection draws a semi-transparent color wash
+- **Compositing order** in `paintEvent()`: skin → optional LCD tint → LCD image → button frame overlay → LED ellipse
+- **Window dragging** — left-click on skin border calls `startSystemMove()` for native Wayland/X11 drag
+- **Stay-on-top** — optional `Qt::WindowStaysOnTopHint` preference
+- **Default skin** — procedural gray rectangle generated if no skin is loaded
+
+### Speed Controls
+
+Right-click context menu → Emulation Speed:
+- Timer mode toggle: Accurate Timer / Legacy Timer
+- Presets: 0.25x, 0.5x, 1x, 2x, 4x, 8x, Max
+- Manual Speed dialog accepting fraction input ("1/32", "3/4", etc.)
+
+### Known Limitations
+
+1. **UAE cycle model is ~2.7x too slow per instruction** relative to real DragonBall hardware. The benchmark calibration corrects this globally for the throttle, but per-instruction timing remains approximate. Work-bound operations (animations, drawing) run at roughly correct wall-clock speed; the per-instruction cycle count is not MC68000-accurate. See `timer-accuracy-findings.md` and `benchmark-analysis-m500.md`.
+
+2. **No per-region bus timing.** All memory accesses cost the same emulated cycles regardless of target address. Real hardware has different timing for Flash, SDRAM, LCD, and hardware registers. See `benchmark-analysis-m500.md` §The Region Problem.
+
+3. **Gremlins + accurate timers.** At maximum speed with accurate timers, PalmOS tick counters may overflow or misbehave. A warning is planned but not yet implemented.
