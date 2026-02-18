@@ -176,6 +176,13 @@ qt_add_executable(qtpose
     ${UI_SOURCES}
 )
 
+# Qt resources (default skin, etc.)
+qt_add_resources(qtpose "default_skin"
+    PREFIX "/"
+    BASE ui
+    FILES ui/DefaultLarge.png
+)
+
 # Print source file counts for debugging
 list(LENGTH CORE_SOURCES CORE_COUNT)
 list(LENGTH UAE_SOURCES UAE_COUNT)

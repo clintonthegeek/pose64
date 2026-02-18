@@ -35,6 +35,8 @@
 
 #include "Skins.h"
 
+#include <QImage>
+
 #include <cstdio>
 
 using namespace std;
@@ -1259,46 +1261,36 @@ void EmWindowQt::HostPaintLCD (const EmScreenUpdateInfo& info,
 }
 
 
-void EmWindowQt::HostGetDefaultSkin (EmPixMap& skin, int scale)
+void EmWindowQt::HostGetDefaultSkin (EmPixMap& pixMap, int scale)
 {
-	// Generate a simple gray skin with white LCD area
-	int lcdX = 32 * scale;
-	int lcdY = 32 * scale;
-	int lcdW = 160 * scale;
-	int lcdH = 160 * scale;
+	QImage img (":/DefaultLarge.png");
 
-	int skinW = (32 + 160 + 32) * scale;
-	int skinH = (32 + 220 + 60) * scale;
-
-	skin.SetSize (EmPoint (skinW, skinH));
-	skin.SetFormat (kPixMapFormat24RGB);
-	skin.SetRowBytes (skinW * 3);
-
-	void* bits = skin.GetBits ();
-	if (bits)
+	if (img.isNull ())
 	{
-		uint8_t* p = static_cast<uint8_t*> (bits);
-		int totalBytes = skinW * skinH * 3;
+		fprintf (stderr, "SKIN: failed to load embedded DefaultLarge.png\n");
+		return;
+	}
 
-		// Fill with gray
-		for (int i = 0; i < totalBytes; i += 3)
-		{
-			p[i + 0] = 0x60;
-			p[i + 1] = 0x60;
-			p[i + 2] = 0x60;
-		}
+	// Scale down for 1x (the resource is 2x)
+	if (scale == 1)
+	{
+		img = img.scaled (img.width () / 2, img.height () / 2,
+						  Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+	}
 
-		// White LCD area
-		for (int y = lcdY; y < lcdY + lcdH; y++)
-		{
-			for (int x = lcdX; x < lcdX + lcdW; x++)
-			{
-				int offset = (y * skinW + x) * 3;
-				p[offset + 0] = 0xFF;
-				p[offset + 1] = 0xFF;
-				p[offset + 2] = 0xFF;
-			}
-		}
+	img = img.convertToFormat (QImage::Format_RGB888);
+
+	int w = img.width ();
+	int h = img.height ();
+
+	pixMap.SetSize (EmPoint (w, h));
+	pixMap.SetFormat (kPixMapFormat24RGB);
+	pixMap.SetRowBytes (w * 3);
+
+	uint8* dest = (uint8*) pixMap.GetBits ();
+	for (int y = 0; y < h; ++y)
+	{
+		memcpy (dest + y * w * 3, img.scanLine (y), w * 3);
 	}
 }
 
