@@ -1068,20 +1068,11 @@ void EmApplication::DoSetSpeed (EmCommandID cmd)
 		default: return;
 	}
 
-	fprintf (stderr, "DEBUG SPEED: DoSetSpeed cmd=%d -> speed=%ld (0=max, 25=quarter, 100=1x)\n",
-		(int) cmd, speed);
-
 	Preference<long> p (kPrefKeyEmulationSpeed);
 	p = speed;
 
 	if (gSession)
-	{
 		gSession->fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
-		fprintf (stderr, "DEBUG SPEED: stored fEmulationSpeed=%d\n",
-			gSession->fEmulationSpeed.load (std::memory_order_relaxed));
-	}
-	else
-		fprintf (stderr, "DEBUG SPEED: gSession is NULL, speed not applied to session\n");
 }
 
 

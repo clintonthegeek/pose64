@@ -894,20 +894,21 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 			EmHAL::Cycle (true, cyclesToNext);
 
 			// Throttle: sleep for the corresponding wall-clock time.
+			// Use the RAW system clock here, not the benchmark-corrected
+			// fEffectiveClockFreq.  During STOP there are no instructions —
+			// cycles represent actual hardware timer ticks at the real
+			// clock rate.  The benchmark correction (which compensates for
+			// emulator CPI mismatch) only applies to instruction execution.
 			int speed = fSession->fEmulationSpeed.load (std::memory_order_relaxed);
 			if (speed > 0)
 			{
-				int32 clockFreq = fSession->fEffectiveClockFreq.load (std::memory_order_relaxed);
-				if (clockFreq <= 0)
-					clockFreq = EmHAL::GetSystemClockFrequency ();
+				int32 clockFreq = EmHAL::GetSystemClockFrequency ();
 				if (clockFreq > 0)
 				{
 					int64_t emulatedUs = (int64_t) cyclesToNext * 1000000LL / clockFreq;
 					int64_t targetUs = emulatedUs * 100 / speed;
 
-					// Cap sleep to 10ms for UI responsiveness (matching
-					// WinUAE's fixed 1ms cap approach).  Low-clock devices
-					// can produce multi-second sleep values per timer period.
+					// Cap sleep to 10ms for UI responsiveness.
 					if (targetUs > 10000)
 						targetUs = 10000;
 
@@ -926,12 +927,12 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 			EmHAL::Cycle (true, 16);
 		}
 
-		// Perform expensive periodic tasks (LCD update, button polling,
-		// suspend checks via fSharedLock).  In the accurate path each
-		// iteration represents ~1-2ms of emulated time (a full timer
-		// period), so call CycleSlowly every iteration — we're already
-		// sleeping anyway.  In the legacy fallback path (16 cycles/iter),
-		// batch to every 4096 iterations (~65K cycles ≈ 2ms) like before.
+		// Perform expensive periodic tasks (button polling, UART,
+		// RTC alarm check, throttle).  In the accurate path each
+		// iteration represents ~1ms of emulated time; calling
+		// CycleSlowly every 8th iteration (~12 Hz) is sufficient
+		// for button responsiveness and avoids ~1000 syscalls/sec
+		// from the RTC alarm's GetHostTime() calls.
 
 		++counter;
 		if (cyclesToNext >= 0x7FFFFFFF)
@@ -942,8 +943,9 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 		}
 		else
 		{
-			// Accurate path: call every iteration
-			this->CycleSlowly (true);
+			// Accurate path: every 8th iteration (~12 Hz)
+			if ((counter & 0x7) == 0)
+				this->CycleSlowly (true);
 		}
 
 		// Process an interrupt (see if it's time to wake up).

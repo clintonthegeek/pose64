@@ -30,7 +30,6 @@
 #include "SessionFile.h"		// WriteHwrDBallVZType, etc.
 #include "UAE.h"				// regs, SPCFLAG_INT
 
-#include <cstdio>				// fprintf (debug output)
 
 #include "PalmPack.h"
 #define NON_PORTABLE
