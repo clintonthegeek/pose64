@@ -97,10 +97,11 @@ static QBitmap PrvMaskFromEmPixMap (const EmPixMap& mask)
 // ---------------------------------------------------------------------------
 // Apply a 1-bpp EmPixMap mask as the alpha channel of a QImage.
 //
-// When feather=true, uses the classic GIMP anti-alias trick: erode the binary
-// mask inward by 1 pixel, then apply a small Gaussian blur (sigma ~1, radius 2).
-// The erosion keeps the blur from extending past the original skin boundary,
-// producing a smooth 2-3 pixel feathered edge right at the skin outline.
+// When feather=true, derives smooth alpha from the skin image's own pixel
+// luminance near the mask boundary.  The binary mask identifies the interior;
+// for a band of pixels near the edge, alpha is computed from how dark the
+// skin pixel is (dark = opaque, white = transparent).  This uses the JPEG's
+// natural anti-aliased color gradients for genuinely smooth edges.
 //
 // When feather=false, applies a hard binary alpha (0 or 255).
 
@@ -148,87 +149,93 @@ static void PrvApplyMaskAlpha (QImage& image, const EmPixMap& mask,
 		}
 	}
 
-	// --- Step 2 & 3: Erode + Gaussian blur (feather only) ---
+	// --- Step 2: Luminance-based edge feather ---
 
 	if (feather)
 	{
-		// Erode by 1 pixel (8-connected): any opaque pixel adjacent to a
-		// transparent pixel (or the image edge) becomes transparent.
-		vector<uint8_t> eroded (w * h);
+		// Sub-pixel coverage anti-aliasing via supersampling.
+		//
+		// 1. Upsample binary mask to 4x (nearest-neighbor)
+		// 2. Chamfer distance transform at 4x resolution
+		// 3. Erode by thresholding (eats JPEG fringe)
+		// 4. Box-downsample to 1x: each pixel's alpha = fraction of
+		//    its 16 sub-pixels that are inside the eroded mask.
+		//
+		// At diagonal staircase steps, 4x4 blocks straddle the edge
+		// and produce fractional alpha — the same geometric AA that
+		// OpenGL uses for rasterized edges.
 
-		for (int y = 0; y < h; ++y)
+		static const int kScale   = 4;
+		static const int kErode   = 18;  // erosion in chamfer units
+		                                  // (6 px at 4x = 1.5 px at 1x)
+		static const int kDistInf = 10000;
+
+		int hw = w * kScale;
+		int hh = h * kScale;
+
+		// Upsample to 4x (nearest-neighbor).
+		vector<uint8_t> hires (hw * hh);
+		for (int y = 0; y < hh; ++y)
 		{
-			for (int x = 0; x < w; ++x)
-			{
-				if (alpha[y * w + x] == 0)
-				{
-					eroded[y * w + x] = 0;
-					continue;
-				}
-
-				bool edge = false;
-				for (int dy = -1; dy <= 1 && !edge; ++dy)
-				{
-					for (int dx = -1; dx <= 1 && !edge; ++dx)
-					{
-						int nx = x + dx;
-						int ny = y + dy;
-						if (nx < 0 || ny < 0 || nx >= w || ny >= h
-							|| alpha[ny * w + nx] == 0)
-						{
-							edge = true;
-						}
-					}
-				}
-
-				eroded[y * w + x] = edge ? 0 : 255;
-			}
+			int sy = y / kScale;
+			for (int x = 0; x < hw; ++x)
+				hires[y * hw + x] = alpha[sy * w + x / kScale];
 		}
 
-		// Separable Gaussian blur (sigma ~1.0, radius 2).
-		// Binomial approximation kernel: [1, 4, 6, 4, 1]
-		static const int kernel[5] = { 1, 4, 6, 4, 1 };
-		static const int kRadius = 2;
+		// Chamfer 3/4 interior distance at 4x.
+		vector<int> dist (hw * hh);
+		for (int i = 0; i < hw * hh; ++i)
+			dist[i] = hires[i] ? kDistInf : 0;
 
-		// Horizontal pass: eroded → temp
-		vector<uint8_t> temp (w * h);
-
-		for (int y = 0; y < h; ++y)
-		{
-			for (int x = 0; x < w; ++x)
+		for (int y = 0; y < hh; ++y)
+			for (int x = 0; x < hw; ++x)
 			{
-				int sum = 0;
-				int wt  = 0;
-				for (int k = -kRadius; k <= kRadius; ++k)
+				int d = dist[y * hw + x];
+				if (d == 0) continue;
+				if (x > 0)
+					d = min (d, dist[y * hw + (x - 1)] + 3);
+				if (y > 0)
 				{
-					int sx = x + k;
-					if (sx >= 0 && sx < w)
-					{
-						sum += eroded[y * w + sx] * kernel[k + kRadius];
-						wt  += kernel[k + kRadius];
-					}
+					d = min (d, dist[(y - 1) * hw + x] + 3);
+					if (x > 0)
+						d = min (d, dist[(y - 1) * hw + (x - 1)] + 4);
+					if (x < hw - 1)
+						d = min (d, dist[(y - 1) * hw + (x + 1)] + 4);
 				}
-				temp[y * w + x] = (uint8_t)(sum / wt);
+				dist[y * hw + x] = d;
 			}
-		}
 
-		// Vertical pass: temp → alpha (overwrite original)
+		for (int y = hh - 1; y >= 0; --y)
+			for (int x = hw - 1; x >= 0; --x)
+			{
+				int d = dist[y * hw + x];
+				if (d == 0) continue;
+				if (x < hw - 1)
+					d = min (d, dist[y * hw + (x + 1)] + 3);
+				if (y < hh - 1)
+				{
+					d = min (d, dist[(y + 1) * hw + x] + 3);
+					if (x < hw - 1)
+						d = min (d, dist[(y + 1) * hw + (x + 1)] + 4);
+					if (x > 0)
+						d = min (d, dist[(y + 1) * hw + (x - 1)] + 4);
+				}
+				dist[y * hw + x] = d;
+			}
+
+		// Box-downsample: alpha = count of sub-pixels surviving erosion.
+		int total = kScale * kScale;
 		for (int y = 0; y < h; ++y)
 		{
 			for (int x = 0; x < w; ++x)
 			{
-				int sum = 0;
-				int wt  = 0;
-				for (int k = -kRadius; k <= kRadius; ++k)
-				{
-					int sy = y + k;
-					if (sy >= 0 && sy < h)
-					{
-						sum += temp[sy * w + x] * kernel[k + kRadius];
-						wt  += kernel[k + kRadius];
-					}
-				}
-				alpha[y * w + x] = (uint8_t)(sum / wt);
+				int count = 0;
+				for (int dy = 0; dy < kScale; ++dy)
+					for (int dx = 0; dx < kScale; ++dx)
+						if (dist[(y * kScale + dy) * hw
+								 + x * kScale + dx] > kErode)
+							++count;
+				alpha[y * w + x] = (uint8_t)(count * 255 / total);
 			}
 		}
 	}

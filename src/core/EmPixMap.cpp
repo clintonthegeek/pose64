@@ -315,11 +315,13 @@ FOR_EACH_FORMAT_PAIR (DECLARE_CONVERTER)
 		uint8	r, g, b, a;									\
 		GET_##src_format(srcPtr, r, g, b, a)				\
 															\
-		Bool	isDark1 = r < 0xC0;							\
-		Bool	isDark2 = g < 0xC0;							\
-		Bool	isDark3 = b < 0xC0;							\
+		/* Luminance-based threshold — robust against		\
+		   per-channel JPEG compression artifacts that		\
+		   shift individual channels below 0xC0 while		\
+		   the pixel is visually near-white. */				\
+		int luma = (77 * r + 150 * g + 29 * b) >> 8;		\
 															\
-		if (isDark1 || isDark2 || isDark3)					\
+		if (luma < 0xD0)									\
 		{													\
 			/* Assumes white/black color table! */			\
 			aByte |= bitMask;								\
@@ -746,6 +748,52 @@ void EmPixMap::CreateMask (EmPixMap& dest) const
 
 	::PrvMakeMask (dest.GetBits (), src.GetBits (), src.GetRowBytes (),
 		src.GetSize().fX, src.GetSize().fY);
+
+	// Erode the mask by 1 pixel (4-connected) to crop away the band of
+	// near-white JPEG fringe pixels at the skin boundary.  Bit=1 is
+	// foreground; any foreground pixel adjacent to background becomes
+	// background.
+
+	{
+		long	w  = dest.GetSize ().fX;
+		long	h  = dest.GetSize ().fY;
+		long	rb = dest.GetRowBytes ();
+		uint8*	bits = (uint8*) dest.GetBits ();
+
+		// Work on a copy so reads aren't affected by writes.
+		long	total = rb * h;
+		uint8*	orig  = (uint8*) Platform::AllocateMemory (total);
+		memcpy (orig, bits, total);
+
+		for (long y = 0; y < h; ++y)
+		{
+			for (long x = 0; x < w; ++x)
+			{
+				long byteIdx = x >> 3;
+				uint8 bitMask = 0x80 >> (x & 7);
+
+				// Skip if already background.
+				if (!(orig[y * rb + byteIdx] & bitMask))
+					continue;
+
+				// Check 4 neighbours — if any is background, clear this pixel.
+				bool edge = false;
+				if (x == 0 || !(orig[y * rb + ((x - 1) >> 3)] & (0x80 >> ((x - 1) & 7))))
+					edge = true;
+				else if (x == w - 1 || !(orig[y * rb + ((x + 1) >> 3)] & (0x80 >> ((x + 1) & 7))))
+					edge = true;
+				else if (y == 0 || !(orig[(y - 1) * rb + byteIdx] & bitMask))
+					edge = true;
+				else if (y == h - 1 || !(orig[(y + 1) * rb + byteIdx] & bitMask))
+					edge = true;
+
+				if (edge)
+					bits[y * rb + byteIdx] &= ~bitMask;
+			}
+		}
+
+		Platform::DisposeMemory (orig);
+	}
 }
 
 
