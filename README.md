@@ -2,7 +2,7 @@
   <img src="docs/banner.png" alt="POSE64 — Palm Operating System Emulator">
 </p>
 
-A native 64-bit port of POSE 3.5, the original Palm OS Emulator from 2001! POSE shipped with the official SDK—and I've now learned it was broken as hell. Well, now it's ported to Qt6 from FLTK 1.1 and compiled for modern GNU/Linux.
+A native 64-bit port of POSE 3.5, the original Palm OS Emulator from 2001! POSE shipped with the official SDK—and I've now learned it was broken as hell. Well, now it's ported to Qt6 from FLTK 1.1 and compiled for modern GNU/Linux. Oh, and Windows too. Check out the "Releases" section on the right side of the page to get your EXE files, Windows users.
 
 ## Origins
 So POSE was made with version ~0.8 of UAE, a Motorola 68k emulator which was at the time called the Ubiquitous Amiga Emulator. A few years before that, it was the Unusable Amiga Emulator. It's now called the Universal Amiga Emulator and still in active development in several branches.
