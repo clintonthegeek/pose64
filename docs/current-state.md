@@ -136,5 +136,3 @@ and throttle calibration math.
 | `winuae-gencpu-fork-postmortem.md` | Post-mortem of attempted WinUAE code generator fork |
 | `best32to64portingpractices.md` | General LP64 porting reference |
 | `gdb-crash-debugging.md` | GDB debugging techniques for emulator crashes |
-| `history/` | Completed plans, resolved investigations, superseded analyses |
-| `ReControlPostMortem/` | Why the ReControl socket approach was abandoned |

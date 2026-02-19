@@ -1,4 +1,4 @@
-# QtPortPOSE Debugging Guide
+# POSE64 Debugging Guide
 
 Reference for all debug facilities available in the emulator: compile-time options,
 runtime tools, and the dormant infrastructure activated by the debug build.
@@ -7,15 +7,15 @@ runtime tools, and the dormant infrastructure activated by the debug build.
 
 ```bash
 # Build with full debug instrumentation
-cd /home/clinton/dev/palmtest/QtPortPOSE/build
-cmake ../src -DPOSE_DEBUG=ON
+mkdir -p build && cd build
+cmake .. -DPOSE_DEBUG=ON
 make -j$(nproc)
 
 # Run with leak detection
-ASAN_OPTIONS="detect_leaks=1" ./qtpose
+ASAN_OPTIONS="detect_leaks=1" ./pose64
 
 # Run under GDB for interactive debugging
-gdb --args ./qtpose
+gdb --args ./pose64
 ```
 
 ## Build Configurations
@@ -24,9 +24,9 @@ gdb --args ./qtpose
 
 | Command | What You Get |
 |---------|-------------|
-| `cmake ../src` | Release build. No symbols, no sanitizers, assertions off, Qt debug off. |
-| `cmake ../src -DPOSE_DEBUG=ON` | Debug build. Symbols + ASAN + UBSAN + exception/register history. Assertions still off. |
-| `cmake ../src -DPOSE_DEBUG=ON -DPOSE_ASSERTIONS=ON` | Full debug. Everything above plus all 1,194 `EmAssert()` calls active. Use with caution — see "Assertions" below. |
+| `cmake ..` | Release build. No symbols, no sanitizers, assertions off, Qt debug off. |
+| `cmake .. -DPOSE_DEBUG=ON` | Debug build. Symbols + ASAN + UBSAN + exception/register history. Assertions still off. |
+| `cmake .. -DPOSE_DEBUG=ON -DPOSE_ASSERTIONS=ON` | Full debug. Everything above plus all 1,194 `EmAssert()` calls active. Use with caution — see "Assertions" below. |
 
 ### What POSE_DEBUG Enables
 
@@ -56,17 +56,17 @@ and memory leaks.
 
 **Basic usage:**
 ```bash
-./qtpose    # ASAN is active just by running the debug binary
+./pose64    # ASAN is active just by running the debug binary
 ```
 
 **With leak detection (prints report on exit):**
 ```bash
-ASAN_OPTIONS="detect_leaks=1" ./qtpose
+ASAN_OPTIONS="detect_leaks=1" ./pose64
 ```
 
 **Full diagnostic options:**
 ```bash
-ASAN_OPTIONS="detect_leaks=1:log_path=/tmp/asan:verbosity=1" ./qtpose
+ASAN_OPTIONS="detect_leaks=1:log_path=/tmp/asan:verbosity=1" ./pose64
 ```
 This writes reports to `/tmp/asan.<pid>` instead of stderr.
 
@@ -114,7 +114,7 @@ file.cpp:42:15: runtime error: signed integer overflow: 2147483647 + 1
 
 **UBSAN options (via environment variable):**
 ```bash
-UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0" ./qtpose
+UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0" ./pose64
 ```
 
 ---
@@ -132,7 +132,7 @@ backtraces, common patterns).
 When the emulator spikes to 100% CPU:
 
 ```bash
-gdb --args ./qtpose
+gdb --args ./pose64
 (gdb) handle SIGPIPE nostop noprint pass
 (gdb) run
 ```
@@ -223,10 +223,10 @@ Works on both debug and release binaries. No recompile needed.
 
 ```bash
 # Start the emulator
-./qtpose &
+./pose64 &
 
 # When CPU spikes, see where time is being spent (live):
-perf top -p $(pidof qtpose)
+perf top -p $(pidof pose64)
 ```
 
 This shows a live-updating list of functions sorted by CPU time. Look for:
@@ -239,7 +239,7 @@ This shows a live-updating list of functions sorted by CPU time. Look for:
 
 ```bash
 # Record 5 seconds of samples during a spike
-perf record -p $(pidof qtpose) -g --call-graph dwarf sleep 5
+perf record -p $(pidof pose64) -g --call-graph dwarf sleep 5
 
 # Analyze
 perf report
@@ -256,10 +256,10 @@ excessive kernel calls.
 
 ```bash
 # Count syscalls over 5 seconds during a spike
-strace -c -p $(pidof qtpose) 2>&1 & sleep 5; kill %1
+strace -c -p $(pidof pose64) 2>&1 & sleep 5; kill %1
 
 # Or trace specific syscalls:
-strace -p $(pidof qtpose) -e trace=clock_nanosleep,nanosleep,write
+strace -p $(pidof pose64) -e trace=clock_nanosleep,nanosleep,write
 ```
 
 **What to look for:**
@@ -283,10 +283,10 @@ less per-access overhead.
 
 ```bash
 # Profile heap allocations over time
-valgrind --tool=massif --time-unit=ms ./qtpose
+valgrind --tool=massif --time-unit=ms ./pose64
 
 # After exit, analyze the profile:
-ms_print massif.out.$(pidof qtpose) | head -80
+ms_print massif.out.$(pidof pose64) | head -80
 ```
 
 This shows a timeline graph of heap usage, identifying which allocation sites
@@ -296,7 +296,7 @@ are growing.
 
 ```bash
 # 10-50x slower, but finds every memory error
-valgrind --tool=memcheck --leak-check=full --track-origins=yes ./qtpose
+valgrind --tool=memcheck --leak-check=full --track-origins=yes ./pose64
 ```
 
 Only use this if ASAN misses something or you need `--track-origins` to find
@@ -374,7 +374,7 @@ by default even in the debug build (`NDEBUG` stays defined) because:
 ### Enabling Assertions
 
 ```bash
-cmake ../src -DPOSE_DEBUG=ON -DPOSE_ASSERTIONS=ON
+cmake .. -DPOSE_DEBUG=ON -DPOSE_ASSERTIONS=ON
 make -j$(nproc)
 ```
 
@@ -400,7 +400,7 @@ These are always active in the POSE_DEBUG build regardless of POSE_ASSERTIONS:
 ## Workflow: Hunting a Memory Leak
 
 1. Build with `POSE_DEBUG=ON`
-2. Run: `ASAN_OPTIONS="detect_leaks=1:halt_on_error=0" ./qtpose`
+2. Run: `ASAN_OPTIONS="detect_leaks=1:halt_on_error=0" ./pose64`
 3. Exercise the scenario that triggers the leak (run PalmOS apps)
 4. Exit the emulator (close window or Ctrl+C)
 5. ASAN prints every unfreed allocation with full stack traces
@@ -409,7 +409,7 @@ These are always active in the POSE_DEBUG build regardless of POSE_ASSERTIONS:
 ## Workflow: Hunting a CPU Spike
 
 1. Build with `POSE_DEBUG=ON`
-2. Start: `gdb --args ./qtpose`
+2. Start: `gdb --args ./pose64`
 3. `(gdb) handle SIGPIPE nostop noprint pass`
 4. `(gdb) run`
 5. When the spike occurs, press **Ctrl+C**
@@ -417,20 +417,20 @@ These are always active in the POSE_DEBUG build regardless of POSE_ASSERTIONS:
 7. `(gdb) info locals` — inspect loop counters and timer state
 8. If the spike is in the emulation loop, check the exception history to see
    what the emulated CPU was doing leading up to it
-9. Optional: in another terminal, `perf top -p $(pidof qtpose)` for a
+9. Optional: in another terminal, `perf top -p $(pidof pose64)` for a
    function-level heat map
 
 ## Workflow: Switching Between Debug and Release
 
 ```bash
 # Switch to debug
-cmake ../src -DPOSE_DEBUG=ON && make -j$(nproc)
+cmake .. -DPOSE_DEBUG=ON && make -j$(nproc)
 
 # Switch to release
-cmake ../src -DPOSE_DEBUG=OFF && make -j$(nproc)
+cmake .. -DPOSE_DEBUG=OFF && make -j$(nproc)
 
 # Full rebuild (if switching seems stale)
-cmake ../src -DPOSE_DEBUG=ON && make clean && make -j$(nproc)
+cmake .. -DPOSE_DEBUG=ON && make clean && make -j$(nproc)
 ```
 
-The binary is always `build/qtpose` — no separate output paths.
+The binary is always `build/pose64` — no separate output paths.

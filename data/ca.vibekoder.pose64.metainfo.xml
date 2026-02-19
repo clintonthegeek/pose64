@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ca.vibekoder.pose64</id>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>POSE64</name>
+  <summary>Palm OS Emulator for modern Linux</summary>
+
+  <description>
+    <p>
+      POSE64 is a native 64-bit port of the Palm OS Emulator (POSE) 3.5,
+      built with Qt6 for modern x86_64 Linux. It emulates Palm OS devices
+      from the Pilot 1000 through the Palm m515, including DragonBall 328,
+      EZ, and VZ processor variants.
+    </p>
+    <p>
+      Features include cycle-accurate timer emulation, device skins with
+      per-pixel transparency, Gremlins automated testing, session
+      save/restore, clipboard synchronization, and HiDPI support.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">ca.vibekoder.pose64.desktop</launchable>
+
+  <url type="homepage">https://github.com/user/POSE64</url>
+  <url type="bugtracker">https://github.com/user/POSE64/issues</url>
+
+  <provides>
+    <binary>pose64</binary>
+  </provides>
+
+  <releases>
+    <release version="0.9.0" date="2026-02-18">
+      <description>
+        <p>Initial public release. Native 64-bit Qt6 port of POSE 3.5.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+</component>

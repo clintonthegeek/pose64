@@ -1,6 +1,6 @@
 # Capturing Crash Data with GDB
 
-Quick reference for running QtPOSE (or any program) under gdb to capture
+Quick reference for running POSE64 (or any program) under gdb to capture
 backtraces from crashes.
 
 ## Batch Mode (Automatic Backtrace on Crash)
@@ -15,7 +15,7 @@ gdb -batch \
   -ex "thread apply all bt" \
   -ex "info registers" \
   -ex quit \
-  --args ./src/build/qtpose -psf "path/to/SomeProfile.psf"
+  --args ./pose64 -psf "path/to/SomeProfile.psf"
 ```
 
 Pipe through `tee` to save output:
@@ -27,7 +27,7 @@ gdb -batch \
   -ex "thread apply all bt" \
   -ex "info registers" \
   -ex quit \
-  --args ./src/build/qtpose -psf "path/to/SomeProfile.psf" \
+  --args ./pose64 -psf "path/to/SomeProfile.psf" \
   2>&1 | tee /tmp/crash.log
 ```
 
@@ -48,7 +48,7 @@ gdb -batch \
 For more detailed investigation:
 
 ```bash
-gdb --args ./src/build/qtpose -psf "path/to/SomeProfile.psf"
+gdb --args ./pose64 -psf "path/to/SomeProfile.psf"
 ```
 
 Then at the `(gdb)` prompt:

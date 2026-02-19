@@ -42,9 +42,10 @@ int main (int argc, char** argv)
 	QSurfaceFormat::setDefaultFormat (fmt);
 
 	QApplication qtApp (argc, argv);
-	qtApp.setApplicationName ("POSE64");
-	qtApp.setOrganizationName ("POSE64");
-	qtApp.setApplicationVersion ("1.0");
+	qtApp.setApplicationName ("pose64");
+	qtApp.setOrganizationDomain ("ca.vibekoder");
+	qtApp.setOrganizationName ("VibeKoder");
+	qtApp.setApplicationVersion ("0.9.0");
 
 	// Create preferences and application objects on the stack,
 	// exactly as in the FLTK main().

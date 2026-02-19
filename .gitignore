@@ -1,12 +1,6 @@
 # Build output
 build/
-src/build/
-src/Emulator_Src_3.5/
-src/fltk-1.1.10/
-src/fltk-install/
-
-# Abandoned v1 port (has its own git repo)
-abandoned/
+build-*/
 
 # CMake
 CMakeCache.txt
@@ -25,8 +19,7 @@ moc_*.cpp
 *.dylib
 
 # Binaries
-qtpose
-pose
+pose64
 
 # IDE / tools
 .vscode/
@@ -43,9 +36,19 @@ Thumbs.db
 
 # ROM files (copyrighted)
 *.rom
+*.bin
 
 # Session files
 *.psf
 
 # Palm OS Emulator session data
 Palm OS Emulator/
+
+# Legacy files (kept locally, not published)
+sources/
+generated/
+build.sh
+CMakeListsEXAMPLE.txt
+docs/history/
+docs/ReControlPostMortem/
+docs/plans/

@@ -1185,19 +1185,19 @@ void PrvBuildSkinList (SkinList& skins)
 		scanDir = EmDirRef (emuDir, "skins");
 
 #if PLATFORM_UNIX
-	// On Unix, also look in the /usr/local/share/pose and /usr/share/pose directories.
+	// On Unix, also look in the /usr/local/share/pose64 and /usr/share/pose64 directories.
 
 	if (!scanDir.Exists ())
-		scanDir = EmDirRef ("/usr/local/share/pose/Skins");
+		scanDir = EmDirRef ("/usr/local/share/pose64/Skins");
 
 	if (!scanDir.Exists ())
-		scanDir = EmDirRef ("/usr/local/share/pose/skins");
+		scanDir = EmDirRef ("/usr/local/share/pose64/skins");
 
 	if (!scanDir.Exists ())
-		scanDir = EmDirRef ("/usr/share/pose/Skins");
+		scanDir = EmDirRef ("/usr/share/pose64/Skins");
 
 	if (!scanDir.Exists ())
-		scanDir = EmDirRef ("/usr/share/pose/skins");
+		scanDir = EmDirRef ("/usr/share/pose64/skins");
 #endif
 
 	fprintf (stderr, "SKIN: scan dir = '%s' exists=%d\n",

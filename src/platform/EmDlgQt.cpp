@@ -2254,9 +2254,12 @@ EmDlgItemID EmDlg::HostRunAboutBox (const void* parameters)
 	aboutBox.setText (
 		"<b>POSE64</b> - Palm OS Emulator<br>"
 		"Version " + version + "<br><br>"
-		"64-bit Qt6 Port<br>"
-		"Based on Palm OS Emulator 3.5<br>"
-		"Copyright &copy; 1999-2001 Palm, Inc.<br><br>"
+		"64-bit Qt6 port of POSE 3.5<br>"
+		"Copyright &copy; 1999-2001 Palm, Inc.<br>"
+		"Copyright &copy; 2026 Clinton Ignatov<br><br>"
+		"Licensed under the "
+		"<a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">"
+		"GNU General Public License v3.0</a><br><br>"
 		"<a href=\"https://github.com/clintonthegeek/pose64\">"
 		"https://github.com/clintonthegeek/pose64</a>"
 	);

@@ -1,4 +1,4 @@
-# QtPortPOSE Architectural Review
+# POSE64 Architectural Review
 
 > **Status (2026-02-18):** This document was originally written at the start
 > of the v2 rewrite to catalogue the v1 Qt port's defects. The v2 rewrite

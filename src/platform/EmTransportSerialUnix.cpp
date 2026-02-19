@@ -514,9 +514,18 @@ EmHostTransportSerial::~EmHostTransportSerial (void)
 {
 	EmAssert (fReadThread == NULL);
 	EmAssert (fWriteThread == NULL);
-	EmAssert (fCommHandle == 0);
 	EmAssert (fCommSignalPipeA == 0);
 	EmAssert (fCommSignalPipeB == 0);
+
+	// Close the PTY master fd that was kept alive across close/open cycles.
+	if (fPtyMaster)
+	{
+		(void) close (fPtyMaster);
+		fPtyMaster = 0;
+		fCommHandle = 0;
+	}
+
+	EmAssert (fCommHandle == 0);
 }
 
 
@@ -583,6 +592,19 @@ ErrCode EmHostTransportSerial::OpenCommPort (const EmTransportSerial::ConfigSeri
 
 ErrCode EmHostTransportSerial::OpenPtyPort (const string& portName)
 {
+	// Reuse existing PTY if one is already open.  Palm OS toggles
+	// line drivers during boot, causing repeated close/open cycles.
+	// Creating a new PTY each time would give the user a different
+	// /dev/pts/N path and spam stderr.
+
+	if (fPtyMaster)
+	{
+		PRINTF ("EmTransportSerial::HostOpen: Reusing existing PTY for \"%s\" (%s)",
+				portName.c_str(), fPtySlaveName.c_str());
+		fCommHandle = fPtyMaster;
+		return errNone;
+	}
+
 	PRINTF ("EmTransportSerial::HostOpen: Creating PTY for \"%s\"...",
 			portName.c_str());
 
@@ -736,11 +758,18 @@ ErrCode EmHostTransportSerial::DestroyCommThreads (void)
 
 ErrCode EmHostTransportSerial::CloseCommPort (void)
 {
-	(void) close (fCommHandle);
-
-	fCommHandle = 0;
-	fPtyMaster = 0;
-	fPtySlaveName.clear ();
+	if (fPtyMaster)
+	{
+		// In PTY mode, keep the master fd alive so we can reuse it
+		// across the close/open cycles that Palm OS triggers during
+		// boot.  The fd is closed for real in the destructor.
+		fCommHandle = 0;
+	}
+	else
+	{
+		(void) close (fCommHandle);
+		fCommHandle = 0;
+	}
 
 	return errNone;
 }

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=POSE64
+GenericName=Palm OS Emulator
+Comment=Emulate Palm OS devices on modern Linux
+Exec=pose64 %f
+Icon=ca.vibekoder.pose64
+Terminal=false
+Categories=Development;Emulator;
+StartupWMClass=pose64
+MimeType=application/x-palm-session;
