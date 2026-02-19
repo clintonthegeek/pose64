@@ -132,8 +132,8 @@ list(APPEND CORE_SOURCES "src/core/Palm/Platform/Core/System/Src/Crc.c")
 # Exclude all omnithread platform implementations
 list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/omnithread/.*\\.(c|cpp)$")
 
-# Exclude duplicate JPEG memory manager implementations
-list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/jpeg/jmemmac\\.c$")
+# Exclude bundled JPEG library — JPEG decoding uses Qt's QImage instead
+list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/jpeg/.*\\.c$")
 
 # Exclude ALL UAE files (add back explicitly)
 list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/UAE/.*\\.(c|cpp)$")
