@@ -141,6 +141,10 @@ EmSession::EmSession (void) :
 		case 8: speed = 800; break;
 	}
 
+	// Safety: default to 1x if preference is missing or zero
+	if (speed <= 0)
+		speed = 100;
+
 	fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
 
 	EmAssert (gSession == NULL);

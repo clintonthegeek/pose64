@@ -409,7 +409,7 @@ extern EmulatorPreferences* gEmuPrefs;
 																				\
 	DO_TO_PREF(SlotList,			SlotInfoList,		())						\
 																				\
-	DO_TO_PREF(EmulationSpeed,		long,				(1))					\
+	DO_TO_PREF(EmulationSpeed,		long,				(100))					\
 																				\
 	DO_TO_PREF(TimerAccuracy,		long,				(1))					\
 
