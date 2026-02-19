@@ -24,7 +24,7 @@ BEGIN
             VALUE "OriginalFilename", "pose64.exe"
             VALUE "ProductName",      "POSE64"
             VALUE "ProductVersion",   "0.9.0"
-            VALUE "LegalCopyright",   "GPL-2.0-or-later"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 Clinton Ignatov. GPL-3.0-or-later"
         END
     END
     BLOCK "VarFileInfo"
