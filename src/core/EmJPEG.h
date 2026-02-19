@@ -28,16 +28,20 @@
 #undef FAR
 
 
+#ifndef DISABLE_JPEG_SUPPORT
 extern "C"
 {
 	#include "jinclude.h"
 	#include "jpeglib.h"
 	#include "jerror.h"
 }
+#endif
 
 class EmPixMap;
 class EmStream;
 
+
+#ifndef DISABLE_JPEG_SUPPORT
 
 // Abstract base class that acts as a source for compressed JPEG
 // data that needs to be decompressed.  Clients subclass from this
@@ -157,6 +161,8 @@ class EmJPEGDecompressPixMapSink : public EmJPEGDecompressSink
 // output by providing the appropriate source and sink classes.
 
 void	ConvertJPEG		(EmJPEGDecompressSource&, EmJPEGDecompressSink&);
+
+#endif /* !DISABLE_JPEG_SUPPORT */
 
 
 // Utility function that converts a JPEG from the stream to the given pixmap.

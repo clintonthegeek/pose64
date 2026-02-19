@@ -35,7 +35,6 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Palm/Platform/Incs/Core/UI
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Palm/Platform/Incs/Libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Gzip
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/jpeg
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/omnithread
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Patches
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/UAE
