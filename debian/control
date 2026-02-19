@@ -1,0 +1,23 @@
+Source: pose64
+Section: devel
+Priority: optional
+Maintainer: Clinton Ignatov <clinton@vibekoder.ca>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.19),
+               qt6-base-dev (>= 6.6),
+               libx11-dev,
+               zlib1g-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/clintonthegeek/pose64
+
+Package: pose64
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Palm OS Emulator for modern 64-bit Linux
+ POSE64 is a native 64-bit Qt6 port of the Palm OS Emulator (POSE) 3.5.
+ It emulates Palm OS devices from the Pilot 1000 through the Palm m515,
+ including DragonBall 328, EZ, and VZ processor variants.
+ .
+ Features include cycle-accurate timer emulation, device skins with
+ per-pixel transparency, Gremlins automated testing, session save/restore,
+ clipboard synchronization, and HiDPI support.
