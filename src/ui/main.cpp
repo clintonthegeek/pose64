@@ -64,12 +64,25 @@ int main (int argc, char** argv)
 			// This replaces FLTK's while(1) { Fl::wait(0.1); HandleIdle(); }
 			QTimer idleTimer;
 			QObject::connect (&idleTimer, &QTimer::timeout, [&]() {
-				if (theApp.GetTimeToQuit ())
+				try
 				{
-					QApplication::quit ();
-					return;
+					if (theApp.GetTimeToQuit ())
+					{
+						QApplication::quit ();
+						return;
+					}
+					theApp.HandleIdle ();
 				}
-				theApp.HandleIdle ();
+				catch (const std::exception& e)
+				{
+					fprintf (stderr, "POSE64: Exception in idle handler: %s\n", e.what());
+					QApplication::quit ();
+				}
+				catch (...)
+				{
+					fprintf (stderr, "POSE64: Unknown exception in idle handler\n");
+					QApplication::quit ();
+				}
 			});
 			idleTimer.start (100);  // ~10 Hz, matching FLTK's Fl::wait(0.1)
 
