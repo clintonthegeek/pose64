@@ -25,7 +25,7 @@ I hope my humble artwork is satisfactory for the occasion of this quarter-centur
 - **Clipboard sync** — bidirectional text clipboard with the host
 - **Database management** — install and export PRC/PDB/PQA files
 
-These are all features of the original 25 year old emulator. Added is a **new Speed control**: 0.25x to 8x of “realtime” (or any custom fraction), with cycle-accurate timer mode. I put “realtime” in scare quotes because I made a 16-variable benchmark application and wasted a whole day trying to get the emulator to address different areas at realistic speeds. That was far too challenging; read the `docs/` for more.
+These are all features of the original 25 year old emulator. Added is a **new speed control**: 0.25x to 8x of “realtime” (or any custom fraction), with cycle-accurate timer mode. I put “realtime” in scare quotes because I made a 16-variable benchmark application and wasted a whole day trying to get the emulator to address different areas at realistic speeds. That was far too challenging; read the `docs/` for more.
 
 Supported devices might include: Palm Pilot, Palm III/IIIc/IIIe/IIIx, Palm V/Vx,
 Palm m100/m130/m500/m515, Handspring Visor, and others! Most aren't tested—give them a shot!
@@ -146,4 +146,4 @@ for the full saga.
 
 ## License
 
-GPL v3 — see [LICENSE](LICENSE) for details.
+GPL v3 — see [LICENSE](LICENSE) for details. The original POSE was fortunately released under the GPL 2.0.
