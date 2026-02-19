@@ -28,6 +28,8 @@
 #include "ROMStubs.h"			// DmDatabaseInfo
 #include "Skins.h"				// SkinGetSkinNames, SkinSetSkinName
 #include "Strings.r.h"			// kStr_OK, kStr_Cancel, etc.
+#include "EmTransportSerial.h"	// EmTransportSerial::GetDescriptorList
+#include "EmTransportSocket.h"	// EmTransportSocket::GetDescriptorList
 
 // Undefine Palm OS macros that conflict with Qt
 #undef daysInYear
@@ -206,6 +208,7 @@ static EmDlgItemID PrvHostSessionNew (void* userData)
 
 	QDialog dlg;
 	dlg.setWindowTitle ("New Session");
+	dlg.setMinimumWidth (600);
 
 	QVBoxLayout* topLayout = new QVBoxLayout (&dlg);
 	QFormLayout* form = new QFormLayout;
@@ -689,6 +692,38 @@ static EmDlgItemID PrvHostSessionInfo (void)
 	QString sessionStr = psf.IsSpecified () ? QString::fromStdString (psf.GetFullPath ()) : "(Untitled)";
 	form->addRow ("Session:", new QLabel (sessionStr));
 
+	// Show PTY slave paths for active serial transports
+	struct { PrefKeyType key; const char* label; } portPrefs[] = {
+		{ kPrefKeyPortSerial,  "Serial PTY:" },
+		{ kPrefKeyPortIR,      "IR PTY:" },
+		{ kPrefKeyPortMystery, "Mystery PTY:" },
+	};
+
+	for (const auto& pp : portPrefs)
+	{
+		Preference<EmTransportDescriptor> pref (pp.key);
+		EmTransportDescriptor desc = *pref;
+
+		if (desc.GetType () != kTransportSerial)
+			continue;
+
+		// Check for an active transport with a PTY slave
+		EmTransportSerial::ConfigSerial	tmpCfg;
+		tmpCfg.fPort = desc.GetSchemeSpecific ();
+
+		EmTransportSerial* transport = EmTransportSerial::GetTransport (tmpCfg);
+		if (!transport)
+			continue;
+
+		string slaveName = transport->GetPtySlaveName ();
+		if (!slaveName.empty ())
+		{
+			QLabel* pathLabel = new QLabel (QString::fromStdString (slaveName));
+			pathLabel->setTextInteractionFlags (Qt::TextSelectableByMouse);
+			form->addRow (pp.label, pathLabel);
+		}
+	}
+
 	QDialogButtonBox* buttons = new QDialogButtonBox (QDialogButtonBox::Ok);
 	form->addRow (buttons);
 
@@ -791,10 +826,53 @@ static EmDlgItemID PrvHostPreferences (void)
 	QFormLayout* form = new QFormLayout;
 	topLayout->addLayout (form);
 
-	// Port displays (read-only on Unix)
-	form->addRow ("Serial Port:", new QLabel (QString::fromStdString ((*prefPortSerial).GetMenuName ())));
-	form->addRow ("IR Port:",     new QLabel (QString::fromStdString ((*prefPortIR).GetMenuName ())));
-	form->addRow ("Mystery Port:", new QLabel (QString::fromStdString ((*prefPortMystery).GetMenuName ())));
+	// Build combined transport descriptor list: None, serial ports, socket
+	EmTransportDescriptorList	portDescList;
+
+	{
+		EmTransportDescriptorList	nullList;
+		EmTransportNull::GetDescriptorList (nullList);
+		portDescList.insert (portDescList.end (), nullList.begin (), nullList.end ());
+
+		EmTransportDescriptorList	serialList;
+		EmTransportSerial::GetDescriptorList (serialList);
+		portDescList.insert (portDescList.end (), serialList.begin (), serialList.end ());
+
+		EmTransportDescriptorList	socketList;
+		EmTransportSocket::GetDescriptorList (socketList);
+		portDescList.insert (portDescList.end (), socketList.begin (), socketList.end ());
+	}
+
+	// Helper to create and populate a port combo box
+	auto makePortCombo = [&](const EmTransportDescriptor& currentDesc) -> QComboBox*
+	{
+		QComboBox* combo = new QComboBox;
+		int currentIndex = 0;
+
+		for (size_t i = 0; i < portDescList.size (); i++)
+		{
+			string menuName = portDescList[i].GetMenuName ();
+			if (menuName.empty ())
+				menuName = "None";
+
+			combo->addItem (QString::fromStdString (menuName));
+
+			if (portDescList[i] == currentDesc)
+				currentIndex = (int) i;
+		}
+
+		combo->setCurrentIndex (currentIndex);
+		return combo;
+	};
+
+	// Port selection combo boxes
+	QComboBox* comboSerial  = makePortCombo (*prefPortSerial);
+	QComboBox* comboIR      = makePortCombo (*prefPortIR);
+	QComboBox* comboMystery = makePortCombo (*prefPortMystery);
+
+	form->addRow ("Serial Port:", comboSerial);
+	form->addRow ("IR Port:",     comboIR);
+	form->addRow ("Mystery Port:", comboMystery);
 
 	QCheckBox* netLibCheck = new QCheckBox ("Redirect NetLib Calls to Host TCP/IP");
 	netLibCheck->setChecked (*prefNetLib);
@@ -843,6 +921,20 @@ static EmDlgItemID PrvHostPreferences (void)
 		{
 			EmDlg::DoCommonDialog ("User name is too long (max 40 characters).", kDlgFlags_OK);
 			return kDlgItemCancel;
+		}
+
+		// Write port prefs
+		{
+			Preference<EmTransportDescriptor> p (kPrefKeyPortSerial);
+			p = portDescList[comboSerial->currentIndex ()];
+		}
+		{
+			Preference<EmTransportDescriptor> p (kPrefKeyPortIR);
+			p = portDescList[comboIR->currentIndex ()];
+		}
+		{
+			Preference<EmTransportDescriptor> p (kPrefKeyPortMystery);
+			p = portDescList[comboMystery->currentIndex ()];
 		}
 
 		// Write prefs

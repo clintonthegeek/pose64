@@ -97,6 +97,8 @@ class EmTransportSerial : public EmTransport
 		Bool					GetCTS					(void);
 		Bool					GetDSR					(void);
 
+		std::string				GetPtySlaveName			(void) const;
+
 		static EmTransportSerial*	GetTransport		(const ConfigSerial&);
 		static void				GetDescriptorList		(EmTransportDescriptorList&);
 		static void				GetSerialBaudList		(BaudList&);
