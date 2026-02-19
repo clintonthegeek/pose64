@@ -111,6 +111,9 @@ want to support for maximum compatibility.
 
 ## Timing
 
+All this was co-developed with Claude Code. I don't think it's too sloppy,
+however. Anyway, here is Claude's explanation of the new timing controls:
+
 The original POSE had a dirty secret: it couldn't tell time. The DragonBall
 hardware timers — which PalmOS depends on for *everything* — were advanced by
 a hardcoded `increment = 4` per CPU instruction, regardless of what that
