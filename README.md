@@ -1,7 +1,11 @@
-# POSE64 — Palm OS Emulator
+<p align="center">
+  <img src="docs/banner.png" alt="POSE64 — Palm Operating System Emulator">
+</p>
 
 A native 64-bit port of POSE (Palm OS Emulator) 3.5, built with Qt6 for
 modern x86_64 Linux.
+
+![Screenshot showing multiple emulated Palm devices](docs/screenshot.jpg)
 
 ## Features
 
