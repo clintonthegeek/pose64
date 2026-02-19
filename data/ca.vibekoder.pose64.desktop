@@ -7,5 +7,5 @@ Exec=pose64 %f
 Icon=ca.vibekoder.pose64
 Terminal=false
 Categories=Development;Emulator;
-StartupWMClass=pose64
+StartupWMClass=ca.vibekoder.pose64
 MimeType=application/x-palm-session;

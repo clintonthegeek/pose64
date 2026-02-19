@@ -43,6 +43,7 @@ int main (int argc, char** argv)
 
 	QApplication qtApp (argc, argv);
 	qtApp.setApplicationName ("pose64");
+	qtApp.setDesktopFileName ("ca.vibekoder.pose64");
 	qtApp.setOrganizationDomain ("ca.vibekoder");
 	qtApp.setOrganizationName ("VibeKoder");
 	qtApp.setApplicationVersion ("0.9.0");
