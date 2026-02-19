@@ -114,11 +114,12 @@ want to support for maximum compatibility.
 The original POSE had a dirty secret: it couldn't tell time. The DragonBall
 hardware timers — which PalmOS depends on for *everything* — were advanced by
 a hardcoded `increment = 4` per CPU instruction, regardless of what that
-instruction actually cost. Animations ran at warp speed, `SysTaskDelay()` was
-a polite suggestion, and "1x realtime" was a fiction.
+instruction actually cost. Animations ran at warp speed and `SysTaskDelay()` was
+a polite suggestion.
 
-We fixed it with a Bresenham-style accumulator that feeds actual UAE cycle
-costs into the timer registers at the correct prescaler ratio. Then we
+We added speed control (the original had none — it just ran flat out) and
+fixed the timers with a Bresenham-style accumulator that feeds actual UAE
+cycle costs into the timer registers at the correct prescaler ratio. Then we
 discovered three bugs stacked on top of each other: `CycleSlowly()` was
 calling `gettimeofday()` on every single iteration of the sleep loop (tens of
 thousands of syscalls per second), the sleep-cycles-per-tick calculation
