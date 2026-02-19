@@ -45,6 +45,11 @@ echo "--- Creating AppImage ---"
 export QMAKE=$(which qmake6 2>/dev/null || which qmake)
 export PATH="$BUILD_DIR:$PATH"
 
+# Disable stripping — linuxdeploy ships an older strip that chokes on
+# .relr.dyn sections produced by modern toolchains (e.g. Manjaro).
+# System libraries are already stripped, so this costs nothing.
+export NO_STRIP=true
+
 ./linuxdeploy-x86_64.AppImage \
     --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/ca.vibekoder.pose64.desktop" \
