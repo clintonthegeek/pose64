@@ -1383,13 +1383,13 @@ static Bool PrvGetEventText(const EventType* eventP, char* eventText)
 		case frmGadgetEnterEvent:
 			sprintf(eventText,"frmGadgetEnterEvent   RscID:%u, gadget:0x%08lX",
 					eventP->data.gadgetEnter.gadgetID,
-					(unsigned long) eventP->data.gadgetEnter.gadgetP);
+					(unsigned long)(uintptr_t) eventP->data.gadgetEnter.gadgetP);
 			break;
 
 		case frmGadgetMiscEvent:
 			sprintf(eventText,"frmGadgetMiscEvent   ID:%u, gadget:0x%08lX, selector:%u",
 					eventP->data.gadgetMisc.gadgetID,
-					(unsigned long) eventP->data.gadgetMisc.gadgetP,
+					(unsigned long)(uintptr_t) eventP->data.gadgetMisc.gadgetP,
 					eventP->data.gadgetMisc.selector);
 			break;
 

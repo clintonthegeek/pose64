@@ -20,6 +20,12 @@
 
 #include <algorithm>			// find()
 
+#if PLATFORM_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <errno.h>
+#endif
+
 #if PLATFORM_MAC
 #include <errno.h>				// ENOENT, errno
 #include <sys/types.h>			// u_short, ssize_t, etc.

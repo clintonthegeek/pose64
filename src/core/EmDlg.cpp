@@ -6318,3 +6318,11 @@ EmDlgFnResult EmDlg::PrvCallback (EmDlgContext& context)
 	return kDlgResultContinue;
 }
 #endif
+
+#if PLATFORM_WINDOWS
+// Stub — original POSE used PowerPlant/FLTK for dialog layout.
+// Qt handles widget layout automatically, so this is a no-op.
+void EmDlg::SetItemBounds (EmDlgRef, EmDlgItemID, const EmRect&)
+{
+}
+#endif

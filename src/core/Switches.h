@@ -23,9 +23,16 @@
 // BYTESWAP is used by Byteswapping.h/.cpp to determine if
 // byteswapping should actually occur.  If not, it's a NOP.
 
-#if PLATFORM_WINDOWS || defined (HAVE_ENDIAN_H)
+#if defined(HAVE_ENDIAN_H)
 
 	#include <endian.h>
+
+#elif PLATFORM_WINDOWS
+
+	// Windows is always little-endian (x86/x64)
+	#define	__LITTLE_ENDIAN	1234
+	#define	__BIG_ENDIAN	4321
+	#define __BYTE_ORDER	__LITTLE_ENDIAN
 
 #elif PLATFORM_MAC || defined (HAVE_MACHINE_ENDIAN_H)
 
@@ -180,7 +187,7 @@
 
 // Define HAS_TRACER to 1 to include Tracer facility.
 
-#if PLATFORM_MAC || PLATFORM_WINDOWS
+#if PLATFORM_MAC
 	#define HAS_TRACER				1
 #else
 	#define HAS_TRACER				0

@@ -39,6 +39,17 @@
 // ========== Socket compatibility  ===========
 // ============================================
 
+#if PLATFORM_WINDOWS
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#ifndef INADDR_LOOPBACK
+#define INADDR_LOOPBACK	0x7f000001
+#endif
+
+#else /* PLATFORM_UNIX */
+
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -57,5 +68,7 @@ typedef int SOCKET;
 #ifndef INADDR_LOOPBACK
 #define INADDR_LOOPBACK 0x7f000001
 #endif
+
+#endif /* PLATFORM_WINDOWS */
 
 #endif /* EmCommonQt_h */

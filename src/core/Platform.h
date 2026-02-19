@@ -42,12 +42,13 @@ class EmRect;
 class SessionFile;
 class StMemory;
 
-// Globals
-
+// Globals — POSIX compatibility shims (Windows provides these natively)
+#if !PLATFORM_WINDOWS
 int _stricmp(const char *s1, const char *s2);
 int _strnicmp(const char *s1, const char *s2, int n);
 char* _strdup (const char* s);
 char* _strlwr (char* s);
+#endif
 
 // Function prototypes.
 

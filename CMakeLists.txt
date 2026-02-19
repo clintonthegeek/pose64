@@ -17,8 +17,6 @@ option(POSE_ASSERTIONS "Enable EmAssert assertions (remove NDEBUG). Requires POS
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Widgets)
 qt_standard_project_setup()
 
-include(GNUInstallDirs)
-
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
@@ -44,25 +42,42 @@ include_directories(
 
 # Compiler definitions (common to all builds)
 add_definitions(
-    -DPLATFORM_UNIX=1
     -D__PALMOS_TRAPS__=0
-    -DEMULATION_LEVEL=EMULATION_UNIX
     -DHAS_PROFILING=0
     -D_REENTRANT
     -DNoNanoSleep
     -DPthreadDraftVersion=10
-    -DHAVE_ENDIAN_H=1
-    -DHAVE_DIRENT_H=1
     -DSTDC_HEADERS=1
-    -DHAVE_FCNTL_H=1
     -DHAVE_LIMITS_H=1
-    -DHAVE_STRINGS_H=1
-    -DHAVE_SYS_TIME_H=1
-    -DHAVE_UNISTD_H=1
-    -DHAVE_TYPE_SOCKLEN_T=1
     # Temporarily disable JPEG for initial port
     -DDISABLE_JPEG_SUPPORT=1
 )
+
+# Platform-specific definitions
+if(WIN32)
+    add_definitions(
+        -DPLATFORM_WINDOWS=1
+        -DEMULATION_LEVEL=EMULATION_WINDOWS
+        -DHAVE_DIRENT_H=1
+        -DHAVE_UNISTD_H=1
+        -DHAVE_FCNTL_H=1
+        -DHAVE_SYS_STAT_H=1
+        -DHAVE_STRINGS_H=1
+        -DHAVE_SYS_TIME_H=1
+    )
+else()
+    add_definitions(
+        -DPLATFORM_UNIX=1
+        -DEMULATION_LEVEL=EMULATION_UNIX
+        -DHAVE_ENDIAN_H=1
+        -DHAVE_DIRENT_H=1
+        -DHAVE_FCNTL_H=1
+        -DHAVE_STRINGS_H=1
+        -DHAVE_SYS_TIME_H=1
+        -DHAVE_UNISTD_H=1
+        -DHAVE_TYPE_SOCKLEN_T=1
+    )
+endif()
 
 # Debug vs Release definitions
 if(POSE_DEBUG)
@@ -146,35 +161,59 @@ set(UAE_SOURCES
     src/core/UAE/readcpu.cpp
 )
 
-# Platform abstraction layer — Qt implementations
-set(PLATFORM_SOURCES
+# Platform abstraction layer — Qt + platform-specific implementations
+set(PLATFORM_SOURCES_COMMON
     src/platform/EmApplicationQt.cpp
     src/platform/EmApplicationQt.h
     src/platform/EmWindowQt.cpp
     src/platform/EmWindowQt.h
     src/platform/EmDlgQt.cpp
     src/platform/EmDlgQt.h
-    src/platform/EmDirRefUnix.cpp
-    src/platform/EmFileRefUnix.cpp
-    src/platform/EmPixMapUnix.cpp
-    src/platform/EmTransportSerialUnix.cpp
-    src/platform/EmTransportUSBUnix.cpp
-    src/platform/Platform_Unix.cpp
-    src/platform/EmDocumentUnix.cpp
     src/platform/ResStrings.cpp
 )
+
+if(WIN32)
+    set(PLATFORM_SOURCES
+        ${PLATFORM_SOURCES_COMMON}
+        src/platform/EmDirRefWin.cpp
+        src/platform/EmFileRefWin.cpp
+        src/platform/EmPixMapWin.cpp
+        src/platform/EmTransportSerialWin.cpp
+        src/platform/EmTransportUSBUnix.cpp
+        src/platform/Platform_Win.cpp
+        src/platform/EmDocumentWin.cpp
+    )
+else()
+    set(PLATFORM_SOURCES
+        ${PLATFORM_SOURCES_COMMON}
+        src/platform/EmDirRefUnix.cpp
+        src/platform/EmFileRefUnix.cpp
+        src/platform/EmPixMapUnix.cpp
+        src/platform/EmTransportSerialUnix.cpp
+        src/platform/EmTransportUSBUnix.cpp
+        src/platform/Platform_Unix.cpp
+        src/platform/EmDocumentUnix.cpp
+    )
+endif()
 
 # UI sources
 set(UI_SOURCES
     src/ui/main.cpp
 )
 
+# Windows resource file (icon + version info)
+if(WIN32)
+    set(WIN_RESOURCES data/pose64.rc)
+endif()
+
 # Main executable
 qt_add_executable(pose64
+    WIN32
     ${CORE_SOURCES}
     ${UAE_SOURCES}
     ${PLATFORM_SOURCES}
     ${UI_SOURCES}
+    ${WIN_RESOURCES}
 )
 
 # Qt resources (default skin, etc.)
@@ -190,25 +229,37 @@ list(LENGTH UAE_SOURCES UAE_COUNT)
 message(STATUS "Core sources: ${CORE_COUNT} files")
 message(STATUS "UAE sources: ${UAE_COUNT} files")
 
-target_link_libraries(pose64 PRIVATE
-    Qt6::Core
-    Qt6::Widgets
-    pthread
-    m
-    z
-    X11
-)
+if(WIN32)
+    target_link_libraries(pose64 PRIVATE
+        Qt6::Core
+        Qt6::Widgets
+        ws2_32
+        z
+    )
+else()
+    target_link_libraries(pose64 PRIVATE
+        Qt6::Core
+        Qt6::Widgets
+        pthread
+        m
+        z
+        X11
+    )
+endif()
 
-# Install
-install(TARGETS pose64 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(DIRECTORY Skins/ DESTINATION ${CMAKE_INSTALL_DATADIR}/pose64/Skins)
-install(FILES data/ca.vibekoder.pose64.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES data/ca.vibekoder.pose64.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
-install(FILES data/ca.vibekoder.pose64.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps)
-install(FILES data/icons/256x256.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps RENAME ca.vibekoder.pose64.png)
-install(FILES data/icons/128x128.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/128x128/apps RENAME ca.vibekoder.pose64.png)
-install(FILES data/icons/64x64.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/64x64/apps RENAME ca.vibekoder.pose64.png)
-install(FILES data/icons/48x48.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/48x48/apps RENAME ca.vibekoder.pose64.png)
-install(FILES data/icons/32x32.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/32x32/apps RENAME ca.vibekoder.pose64.png)
-install(FILES data/icons/24x24.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/24x24/apps RENAME ca.vibekoder.pose64.png)
-install(FILES data/icons/16x16.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/16x16/apps RENAME ca.vibekoder.pose64.png)
+# Install (Unix only for now)
+if(NOT WIN32)
+    include(GNUInstallDirs)
+    install(TARGETS pose64 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(DIRECTORY Skins/ DESTINATION ${CMAKE_INSTALL_DATADIR}/pose64/Skins)
+    install(FILES data/ca.vibekoder.pose64.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES data/ca.vibekoder.pose64.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+    install(FILES data/ca.vibekoder.pose64.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps)
+    install(FILES data/icons/256x256.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps RENAME ca.vibekoder.pose64.png)
+    install(FILES data/icons/128x128.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/128x128/apps RENAME ca.vibekoder.pose64.png)
+    install(FILES data/icons/64x64.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/64x64/apps RENAME ca.vibekoder.pose64.png)
+    install(FILES data/icons/48x48.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/48x48/apps RENAME ca.vibekoder.pose64.png)
+    install(FILES data/icons/32x32.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/32x32/apps RENAME ca.vibekoder.pose64.png)
+    install(FILES data/icons/24x24.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/24x24/apps RENAME ca.vibekoder.pose64.png)
+    install(FILES data/icons/16x16.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/16x16/apps RENAME ca.vibekoder.pose64.png)
+endif()

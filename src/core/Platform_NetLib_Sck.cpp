@@ -22,6 +22,12 @@
 #include "ROMStubs.h"			// NetLibConfigMakeActive
 
 
+#if PLATFORM_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <errno.h>
+#endif
+
 #if PLATFORM_MAC
 #include <errno.h>				// ENOENT, errno
 #include <sys/types.h>			// u_short, ssize_t, etc.
@@ -2448,7 +2454,7 @@ Bool SocketsToNetLibHostEnt (	const hostent&			inHostEnt,
 		outHostEnt.aliasList[index] = curDestAlias;
 		strcpy (curDestAlias, curSrcAlias);
 		curDestAlias += strlen (curDestAlias) + 1;
-		if ((((long) curDestAlias) & 1) != 0)
+		if ((((intptr_t) curDestAlias) & 1) != 0)
 			++curDestAlias;
 		++index;
 	}
@@ -2542,7 +2548,7 @@ Bool SocketsToNetLibServEnt (	const servent&			inServEnt,
 		outServEnt.aliasList[index] = curDestAlias;
 		strcpy (curDestAlias, curSrcAlias);
 		curDestAlias += strlen (curDestAlias) + 1;
-		if ((((long) curDestAlias) & 1) != 0)
+		if ((((intptr_t) curDestAlias) & 1) != 0)
 			++curDestAlias;
 		++index;
 

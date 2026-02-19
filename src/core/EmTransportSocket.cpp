@@ -18,6 +18,12 @@
 #include "Logging.h"			// LogSerial
 #include "Platform.h"			// Platform::AllocateMemory
 
+#if PLATFORM_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <errno.h>
+#endif
+
 #if PLATFORM_MAC
 #include <GUSIPOSIX.h>			// inet_addr
 #endif

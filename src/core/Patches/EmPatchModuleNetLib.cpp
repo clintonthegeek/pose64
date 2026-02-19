@@ -800,7 +800,7 @@ CallROMType NetLibHeadpatch::NetLibSocketOptionSet (void)
 	PRINTF ("\tsocket = 0x%08X", (long) socket);
 	PRINTF ("\tlevel = %s (0x%08X)", PrvGetOptLevelString ((NetSocketOptLevelEnum) (UInt16) level), (long) (UInt16) level);
 	PRINTF ("\toption = %s (0x%08X)", PrvGetOptString ((NetSocketOptLevelEnum) (UInt16) level, (NetSocketOptEnum) (UInt16) option), (long) (UInt16) option);
-	PRINTF ("\toptValueP = 0x%08X", (long) (void*) optValueP);
+	PRINTF ("\toptValueP = 0x%08X", (int)(intptr_t) (void*) optValueP);
 	PRINTF ("\toptValueLen = 0x%08X", (long) optValueLen);
 
 	if (Platform_NetLib::Redirecting ())
@@ -899,7 +899,7 @@ CallROMType NetLibHeadpatch::NetLibSocketOptionGet (void)
 	PRINTF ("\tsocket = 0x%08X", (long) socket);
 	PRINTF ("\tlevel = 0x%08X", (long) level);
 	PRINTF ("\toption = 0x%08X", (long) option);
-	PRINTF ("\toptValueP = 0x%08X", (long) (void*) optValueP);
+	PRINTF ("\toptValueP = 0x%08X", (int)(intptr_t) (void*) optValueP);
 	PRINTF ("\toptValueLenP = 0x%08X", (long) *optValueLenP);
 	PRINTF ("\ttimeout = 0x%08X", (long) timeout);
 
