@@ -1957,8 +1957,12 @@ void PrvWakeUpCPU (long strID)
 	// SysEvGroupWait.	However, if the Palm device is already waiting,
 	// then that trap will never get called.  By calling EvtWakeup now,
 	// we'll wake up the Palm device from its nap.
+	//
+	// Use a timeout to prevent indefinite blocking.  Events are already
+	// queued in thread-safe queues; if we can't reach a syscall boundary
+	// in time, the CPU will process them on its next natural wakeup.
 
-	EmSessionStopper	stopper (gSession, kStopOnSysCall);
+	EmSessionStopper	stopper (gSession, kStopOnSysCall, 2000);
 
 	if (stopper.Stopped ())
 	{

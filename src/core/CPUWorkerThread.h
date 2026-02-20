@@ -56,9 +56,6 @@ public:
      */
     void run() override;
 
-protected:
-    void timerEvent(QTimerEvent* event) override;
-
 signals:
     // Emitted when a command's response callback should run in main thread
     void commandCompleted();
@@ -71,12 +68,11 @@ private:
     QWaitCondition fWakeupSignal;
     std::queue<Command> fCommandQueue;
     bool fShouldStop;
-    Command fCurrentCommand;
 
     // Helper: Dequeue next command, blocking if none available
     Command dequeueCommand();
 
-    // Helper: Execute command handler, emit response in main thread
+    // Helper: Execute command handler, run response in main thread
     void executeCommand(const Command& cmd);
 };
 

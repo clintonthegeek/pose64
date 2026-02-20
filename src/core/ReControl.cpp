@@ -237,9 +237,10 @@ void ReControlSession::CmdTap (const QStringList& args)
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
 		.handler = [x, y]() {
-			// Suspend CPU to safely inject pen event
-			EmSessionStopper stopper (gSession, kStopOnCycle);
-
+			// PostPenEvent internally calls PrvWakeUpCPU which manages
+			// its own EmSessionStopper — no outer stopper needed.
+			// This blocks the worker thread (not main) while the CPU
+			// reaches a syscall boundary for EvtWakeup.
 			EmPenEvent penDown (EmPoint (x, y), true);
 			gSession->PostPenEvent (penDown);
 
@@ -272,7 +273,6 @@ void ReControlSession::CmdPen (const QStringList& args)
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
 		.handler = [x, y, isDown]() {
-			EmSessionStopper stopper (gSession, kStopOnCycle);
 			EmPenEvent penEvent (EmPoint (x, y), isDown);
 			gSession->PostPenEvent (penEvent);
 		},
@@ -295,7 +295,6 @@ void ReControlSession::CmdKey (const QStringList& args)
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
 		.handler = [charcode]() {
-			EmSessionStopper stopper (gSession, kStopOnCycle);
 			EmKeyEvent keyEvent (charcode);
 			gSession->PostKeyEvent (keyEvent);
 		},
@@ -338,8 +337,8 @@ void ReControlSession::CmdButton (const QStringList& args)
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
 		.handler = [button, action]() {
-			EmSessionStopper stopper (gSession, kStopOnCycle);
-
+			// Button APIs use atomics (polled by CPU thread's CycleSlowly),
+			// no EmSessionStopper needed.
 			if (action == "down")      gSession->SetButtonDown (button);
 			else if (action == "up")   gSession->SetButtonUp (button);
 			else if (action == "tap")  gSession->SetButtonTap (button);
@@ -392,49 +391,62 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 	if (args.size () != 2) { SendErr ("usage", "screenshot <filepath>"); return; }
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
-	EmSessionStopper stopper (gSession, kStopNow);
-	if (!stopper.Stopped ())
-	{
-		SendErr ("transient", "could not stop session");
-		return;
-	}
-
-	// Capture screen
-	EmScreen::InvalidateAll ();
-
-	EmScreenUpdateInfo info;
-	info.fScreenLow  = 0;
-	info.fScreenHigh = 0xFFFFFFFF;
-	if (!EmScreen::GetBits (info))
-	{
-		SendErr ("transient", "could not capture screen");
-		return;
-	}
-
-	// Convert EmPixMap to QImage
-	EmPoint size = info.fImage.GetSize ();
-	int w = size.fX;
-	int h = size.fY;
-
-	info.fImage.ConvertToFormat (kPixMapFormat24RGB);
-
-	QImage img (w, h, QImage::Format_RGB888);
-	const uint8_t* src = (const uint8_t*) info.fImage.GetBits ();
-	EmPixMapRowBytes srcRowBytes = info.fImage.GetRowBytes ();
-	for (int y = 0; y < h; y++)
-	{
-		memcpy (img.scanLine (y), src + y * srcRowBytes, w * 3);
-	}
-
-	// Save as PNG
 	QString path = args[1];
-	if (!img.save (path, "PNG"))
-	{
-		SendErr ("transient", "could not write " + path.toStdString ());
-		return;
-	}
+	ReControlSession* self = this;
+	auto result = std::make_shared<std::string>();
 
-	Send ("OK " + std::to_string (w) + " " + std::to_string (h) + "\n");
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [path, result]() {
+			EmSessionStopper stopper (gSession, kStopNow);
+			if (!stopper.Stopped ())
+			{
+				*result = "ERR transient: could not stop session\n";
+				return;
+			}
+
+			// Capture screen
+			EmScreen::InvalidateAll ();
+
+			EmScreenUpdateInfo info;
+			info.fScreenLow  = 0;
+			info.fScreenHigh = 0xFFFFFFFF;
+			if (!EmScreen::GetBits (info))
+			{
+				*result = "ERR transient: could not capture screen\n";
+				return;
+			}
+
+			// Convert EmPixMap to QImage
+			EmPoint size = info.fImage.GetSize ();
+			int w = size.fX;
+			int h = size.fY;
+
+			info.fImage.ConvertToFormat (kPixMapFormat24RGB);
+
+			QImage img (w, h, QImage::Format_RGB888);
+			const uint8_t* src = (const uint8_t*) info.fImage.GetBits ();
+			EmPixMapRowBytes srcRowBytes = info.fImage.GetRowBytes ();
+			for (int y = 0; y < h; y++)
+			{
+				memcpy (img.scanLine (y), src + y * srcRowBytes, w * 3);
+			}
+
+			// Save as PNG
+			if (!img.save (path, "PNG"))
+			{
+				*result = "ERR transient: could not write " + path.toStdString () + "\n";
+				return;
+			}
+
+			*result = "OK " + std::to_string (w) + " " + std::to_string (h) + "\n";
+		},
+		.response = [self, result]() {
+			self->Send (*result);
+		}
+	};
+
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdInstall (const QStringList& args)
@@ -467,35 +479,48 @@ void ReControlSession::CmdInstall (const QStringList& args)
 		return;
 	}
 
-	EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
-	if (!stopper.Stopped ())
-	{
-		SendErr ("timeout", "CPU did not reach syscall boundary within 5000ms");
-		return;
-	}
+	ReControlSession* self = this;
+	auto result = std::make_shared<std::string>();
+	std::string pathStr = path.toStdString ();
 
-	try
-	{
-		EmStreamFile stream (EmFileRef (path.toStdString ()), kOpenExistingForRead);
-		EmFileImport importer (stream, kMethodBest);
-
-		// Call Continue() in a loop until it's done or returns an error
-		while (!importer.Done ())
-		{
-			ErrCode err = importer.Continue ();
-			if (err != errNone)
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [pathStr, result]() {
+			EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+			if (!stopper.Stopped ())
 			{
-				SendErr ("fatal", "install failed - EmFileImport returned error");
+				*result = "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
 				return;
 			}
-		}
 
-		Send ("OK\n");
-	}
-	catch (...)
-	{
-		SendErr ("fatal", "install failed - emulator exception during ROM call (recommend reset)");
-	}
+			try
+			{
+				EmStreamFile stream (EmFileRef (pathStr), kOpenExistingForRead);
+				EmFileImport importer (stream, kMethodBest);
+
+				while (!importer.Done ())
+				{
+					ErrCode err = importer.Continue ();
+					if (err != errNone)
+					{
+						*result = "ERR fatal: install failed - EmFileImport returned error\n";
+						return;
+					}
+				}
+
+				*result = "OK\n";
+			}
+			catch (...)
+			{
+				*result = "ERR fatal: install failed - emulator exception during ROM call (recommend reset)\n";
+			}
+		},
+		.response = [self, result]() {
+			self->Send (*result);
+		}
+	};
+
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdLaunch (const QStringList& args)
@@ -503,36 +528,49 @@ void ReControlSession::CmdLaunch (const QStringList& args)
 	if (args.size () != 2) { SendErr ("usage", "launch <dbname>"); return; }
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
-	EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
-	if (!stopper.Stopped () || !stopper.CanCall ())
-	{
-		SendErr ("timeout", "CPU did not reach syscall boundary within 5000ms");
-		return;
-	}
+	ReControlSession* self = this;
+	auto result = std::make_shared<std::string>();
+	std::string name = args[1].toStdString ();
 
-	try
-	{
-		std::string name = args[1].toStdString ();
-		LocalID dbID = DmFindDatabase (0, name.c_str ());
-		if (dbID == 0)
-		{
-			SendErr ("usage", "database not found: " + name);
-			return;
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [name, result]() {
+			EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+			if (!stopper.Stopped () || !stopper.CanCall ())
+			{
+				*result = "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+				return;
+			}
+
+			try
+			{
+				LocalID dbID = DmFindDatabase (0, name.c_str ());
+				if (dbID == 0)
+				{
+					*result = "ERR usage: database not found: " + name + "\n";
+					return;
+				}
+
+				Err err = SysUIAppSwitch (0, dbID, sysAppLaunchCmdNormalLaunch, NULL);
+				if (err != errNone)
+				{
+					*result = "ERR fatal: SysUIAppSwitch failed\n";
+					return;
+				}
+
+				*result = "OK\n";
+			}
+			catch (...)
+			{
+				*result = "ERR fatal: launch failed - emulator exception during ROM call (recommend reset)\n";
+			}
+		},
+		.response = [self, result]() {
+			self->Send (*result);
 		}
+	};
 
-		Err err = SysUIAppSwitch (0, dbID, sysAppLaunchCmdNormalLaunch, NULL);
-		if (err != errNone)
-		{
-			SendErr ("fatal", "SysUIAppSwitch failed");
-			return;
-		}
-
-		Send ("OK\n");
-	}
-	catch (...)
-	{
-		SendErr ("fatal", "launch failed - emulator exception during ROM call (recommend reset)");
-	}
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdSave (const QStringList& args)
@@ -540,17 +578,31 @@ void ReControlSession::CmdSave (const QStringList& args)
 	if (args.size () != 2) { SendErr ("usage", "save <filepath>"); return; }
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
-	EmSessionStopper stopper (gSession, kStopNow);
-	if (!stopper.Stopped ())
-	{
-		SendErr ("transient", "could not stop session");
-		return;
-	}
+	ReControlSession* self = this;
+	auto result = std::make_shared<std::string>();
+	std::string pathStr = args[1].toStdString ();
 
-	EmFileRef ref (args[1].toStdString ());
-	gSession->Save (ref, true);
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [pathStr, result]() {
+			EmSessionStopper stopper (gSession, kStopNow);
+			if (!stopper.Stopped ())
+			{
+				*result = "ERR transient: could not stop session\n";
+				return;
+			}
 
-	Send ("OK\n");
+			EmFileRef ref (pathStr);
+			gSession->Save (ref, true);
+
+			*result = "OK\n";
+		},
+		.response = [self, result]() {
+			self->Send (*result);
+		}
+	};
+
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdLoad (const QStringList& args)
@@ -561,74 +613,95 @@ void ReControlSession::CmdLoad (const QStringList& args)
 
 void ReControlSession::CmdInfo (const QStringList& args)
 {
-	// First line: OK with POSE64 version
-	Send ("OK POSE64 " + std::string (qApp->applicationVersion ().toStdString ()) + "\n");
-
-	if (gSession)
-	{
-		Configuration cfg = gSession->GetConfiguration ();
-
-		// Device information
-		Send (" device=" + cfg.fDevice.GetIDString () + "\n");
-
-		// RAM size (in bytes, convert to MB for readability)
-		int ramSizeMB = cfg.fRAMSize / (1024 * 1024);
-		if (ramSizeMB > 0)
-		{
-			Send (" ram=" + std::to_string (ramSizeMB) + "MB\n");
-		}
-
-		// ROM filename
-		if (cfg.fROMFile.IsSpecified ())
-		{
-			Send (" rom=" + cfg.fROMFile.GetName () + "\n");
-		}
-
-		// Screen dimensions - stop the session and get screen info
-		EmSessionStopper stopper (gSession, kStopNow);
-		if (stopper.Stopped ())
-		{
-			EmScreen::InvalidateAll ();
-
-			EmScreenUpdateInfo info;
-			info.fScreenLow  = 0;
-			info.fScreenHigh = 0xFFFFFFFF;
-			if (EmScreen::GetBits (info))
-			{
-				EmPoint size = info.fImage.GetSize ();
-				Send (" screen=" + std::to_string (size.fX) + "x" + std::to_string (size.fY) + "\n");
-			}
-		}
+	if (!gSession) {
+		Send ("OK POSE64 " + std::string (qApp->applicationVersion ().toStdString ()) + "\n");
+		Send (".\n");
+		return;
 	}
 
-	// Session file path
+	ReControlSession* self = this;
+	auto result = std::make_shared<std::string>();
+
+	// Gather non-CPU-dependent info on main thread first
+	std::string version = qApp->applicationVersion ().toStdString ();
+	Configuration cfg = gSession->GetConfiguration ();
+	std::string deviceId = cfg.fDevice.GetIDString ();
+	int ramSizeMB = cfg.fRAMSize / (1024 * 1024);
+	std::string romName;
+	if (cfg.fROMFile.IsSpecified ())
+		romName = cfg.fROMFile.GetName ();
+	std::string sessionPath;
 	if (gDocument)
 	{
 		EmFileRef ref = gDocument->GetFileRef ();
 		if (ref.IsSpecified ())
-		{
-			Send (" session=" + ref.GetFullPath () + "\n");
-		}
+			sessionPath = ref.GetFullPath ();
 	}
 
-	// Terminator
-	Send (".\n");
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [result, version, deviceId, ramSizeMB, romName, sessionPath]() {
+			*result = "OK POSE64 " + version + "\n";
+			*result += " device=" + deviceId + "\n";
+			if (ramSizeMB > 0)
+				*result += " ram=" + std::to_string (ramSizeMB) + "MB\n";
+			if (!romName.empty ())
+				*result += " rom=" + romName + "\n";
+
+			// Screen dimensions require CPU stop
+			EmSessionStopper stopper (gSession, kStopNow);
+			if (stopper.Stopped ())
+			{
+				EmScreen::InvalidateAll ();
+
+				EmScreenUpdateInfo info;
+				info.fScreenLow  = 0;
+				info.fScreenHigh = 0xFFFFFFFF;
+				if (EmScreen::GetBits (info))
+				{
+					EmPoint size = info.fImage.GetSize ();
+					*result += " screen=" + std::to_string (size.fX) + "x" + std::to_string (size.fY) + "\n";
+				}
+			}
+
+			if (!sessionPath.empty ())
+				*result += " session=" + sessionPath + "\n";
+			*result += ".\n";
+		},
+		.response = [self, result]() {
+			self->Send (*result);
+		}
+	};
+
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdUI (const QStringList& args)
 {
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
-	EmSessionStopper stopper (gSession, kStopOnCycle);
-	if (!stopper.Stopped ())
-	{
-		SendErr ("transient", "could not stop session");
-		return;
-	}
+	ReControlSession* self = this;
+	auto result = std::make_shared<std::string>();
 
-	CEnableFullAccess munge;
-	std::string result = PalmFormReader_ReadActiveForm ();
-	Send (result);
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [result]() {
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ())
+			{
+				*result = "ERR transient: could not stop session\n";
+				return;
+			}
+
+			CEnableFullAccess munge;
+			*result = PalmFormReader_ReadActiveForm ();
+		},
+		.response = [self, result]() {
+			self->Send (*result);
+		}
+	};
+
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::ProcessBufferedCommands ()
