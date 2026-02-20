@@ -709,8 +709,9 @@ Bool Platform::StopOnResetKeyDown( void )
 
 int Platform::CollectOptions (int argc, char** argv, int& errorArg, int (*cb)(int, char**, int&))
 {
-	// Qt handles its own command-line arguments; no FLTK parsing needed
-	return true;
+	// Parse command-line options by calling the callback for each argument
+	// The callback handles option parsing and returns true on success
+	return cb(argc, argv, errorArg);
 }
 
 
