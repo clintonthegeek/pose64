@@ -749,7 +749,7 @@ void EmSession::DestroyThread (void)
 // Returns false if the thread could not or was not suspended, and
 // ResumeThread should not be called.
 
-Bool EmSession::SuspendThread (EmStopMethod how)
+Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 {
 	if (how == kStopNone)
 		return false;
@@ -841,7 +841,31 @@ Bool EmSession::SuspendThread (EmStopMethod how)
 			fBreakOnSysCall	= desiredBreakOnSysCall;
 			fSharedCondition.broadcast ();
 
-			fSharedCondition.wait ();
+			if (timeoutMs > 0 && how == kStopOnSysCall)
+			{
+				// Compute absolute deadline
+				struct timespec now;
+				clock_gettime (CLOCK_REALTIME, &now);
+				unsigned long abs_sec  = now.tv_sec + (timeoutMs / 1000);
+				unsigned long abs_nsec = now.tv_nsec + ((timeoutMs % 1000) * 1000000UL);
+				if (abs_nsec >= 1000000000UL)
+				{
+					abs_sec  += 1;
+					abs_nsec -= 1000000000UL;
+				}
+
+				int rc = fSharedCondition.timedwait (abs_sec, abs_nsec);
+				if (rc == 0)  // timeout (0 = timeout, 1 = signaled)
+				{
+					// Clean up: cancel the syscall break request
+					fBreakOnSysCall = false;
+					return false;
+				}
+			}
+			else
+			{
+				fSharedCondition.wait ();
+			}
 //			LogAppendMsg ("EmSession::SuspendThread (waking): fState = %ld", (long) fState);
 
 #ifndef NDEBUG
@@ -2506,14 +2530,15 @@ void EmSession::Run ()
 //		� EmSessionStopper::EmSessionStopper
 // ---------------------------------------------------------------------------
 
-EmSessionStopper::EmSessionStopper (EmSession* cpu, EmStopMethod how) :
+EmSessionStopper::EmSessionStopper (EmSession* cpu, EmStopMethod how, int timeoutMs) :
 	fSession (cpu),
 	fHow (how),
+	fTimeoutMs (timeoutMs),
 	fStopped (false)
 {
 	if (fSession)
 	{
-		fStopped = fSession->SuspendThread (how);
+		fStopped = fSession->SuspendThread (how, fTimeoutMs);
 	}
 }
 

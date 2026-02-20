@@ -341,7 +341,7 @@ class EmSession
 		// normally called directly by clients.  Instead, clients should use
 		// a stack-based EmSessionStopper object.
 
-		Bool					SuspendThread		(EmStopMethod how);
+		Bool					SuspendThread		(EmStopMethod how, int timeoutMs = 0);
 		void					ResumeThread		(void);
 
 #if HAS_OMNI_THREAD
@@ -701,7 +701,7 @@ class EmSession
 class EmSessionStopper
 {
 	public:
-								EmSessionStopper	(EmSession*, EmStopMethod how);
+								EmSessionStopper	(EmSession*, EmStopMethod how, int timeoutMs = 0);
 								~EmSessionStopper 	(void);
 
 		Bool					Stopped				(void);
@@ -710,6 +710,7 @@ class EmSessionStopper
 	private:
 		EmSession*				fSession;
 		int						fHow;
+		int						fTimeoutMs;
 		Bool					fStopped;
 };
 
