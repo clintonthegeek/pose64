@@ -19,6 +19,7 @@
 #include "EmDocument.h"
 #include "PreferenceMgr.h"
 #include "ReControl.h"
+#include "CPUWorkerThread.h"
 
 // Undefine Palm OS macros that conflict with Qt
 #undef daysInYear
@@ -111,6 +112,13 @@ int main (int argc, char** argv)
 			});
 			idleTimer.start (100);  // ~10 Hz, matching FLTK's Fl::wait(0.1)
 
+			// Start CPU worker thread BEFORE event loop
+			extern CPUWorkerThread* gCPUWorker;
+			gCPUWorker = new CPUWorkerThread();
+			gCPUWorker->start();
+			fprintf(stderr, "[main] CPU worker thread started\n");
+			fflush(stderr);
+
 			// Defer ReControl startup until event loop is running
 			if (recontrolPort > 0)
 			{
@@ -121,6 +129,15 @@ int main (int argc, char** argv)
 
 			// Enter the Qt event loop
 			int exitCode = qtApp.exec ();
+
+			// Shut down CPU worker thread
+			if (gCPUWorker) {
+				fprintf(stderr, "[main] Shutting down CPU worker thread\n");
+				fflush(stderr);
+				gCPUWorker->shutdown();
+				delete gCPUWorker;
+				gCPUWorker = nullptr;
+			}
 
 			// Shut down ReControl server
 			ReControl_Shutdown ();
