@@ -13,12 +13,18 @@
 #include <QTimer>
 #include <QImage>
 #include <QFileInfo>
+#include <QApplication>
 
 #include <string>
 #include <memory>
 #include <cstring>
 
 #include "EmCommon.h"
+
+// Undefine Palm OS macros that conflict with Qt
+#undef daysInYear
+#undef monthsInYear
+
 #include "ReControl.h"
 #include "EmSession.h"
 #include "EmApplication.h"
@@ -462,7 +468,7 @@ void ReControlSession::CmdLoad (const QStringList& args)
 void ReControlSession::CmdInfo (const QStringList& args)
 {
 	// First line: OK with POSE64 version
-	Send ("OK POSE64 0.9.0\n");
+	Send ("OK POSE64 " + std::string (qApp->applicationVersion ().toStdString ()) + "\n");
 
 	if (gSession)
 	{
