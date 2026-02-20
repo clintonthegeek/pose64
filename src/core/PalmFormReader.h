@@ -101,17 +101,16 @@ constexpr int kFormType_objects = 64;
 // FormObjListType Structure Analysis
 // ============================================================================
 // struct FormObjListType {
-//   FormObjectKind objectType;      // UInt16 (enum), +0
-//   UInt8 reserved;                 // +2
-//   [1 byte padding]                // +3 (alignment to 4-byte ptr)
-//   FormObjectType object;          // union ptr (4 bytes), +4
+//   FormObjectKind objectType;      // enum stored as UInt8, +0
+//   UInt8 reserved;                 // +1
+//   FormObjectType object;          // union ptr (4 bytes), +2
 // };
-// Each FormObjListType is 8 bytes
+// Each FormObjListType is 6 bytes (confirmed by EmPalmStructs.i)
 
-constexpr int kFormObjListType_size = 8;
+constexpr int kFormObjListType_size = 6;
 constexpr int kFormObjListType_objectType = 0;
-constexpr int kFormObjListType_reserved = 2;
-constexpr int kFormObjListType_object = 4;
+constexpr int kFormObjListType_reserved = 1;
+constexpr int kFormObjListType_object = 2;
 
 // FormObjectKind enum values
 constexpr int kFrmFieldObj = 0;
