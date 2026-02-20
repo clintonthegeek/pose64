@@ -709,9 +709,16 @@ Bool Platform::StopOnResetKeyDown( void )
 
 int Platform::CollectOptions (int argc, char** argv, int& errorArg, int (*cb)(int, char**, int&))
 {
-	// Parse command-line options by calling the callback for each argument
-	// The callback handles option parsing and returns true on success
-	return cb(argc, argv, errorArg);
+	// Process command-line arguments using the provided callback
+	// The callback processes one argument at a time and returns number consumed
+	for (int argIndex = 1; argIndex < argc; ) {
+		int consumed = cb(argc, argv, argIndex);
+		if (!consumed) {
+			errorArg = argIndex;
+			return false;
+		}
+	}
+	return true;
 }
 
 
