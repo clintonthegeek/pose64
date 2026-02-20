@@ -14,7 +14,7 @@ option(POSE_DEBUG "Enable debug symbols, ASAN, UBSAN, and diagnostic history" OF
 option(POSE_ASSERTIONS "Enable EmAssert assertions (remove NDEBUG). Requires POSE_DEBUG=ON" OFF)
 
 # Qt6
-find_package(Qt6 6.6 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Widgets Network)
 qt_standard_project_setup()
 
 # Include directories
@@ -233,6 +233,7 @@ if(WIN32)
     target_link_libraries(pose64 PRIVATE
         Qt6::Core
         Qt6::Widgets
+        Qt6::Network
         ws2_32
         z
     )
@@ -240,6 +241,7 @@ else()
     target_link_libraries(pose64 PRIVATE
         Qt6::Core
         Qt6::Widgets
+        Qt6::Network
         pthread
         m
         z
