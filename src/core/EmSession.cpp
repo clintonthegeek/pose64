@@ -1187,63 +1187,81 @@ void EmSession::ExecuteSubroutine (void)
 	EmSuspendCounters	oldState = fSuspendState.fCounters;
 	fSuspendState.fAllCounters = 0;
 
-	while (fSuspendState.fAllCounters == 0)
+	try
 	{
-		// Enter new scope so that the omni_mutex_unlock will re-lock
-		// the mutex before we look at fSuspendState, etc.
+		while (fSuspendState.fAllCounters == 0)
 		{
-			EmValueChanger<int>	oldNestLevel (fNestLevel, fNestLevel + 1);
+			// Enter new scope so that the omni_mutex_unlock will re-lock
+			// the mutex before we look at fSuspendState, etc.
+			{
+				EmValueChanger<int>	oldNestLevel (fNestLevel, fNestLevel + 1);
 
 #if HAS_OMNI_THREAD
-			fSharedCondition.broadcast ();
+				fSharedCondition.broadcast ();
 
-			omni_mutex_unlock	unlock (fSharedLock);
+				omni_mutex_unlock	unlock (fSharedLock);
 #endif
 
-			this->CallCPU ();
+				this->CallCPU ();
+			}
+
+			/*
+				Check the reason for EmCPU::Execute returning:
+
+				fSuspendByUIThread
+				fSuspendByExternal
+				fSuspendByTimeout
+				fSuspendBySysCall
+					Could happen.  Remember that it occurred, clear it, and
+					re-enter the CPU loop.  On the way out of this function
+					re-establish the request.
+
+				fSuspendByDebugger
+					Could happen.  Let it make this function exit.
+
+				fSuspendBySubroutineReturn
+					Could happen.  Let it make this function exit.
+			*/
+
+			/*
+				If fSuspendByUIThread is set, the bridge thread's PaintScreen
+				is trying to suspend us.  DON'T clear it here — let it stay
+				set so the while loop exits.  The counter will remain in the
+				live state where ResumeThread can find and decrement it.
+				We break immediately so Run() can set fState=kSuspended.
+			*/
+
+			if (fSuspendState.fCounters.fSuspendByUIThread)
+			{
+				// Leave fSuspendByUIThread in the live state — don't touch it
+				break;
+			}
+
+			oldState.fSuspendByDebugger += fSuspendState.fCounters.fSuspendByDebugger;
+
+			oldState.fSuspendByExternal += fSuspendState.fCounters.fSuspendByExternal;
+			fSuspendState.fCounters.fSuspendByExternal = 0;
+
+			fSuspendState.fCounters.fSuspendBySysCall = 0;
+
+			oldState.fSuspendByTimeout |= fSuspendState.fCounters.fSuspendByTimeout;
+			fSuspendState.fCounters.fSuspendByTimeout = 0;
 		}
+	}
+	catch (...)
+	{
+		// Restore saved suspend state before propagating.
+		// Preserve any live fSuspendByUIThread that arrived during
+		// the nested call (the UI thread's ResumeThread expects to
+		// find it in the live state, not in oldState).
+		int liveUIThread = fSuspendState.fCounters.fSuspendByUIThread;
+		fSuspendState.fCounters = oldState;
+		fSuspendState.fCounters.fSuspendByUIThread += liveUIThread;
 
-		/*
-			Check the reason for EmCPU::Execute returning:
-
-			fSuspendByUIThread
-			fSuspendByExternal
-			fSuspendByTimeout
-			fSuspendBySysCall
-				Could happen.  Remember that it occurred, clear it, and
-				re-enter the CPU loop.  On the way out of this function
-				re-establish the request.
-
-			fSuspendByDebugger
-				Could happen.  Let it make this function exit.
-
-			fSuspendBySubroutineReturn
-				Could happen.  Let it make this function exit.
-		*/
-
-		/*
-			If fSuspendByUIThread is set, the bridge thread's PaintScreen
-			is trying to suspend us.  DON'T clear it here — let it stay
-			set so the while loop exits.  The counter will remain in the
-			live state where ResumeThread can find and decrement it.
-			We break immediately so Run() can set fState=kSuspended.
-		*/
-
-		if (fSuspendState.fCounters.fSuspendByUIThread)
-		{
-			// Leave fSuspendByUIThread in the live state — don't touch it
-			break;
-		}
-
-		oldState.fSuspendByDebugger += fSuspendState.fCounters.fSuspendByDebugger;
-
-		oldState.fSuspendByExternal += fSuspendState.fCounters.fSuspendByExternal;
-		fSuspendState.fCounters.fSuspendByExternal = 0;
-
-		fSuspendState.fCounters.fSuspendBySysCall = 0;
-
-		oldState.fSuspendByTimeout |= fSuspendState.fCounters.fSuspendByTimeout;
-		fSuspendState.fCounters.fSuspendByTimeout = 0;
+#if HAS_OMNI_THREAD
+		fSharedCondition.broadcast ();
+#endif
+		throw;
 	}
 
 	// Preserve any live fSuspendByUIThread before restoring old state
