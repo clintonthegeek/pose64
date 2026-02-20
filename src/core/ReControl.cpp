@@ -6,6 +6,18 @@
  * (UI thread), eliminating race conditions with SuspendThread.
  */
 
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QObject>
+#include <QStringList>
+#include <QTimer>
+#include <QImage>
+#include <QFileInfo>
+
+#include <string>
+#include <memory>
+#include <cstring>
+
 #include "EmCommon.h"
 #include "ReControl.h"
 #include "EmSession.h"
@@ -13,17 +25,9 @@
 #include "Skins.h"
 #include "EmTypes.h"
 #include "EmScreen.h"
-
-#include <QTcpServer>
-#include <QTcpSocket>
-#include <QObject>
-#include <QStringList>
-#include <QTimer>
-#include <QImage>
-
-#include <string>
-#include <memory>
-#include <cstring>
+#include "EmFileImport.h"
+#include "EmStreamFile.h"
+#include "ROMStubs.h"
 
 // Forward declarations
 class ReControlServer;
@@ -61,6 +65,8 @@ private:
 	void CmdReset (const QStringList& args);
 	void CmdSleep (const QStringList& args);
 	void CmdScreenshot (const QStringList& args);
+	void CmdInstall (const QStringList& args);
+	void CmdLaunch (const QStringList& args);
 	void ProcessBufferedCommands (void);
 
 	QTcpSocket* fSocket;
@@ -327,6 +333,104 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 	Send ("OK " + std::to_string (w) + " " + std::to_string (h) + "\n");
 }
 
+void ReControlSession::CmdInstall (const QStringList& args)
+{
+	if (args.size () != 2) { SendErr ("usage", "install <filepath>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString path = args[1];
+
+	// Validate file exists
+	QFileInfo fileInfo (path);
+	if (!fileInfo.exists ())
+	{
+		SendErr ("usage", "file not found: " + path.toStdString ());
+		return;
+	}
+
+	// Check file is not empty
+	qint64 fileSize = fileInfo.size ();
+	if (fileSize == 0)
+	{
+		SendErr ("usage", "file is empty");
+		return;
+	}
+
+	// Check file is not too large (4MB limit)
+	if (fileSize > 4 * 1024 * 1024)
+	{
+		SendErr ("usage", "file is too large (max 4MB)");
+		return;
+	}
+
+	EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+	if (!stopper.Stopped ())
+	{
+		SendErr ("timeout", "CPU did not reach syscall boundary within 5000ms");
+		return;
+	}
+
+	try
+	{
+		EmStreamFile stream (EmFileRef (path.toStdString ()), kOpenExistingForRead);
+		EmFileImport importer (stream, kMethodBest);
+
+		// Call Continue() in a loop until it's done or returns an error
+		while (!importer.Done ())
+		{
+			ErrCode err = importer.Continue ();
+			if (err != errNone)
+			{
+				SendErr ("fatal", "install failed - EmFileImport returned error");
+				return;
+			}
+		}
+
+		Send ("OK\n");
+	}
+	catch (...)
+	{
+		SendErr ("fatal", "install failed - emulator exception during ROM call (recommend reset)");
+	}
+}
+
+void ReControlSession::CmdLaunch (const QStringList& args)
+{
+	if (args.size () != 2) { SendErr ("usage", "launch <dbname>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+	if (!stopper.Stopped () || !stopper.CanCall ())
+	{
+		SendErr ("timeout", "CPU did not reach syscall boundary within 5000ms");
+		return;
+	}
+
+	try
+	{
+		std::string name = args[1].toStdString ();
+		LocalID dbID = DmFindDatabase (0, name.c_str ());
+		if (dbID == 0)
+		{
+			SendErr ("usage", "database not found: " + name);
+			return;
+		}
+
+		Err err = SysUIAppSwitch (0, dbID, sysAppLaunchCmdNormalLaunch, NULL);
+		if (err != errNone)
+		{
+			SendErr ("fatal", "SysUIAppSwitch failed");
+			return;
+		}
+
+		Send ("OK\n");
+	}
+	catch (...)
+	{
+		SendErr ("fatal", "launch failed - emulator exception during ROM call (recommend reset)");
+	}
+}
+
 void ReControlSession::ProcessBufferedCommands ()
 {
 	while (!fCommandBuffer.isEmpty ())
@@ -372,6 +476,14 @@ void ReControlSession::ProcessBufferedCommands ()
 		else if (cmd == "sleep")
 		{
 			CmdSleep (parts);
+		}
+		else if (cmd == "install")
+		{
+			CmdInstall (parts);
+		}
+		else if (cmd == "launch")
+		{
+			CmdLaunch (parts);
 		}
 		else
 		{
@@ -448,6 +560,14 @@ void ReControlSession::OnReadyRead ()
 		else if (cmd == "sleep")
 		{
 			CmdSleep (parts);
+		}
+		else if (cmd == "install")
+		{
+			CmdInstall (parts);
+		}
+		else if (cmd == "launch")
+		{
+			CmdLaunch (parts);
 		}
 		else
 		{
