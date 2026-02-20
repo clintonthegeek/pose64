@@ -226,16 +226,34 @@ void ReControlSession::CmdTap (const QStringList& args)
 	int x = args[1].toInt ();
 	int y = args[2].toInt ();
 
+	fprintf (stderr, "[ReControl] CmdTap: Starting tap at (%d, %d)\n", x, y);
+	fprintf (stderr, "[ReControl] CmdTap: Creating EmSessionStopper...\n");
+	fflush (stderr);
+
 	// Suspend CPU to safely inject pen event
 	EmSessionStopper stopper (gSession, kStopOnCycle);
+
+	fprintf (stderr, "[ReControl] CmdTap: EmSessionStopper created, posting events\n");
+	fflush (stderr);
 
 	EmPenEvent penDown (EmPoint (x, y), true);
 	gSession->PostPenEvent (penDown);
 
+	fprintf (stderr, "[ReControl] CmdTap: Posted pen down event\n");
+	fflush (stderr);
+
 	EmPenEvent penUp (EmPoint (-1, -1), false);
 	gSession->PostPenEvent (penUp);
 
+	fprintf (stderr, "[ReControl] CmdTap: Posted pen up event\n");
+	fflush (stderr);
+
+	fprintf (stderr, "[ReControl] CmdTap: Sending OK response\n");
+	fflush (stderr);
 	Send ("OK\n");
+
+	fprintf (stderr, "[ReControl] CmdTap: Complete\n");
+	fflush (stderr);
 }
 
 void ReControlSession::CmdPen (const QStringList& args)
@@ -668,6 +686,9 @@ void ReControlSession::OnReadyRead ()
 	QByteArray data = fSocket->readAll ();
 	fReadBuffer.append (data);
 
+	fprintf (stderr, "[ReControl] OnReadyRead: Received %d bytes\n", (int)data.size ());
+	fflush (stderr);
+
 	// Process complete lines
 	while (true)
 	{
@@ -683,6 +704,9 @@ void ReControlSession::OnReadyRead ()
 		if (line.isEmpty ())
 			continue;
 
+		fprintf (stderr, "[ReControl] OnReadyRead: Processing command: %s\n", line.toStdString ().c_str ());
+		fflush (stderr);
+
 		// If processing is paused (sleep in progress), buffer the command
 		if (fProcessingPaused)
 		{
@@ -693,6 +717,9 @@ void ReControlSession::OnReadyRead ()
 		// Parse command and arguments
 		QStringList parts = line.split (' ', Qt::SkipEmptyParts);
 		QString cmd = parts[0].toLower ();
+
+		fprintf (stderr, "[ReControl] OnReadyRead: Dispatching command: %s\n", cmd.toStdString ().c_str ());
+		fflush (stderr);
 
 		// Dispatch command
 		if (cmd == "state")
