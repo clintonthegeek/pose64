@@ -334,15 +334,29 @@ void ReControlSession::CmdButton (const QStringList& args)
 	else if (name == "contrast") button = kElement_ContrastButton;
 	else { SendErr ("usage", "unknown button '" + name.toStdString () + "'"); return; }
 
-	// Suspend CPU to safely inject button event
-	EmSessionStopper stopper (gSession, kStopOnCycle);
+	if (action != "down" && action != "up" && action != "tap")
+	{
+		SendErr ("usage", "button <name> <down|up|tap>");
+		return;
+	}
 
-	if (action == "down")      gSession->SetButtonDown (button);
-	else if (action == "up")   gSession->SetButtonUp (button);
-	else if (action == "tap")  gSession->SetButtonTap (button);
-	else { SendErr ("usage", "button <name> <down|up|tap>"); return; }
+	ReControlSession* self = this;
 
-	Send ("OK\n");
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [button, action]() {
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+
+			if (action == "down")      gSession->SetButtonDown (button);
+			else if (action == "up")   gSession->SetButtonUp (button);
+			else if (action == "tap")  gSession->SetButtonTap (button);
+		},
+		.response = [self]() {
+			self->Send ("OK\n");
+		}
+	};
+
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdReset (const QStringList& args)
