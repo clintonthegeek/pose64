@@ -18,6 +18,7 @@
 #include "EmApplicationQt.h"
 #include "EmDocument.h"
 #include "PreferenceMgr.h"
+#include "ReControl.h"
 
 // Undefine Palm OS macros that conflict with Qt
 #undef daysInYear
@@ -28,6 +29,7 @@
 #include <QSurfaceFormat>
 
 #include <cstdio>
+#include <cstring>
 #include <exception>
 
 int main (int argc, char** argv)
@@ -48,6 +50,29 @@ int main (int argc, char** argv)
 	qtApp.setOrganizationName ("VibeKoder");
 	qtApp.setApplicationVersion ("0.9.0");
 
+	// Parse --port and --no-recontrol before passing argv to Qt/POSE
+	int recontrolPort = 6416;  // default
+	for (int i = 1; i < argc; i++)
+	{
+		if (strcmp (argv[i], "--port") == 0 && i + 1 < argc)
+		{
+			recontrolPort = atoi (argv[i + 1]);
+			// Remove --port and value from argv
+			for (int j = i; j < argc - 2; j++)
+				argv[j] = argv[j + 2];
+			argc -= 2;
+			i--;
+		}
+		else if (strcmp (argv[i], "--no-recontrol") == 0)
+		{
+			recontrolPort = 0;
+			for (int j = i; j < argc - 1; j++)
+				argv[j] = argv[j + 1];
+			argc -= 1;
+			i--;
+		}
+	}
+
 	// Create preferences and application objects on the stack,
 	// exactly as in the FLTK main().
 	EmulatorPreferences	prefs;
@@ -59,6 +84,10 @@ int main (int argc, char** argv)
 		{
 			// HandleStartupActions is called from Run().
 			theApp.Run ();
+
+			// Start ReControl server
+			if (recontrolPort > 0)
+				ReControl_Startup (recontrolPort);
 
 			// Set up the idle timer.
 			// This replaces FLTK's while(1) { Fl::wait(0.1); HandleIdle(); }
@@ -88,6 +117,9 @@ int main (int argc, char** argv)
 
 			// Enter the Qt event loop
 			qtApp.exec ();
+
+			// Shut down ReControl server
+			ReControl_Shutdown ();
 		}
 	}
 	catch (const std::exception& e)
