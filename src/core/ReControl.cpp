@@ -168,8 +168,40 @@ void ReControlSession::CmdState (const QStringList& args)
 			Send ("OK running\n");
 			break;
 		case kSuspended:
-			Send ("OK suspended\n");
+		{
+			// Include suspend counter diagnostics
+			EmSuspendState suspendState = gSession->GetSuspendState ();
+			EmSuspendCounters counters = suspendState.fCounters;
+
+			// Determine primary reason for suspension
+			// Priority: debugger > external > ui > timeout > syscall > subreturn
+			std::string reason = "unknown";
+			if (counters.fSuspendByDebugger)
+				reason = "debugger";
+			else if (counters.fSuspendByExternal)
+				reason = "external";
+			else if (counters.fSuspendByUIThread)
+				reason = "ui";
+			else if (counters.fSuspendByTimeout)
+				reason = "timeout";
+			else if (counters.fSuspendBySysCall)
+				reason = "syscall";
+			else if (counters.fSuspendBySubroutineReturn)
+				reason = "subreturn";
+
+			char buffer[256];
+			snprintf (buffer, sizeof (buffer),
+				"OK suspended:%s ui=%d dbg=%d ext=%d timeout=%d syscall=%d subret=%d\n",
+				reason.c_str (),
+				counters.fSuspendByUIThread,
+				counters.fSuspendByDebugger,
+				counters.fSuspendByExternal,
+				counters.fSuspendByTimeout,
+				counters.fSuspendBySysCall,
+				counters.fSuspendBySubroutineReturn);
+			Send (buffer);
 			break;
+		}
 		case kStopped:
 			Send ("OK stopped\n");
 			break;
