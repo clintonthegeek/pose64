@@ -67,6 +67,8 @@ private:
 	void CmdScreenshot (const QStringList& args);
 	void CmdInstall (const QStringList& args);
 	void CmdLaunch (const QStringList& args);
+	void CmdSave (const QStringList& args);
+	void CmdLoad (const QStringList& args);
 	void ProcessBufferedCommands (void);
 
 	QTcpSocket* fSocket;
@@ -431,6 +433,30 @@ void ReControlSession::CmdLaunch (const QStringList& args)
 	}
 }
 
+void ReControlSession::CmdSave (const QStringList& args)
+{
+	if (args.size () != 2) { SendErr ("usage", "save <filepath>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	EmSessionStopper stopper (gSession, kStopNow);
+	if (!stopper.Stopped ())
+	{
+		SendErr ("transient", "could not stop session");
+		return;
+	}
+
+	EmFileRef ref (args[1].toStdString ());
+	gSession->Save (ref, true);
+
+	Send ("OK\n");
+}
+
+void ReControlSession::CmdLoad (const QStringList& args)
+{
+	// Phase 1.5 todo: Full implementation requires EmDocument cooperation
+	SendErr ("usage", "load not yet implemented");
+}
+
 void ReControlSession::ProcessBufferedCommands ()
 {
 	while (!fCommandBuffer.isEmpty ())
@@ -484,6 +510,14 @@ void ReControlSession::ProcessBufferedCommands ()
 		else if (cmd == "launch")
 		{
 			CmdLaunch (parts);
+		}
+		else if (cmd == "save")
+		{
+			CmdSave (parts);
+		}
+		else if (cmd == "load")
+		{
+			CmdLoad (parts);
 		}
 		else
 		{
@@ -568,6 +602,14 @@ void ReControlSession::OnReadyRead ()
 		else if (cmd == "launch")
 		{
 			CmdLaunch (parts);
+		}
+		else if (cmd == "save")
+		{
+			CmdSave (parts);
+		}
+		else if (cmd == "load")
+		{
+			CmdLoad (parts);
 		}
 		else
 		{
