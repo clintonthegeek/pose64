@@ -607,8 +607,89 @@ void ReControlSession::CmdSave (const QStringList& args)
 
 void ReControlSession::CmdLoad (const QStringList& args)
 {
-	// Phase 1.5 todo: Full implementation requires EmDocument cooperation
-	SendErr ("usage", "load not yet implemented");
+	if (args.size () != 2) { SendErr ("usage", "load <filepath>"); return; }
+	if (!gDocument) { SendErr ("transient", "no document"); return; }
+
+	QString path = args[1];
+	QFileInfo fi (path);
+	if (!fi.exists () || !fi.isFile ())
+	{
+		SendErr ("usage", "file not found: " + path.toStdString ());
+		return;
+	}
+
+	// Load must run entirely on the main thread because it destroys
+	// the current session/document and creates new ones (involving
+	// Qt window operations and CPU thread management).
+	//
+	// Defer via QTimer::singleShot to avoid re-entrancy issues with
+	// the socket read handler.
+	ReControlSession* self = this;
+	std::string pathStr = path.toStdString ();
+
+	QTimer::singleShot (0, qApp, [self, pathStr]() {
+		try
+		{
+			// Shut down the CPU worker thread before destroying the session.
+			// Commands in the queue reference gSession which is about to die.
+			if (gCPUWorker)
+			{
+				gCPUWorker->shutdown ();
+				delete gCPUWorker;
+				gCPUWorker = nullptr;
+			}
+
+			// Close the current document without prompting to save.
+			// HandleClose(kSaveNever, false) calls `delete this` on
+			// the document, which destroys the EmSession and CPU thread.
+			if (gDocument)
+			{
+				gDocument->HandleClose (kSaveNever, false);
+			}
+
+			if (gDocument != NULL)
+			{
+				self->Send ("ERR transient: could not close current session\n");
+				return;
+			}
+
+			// Open the new session (creates EmDocument, EmSession, CPU thread)
+			EmFileRef ref (pathStr);
+			EmDocument::DoOpen (ref);
+
+			// Restart the CPU worker thread for the new session
+			gCPUWorker = new CPUWorkerThread ();
+			gCPUWorker->start ();
+
+			if (gDocument && gSession)
+			{
+				self->Send ("OK\n");
+			}
+			else
+			{
+				self->Send ("ERR fatal: failed to open session\n");
+			}
+		}
+		catch (ErrCode errCode)
+		{
+			// Ensure worker thread is restarted even on error
+			if (!gCPUWorker && gSession)
+			{
+				gCPUWorker = new CPUWorkerThread ();
+				gCPUWorker->start ();
+			}
+			self->Send ("ERR fatal: load failed (error " + std::to_string (errCode) + ")\n");
+		}
+		catch (...)
+		{
+			if (!gCPUWorker && gSession)
+			{
+				gCPUWorker = new CPUWorkerThread ();
+				gCPUWorker->start ();
+			}
+			self->Send ("ERR fatal: load failed (unknown exception)\n");
+		}
+	});
 }
 
 void ReControlSession::CmdInfo (const QStringList& args)
