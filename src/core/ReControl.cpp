@@ -224,40 +224,50 @@ void ReControlSession::CmdQuit (const QStringList& args)
 void ReControlSession::CmdTap (const QStringList& args)
 {
 	// args: ["tap", "80", "80"]
+	fprintf (stderr, "[ReControl] CmdTap called with %d args\n", (int)args.size ());
+	fflush (stderr);
 	if (args.size () != 3) { SendErr ("usage", "tap <x> <y>"); return; }
+	fprintf (stderr, "[ReControl] CmdTap: gSession=%p\n", (void*)gSession);
+	fflush (stderr);
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
 	int x = args[1].toInt ();
 	int y = args[2].toInt ();
 
-	fprintf (stderr, "[ReControl] CmdTap: Starting tap at (%d, %d)\n", x, y);
-	fprintf (stderr, "[ReControl] CmdTap: Creating EmSessionStopper...\n");
+	fprintf (stderr, "[ReControl] CmdTap: Queuing tap at (%d, %d)\n", x, y);
 	fflush (stderr);
 
-	// Suspend CPU to safely inject pen event
-	EmSessionStopper stopper (gSession, kStopOnCycle);
+	// Capture 'this' to send response in main thread
+	ReControlSession* self = this;
 
-	fprintf (stderr, "[ReControl] CmdTap: EmSessionStopper created, posting events\n");
-	fflush (stderr);
+	// Create command that will execute in worker thread
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [x, y]() {
+			fprintf (stderr, "[ReControl] CmdTap handler: Creating EmSessionStopper\n");
+			fflush (stderr);
 
-	EmPenEvent penDown (EmPoint (x, y), true);
-	gSession->PostPenEvent (penDown);
+			// Suspend CPU to safely inject pen event
+			EmSessionStopper stopper (gSession, kStopOnCycle);
 
-	fprintf (stderr, "[ReControl] CmdTap: Posted pen down event\n");
-	fflush (stderr);
+			EmPenEvent penDown (EmPoint (x, y), true);
+			gSession->PostPenEvent (penDown);
 
-	EmPenEvent penUp (EmPoint (-1, -1), false);
-	gSession->PostPenEvent (penUp);
+			EmPenEvent penUp (EmPoint (-1, -1), false);
+			gSession->PostPenEvent (penUp);
 
-	fprintf (stderr, "[ReControl] CmdTap: Posted pen up event\n");
-	fflush (stderr);
+			fprintf (stderr, "[ReControl] CmdTap handler: Complete\n");
+			fflush (stderr);
+		},
+		.response = [self]() {
+			fprintf (stderr, "[ReControl] CmdTap response: Sending OK\n");
+			fflush (stderr);
+			self->Send ("OK\n");
+		}
+	};
 
-	fprintf (stderr, "[ReControl] CmdTap: Sending OK response\n");
-	fflush (stderr);
-	Send ("OK\n");
-
-	fprintf (stderr, "[ReControl] CmdTap: Complete\n");
-	fflush (stderr);
+	// Queue command for worker thread to execute
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdPen (const QStringList& args)
@@ -287,14 +297,21 @@ void ReControlSession::CmdKey (const QStringList& args)
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
 	int charcode = args[1].toInt ();
+	ReControlSession* self = this;
 
-	// Suspend CPU to safely inject key event
-	EmSessionStopper stopper (gSession, kStopOnCycle);
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [charcode]() {
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			EmKeyEvent keyEvent (charcode);
+			gSession->PostKeyEvent (keyEvent);
+		},
+		.response = [self]() {
+			self->Send ("OK\n");
+		}
+	};
 
-	EmKeyEvent keyEvent (charcode);
-	gSession->PostKeyEvent (keyEvent);
-
-	Send ("OK\n");
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdButton (const QStringList& args)
