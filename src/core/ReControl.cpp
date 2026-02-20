@@ -10,11 +10,14 @@
 #include "ReControl.h"
 #include "EmSession.h"
 #include "EmApplication.h"
+#include "Skins.h"
+#include "EmTypes.h"
 
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QObject>
 #include <QStringList>
+#include <QTimer>
 
 #include <string>
 #include <memory>
@@ -40,6 +43,7 @@ public:
 private slots:
 	void OnReadyRead ();
 	void OnDisconnected ();
+	void OnSleepDone ();
 
 private:
 	void Send (const std::string& msg);
@@ -47,10 +51,19 @@ private:
 
 	void CmdState (const QStringList& args);
 	void CmdQuit (const QStringList& args);
+	void CmdTap (const QStringList& args);
+	void CmdPen (const QStringList& args);
+	void CmdKey (const QStringList& args);
+	void CmdButton (const QStringList& args);
+	void CmdReset (const QStringList& args);
+	void CmdSleep (const QStringList& args);
+	void ProcessBufferedCommands (void);
 
 	QTcpSocket* fSocket;
 	ReControlServer* fServer;
 	QByteArray fReadBuffer;
+	bool fProcessingPaused;
+	QStringList fCommandBuffer;
 };
 
 // ============================================================================
@@ -83,7 +96,9 @@ private:
 ReControlSession::ReControlSession (QTcpSocket* socket, ReControlServer* server)
 	: fSocket (socket),
 	  fServer (server),
-	  fReadBuffer ()
+	  fReadBuffer (),
+	  fProcessingPaused (false),
+	  fCommandBuffer ()
 {
 	// Move socket to this object (not strictly necessary on single-threaded,
 	// but good practice for Qt)
@@ -147,6 +162,166 @@ void ReControlSession::CmdQuit (const QStringList& args)
 	gApplication->SetTimeToQuit (true);
 }
 
+void ReControlSession::CmdTap (const QStringList& args)
+{
+	// args: ["tap", "80", "80"]
+	if (args.size () != 3) { SendErr ("usage", "tap <x> <y>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	int x = args[1].toInt ();
+	int y = args[2].toInt ();
+
+	EmPenEvent penDown (EmPoint (x, y), true);
+	gSession->PostPenEvent (penDown);
+
+	EmPenEvent penUp (EmPoint (-1, -1), false);
+	gSession->PostPenEvent (penUp);
+
+	Send ("OK\n");
+}
+
+void ReControlSession::CmdPen (const QStringList& args)
+{
+	if (args.size () != 4) { SendErr ("usage", "pen <down|up> <x> <y>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString state = args[1].toLower ();
+	bool isDown = (state == "down");
+	if (state != "down" && state != "up") { SendErr ("usage", "pen <down|up> <x> <y>"); return; }
+
+	int x = args[2].toInt ();
+	int y = args[3].toInt ();
+
+	EmPenEvent penEvent (EmPoint (x, y), isDown);
+	gSession->PostPenEvent (penEvent);
+
+	Send ("OK\n");
+}
+
+void ReControlSession::CmdKey (const QStringList& args)
+{
+	if (args.size () != 2) { SendErr ("usage", "key <charcode>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	int charcode = args[1].toInt ();
+	EmKeyEvent keyEvent (charcode);
+	gSession->PostKeyEvent (keyEvent);
+
+	Send ("OK\n");
+}
+
+void ReControlSession::CmdButton (const QStringList& args)
+{
+	if (args.size () != 3) { SendErr ("usage", "button <name> <down|up|tap>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString name = args[1].toLower ();
+	QString action = args[2].toLower ();
+
+	SkinElementType button = kElement_None;
+	if (name == "power")      button = kElement_PowerButton;
+	else if (name == "up")    button = kElement_UpButton;
+	else if (name == "down")  button = kElement_DownButton;
+	else if (name == "app1")  button = kElement_App1Button;
+	else if (name == "app2")  button = kElement_App2Button;
+	else if (name == "app3")  button = kElement_App3Button;
+	else if (name == "app4")  button = kElement_App4Button;
+	else if (name == "cradle") button = kElement_CradleButton;
+	else if (name == "contrast") button = kElement_ContrastButton;
+	else { SendErr ("usage", "unknown button '" + name.toStdString () + "'"); return; }
+
+	if (action == "down")      gSession->SetButtonDown (button);
+	else if (action == "up")   gSession->SetButtonUp (button);
+	else if (action == "tap")  gSession->SetButtonTap (button);
+	else { SendErr ("usage", "button <name> <down|up|tap>"); return; }
+
+	Send ("OK\n");
+}
+
+void ReControlSession::CmdReset (const QStringList& args)
+{
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	EmResetType type = kResetSoft;
+	if (args.size () > 1)
+	{
+		QString t = args[1].toLower ();
+		if (t == "hard")  type = kResetHard;
+		else if (t == "debug") type = kResetDebug;
+		else if (t != "soft") { SendErr ("usage", "reset [soft|hard|debug]"); return; }
+	}
+
+	gSession->ScheduleReset (type);
+	Send ("OK\n");
+}
+
+void ReControlSession::CmdSleep (const QStringList& args)
+{
+	if (args.size () != 2) { SendErr ("usage", "sleep <ms>"); return; }
+	int ms = args[1].toInt ();
+	if (ms < 1 || ms > 30000) { SendErr ("usage", "sleep <1-30000>"); return; }
+
+	fProcessingPaused = true;
+	QTimer::singleShot (ms, this, &ReControlSession::OnSleepDone);
+	// Don't send response yet — OnSleepDone will send it
+}
+
+void ReControlSession::OnSleepDone ()
+{
+	Send ("OK\n");
+	fProcessingPaused = false;
+	ProcessBufferedCommands ();
+}
+
+void ReControlSession::ProcessBufferedCommands ()
+{
+	while (!fCommandBuffer.isEmpty ())
+	{
+		QString line = fCommandBuffer.takeFirst ();
+		// Parse and dispatch the command
+		QStringList parts = line.split (' ', Qt::SkipEmptyParts);
+		QString cmd = parts[0].toLower ();
+
+		// Dispatch command
+		if (cmd == "state")
+		{
+			CmdState (parts);
+		}
+		else if (cmd == "quit")
+		{
+			CmdQuit (parts);
+		}
+		else if (cmd == "tap")
+		{
+			CmdTap (parts);
+		}
+		else if (cmd == "pen")
+		{
+			CmdPen (parts);
+		}
+		else if (cmd == "key")
+		{
+			CmdKey (parts);
+		}
+		else if (cmd == "button")
+		{
+			CmdButton (parts);
+		}
+		else if (cmd == "reset")
+		{
+			CmdReset (parts);
+		}
+		else if (cmd == "sleep")
+		{
+			CmdSleep (parts);
+		}
+		else
+		{
+			SendErr ("usage", "unknown command '" + cmd.toStdString () + "'");
+		}
+	}
+}
+
 void ReControlSession::OnReadyRead ()
 {
 	// Read available data
@@ -168,6 +343,13 @@ void ReControlSession::OnReadyRead ()
 		if (line.isEmpty ())
 			continue;
 
+		// If processing is paused (sleep in progress), buffer the command
+		if (fProcessingPaused)
+		{
+			fCommandBuffer.append (line);
+			continue;
+		}
+
 		// Parse command and arguments
 		QStringList parts = line.split (' ', Qt::SkipEmptyParts);
 		QString cmd = parts[0].toLower ();
@@ -180,6 +362,30 @@ void ReControlSession::OnReadyRead ()
 		else if (cmd == "quit")
 		{
 			CmdQuit (parts);
+		}
+		else if (cmd == "tap")
+		{
+			CmdTap (parts);
+		}
+		else if (cmd == "pen")
+		{
+			CmdPen (parts);
+		}
+		else if (cmd == "key")
+		{
+			CmdKey (parts);
+		}
+		else if (cmd == "button")
+		{
+			CmdButton (parts);
+		}
+		else if (cmd == "reset")
+		{
+			CmdReset (parts);
+		}
+		else if (cmd == "sleep")
+		{
+			CmdSleep (parts);
 		}
 		else
 		{
