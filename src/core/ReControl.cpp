@@ -37,10 +37,14 @@
 #include "ROMStubs.h"
 #include "PalmFormReader.h"
 #include "Hardware/EmMemory.h"
+#include "CPUWorkerThread.h"
 
 // Forward declarations
 class ReControlServer;
 class ReControlSession;
+
+// Global CPU worker thread instance
+CPUWorkerThread* gCPUWorker = nullptr;
 
 static ReControlServer* gReControlServer = nullptr;
 

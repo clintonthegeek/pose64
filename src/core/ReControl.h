@@ -6,6 +6,12 @@
 #ifndef ReControl_h
 #define ReControl_h
 
+// Forward declaration
+class CPUWorkerThread;
+
+// Global instance - initialized in main.cpp
+extern CPUWorkerThread* gCPUWorker;
+
 // Start the ReControl TCP server on the given port.
 // Call after theApp.Startup() and before qtApp.exec().
 // Pass 0 to disable ReControl.
