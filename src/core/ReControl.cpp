@@ -224,18 +224,11 @@ void ReControlSession::CmdQuit (const QStringList& args)
 void ReControlSession::CmdTap (const QStringList& args)
 {
 	// args: ["tap", "80", "80"]
-	fprintf (stderr, "[ReControl] CmdTap called with %d args\n", (int)args.size ());
-	fflush (stderr);
 	if (args.size () != 3) { SendErr ("usage", "tap <x> <y>"); return; }
-	fprintf (stderr, "[ReControl] CmdTap: gSession=%p\n", (void*)gSession);
-	fflush (stderr);
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
 	int x = args[1].toInt ();
 	int y = args[2].toInt ();
-
-	fprintf (stderr, "[ReControl] CmdTap: Queuing tap at (%d, %d)\n", x, y);
-	fflush (stderr);
 
 	// Capture 'this' to send response in main thread
 	ReControlSession* self = this;
@@ -244,9 +237,6 @@ void ReControlSession::CmdTap (const QStringList& args)
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
 		.handler = [x, y]() {
-			fprintf (stderr, "[ReControl] CmdTap handler: Creating EmSessionStopper\n");
-			fflush (stderr);
-
 			// Suspend CPU to safely inject pen event
 			EmSessionStopper stopper (gSession, kStopOnCycle);
 
@@ -255,13 +245,8 @@ void ReControlSession::CmdTap (const QStringList& args)
 
 			EmPenEvent penUp (EmPoint (-1, -1), false);
 			gSession->PostPenEvent (penUp);
-
-			fprintf (stderr, "[ReControl] CmdTap handler: Complete\n");
-			fflush (stderr);
 		},
 		.response = [self]() {
-			fprintf (stderr, "[ReControl] CmdTap response: Sending OK\n");
-			fflush (stderr);
 			self->Send ("OK\n");
 		}
 	};
@@ -729,9 +714,6 @@ void ReControlSession::OnReadyRead ()
 	QByteArray data = fSocket->readAll ();
 	fReadBuffer.append (data);
 
-	fprintf (stderr, "[ReControl] OnReadyRead: Received %d bytes\n", (int)data.size ());
-	fflush (stderr);
-
 	// Process complete lines
 	while (true)
 	{
@@ -747,9 +729,6 @@ void ReControlSession::OnReadyRead ()
 		if (line.isEmpty ())
 			continue;
 
-		fprintf (stderr, "[ReControl] OnReadyRead: Processing command: %s\n", line.toStdString ().c_str ());
-		fflush (stderr);
-
 		// If processing is paused (sleep in progress), buffer the command
 		if (fProcessingPaused)
 		{
@@ -760,9 +739,6 @@ void ReControlSession::OnReadyRead ()
 		// Parse command and arguments
 		QStringList parts = line.split (' ', Qt::SkipEmptyParts);
 		QString cmd = parts[0].toLower ();
-
-		fprintf (stderr, "[ReControl] OnReadyRead: Dispatching command: %s\n", cmd.toStdString ().c_str ());
-		fflush (stderr);
 
 		// Dispatch command
 		if (cmd == "state")
