@@ -85,10 +85,6 @@ int main (int argc, char** argv)
 			// HandleStartupActions is called from Run().
 			theApp.Run ();
 
-			// Start ReControl server
-			if (recontrolPort > 0)
-				ReControl_Startup (recontrolPort);
-
 			// Set up the idle timer.
 			// This replaces FLTK's while(1) { Fl::wait(0.1); HandleIdle(); }
 			QTimer idleTimer;
@@ -115,11 +111,21 @@ int main (int argc, char** argv)
 			});
 			idleTimer.start (100);  // ~10 Hz, matching FLTK's Fl::wait(0.1)
 
+			// Defer ReControl startup until event loop is running
+			if (recontrolPort > 0)
+			{
+				QTimer::singleShot (0, [recontrolPort]() {
+					ReControl_Startup (recontrolPort);
+				});
+			}
+
 			// Enter the Qt event loop
-			qtApp.exec ();
+			int exitCode = qtApp.exec ();
 
 			// Shut down ReControl server
 			ReControl_Shutdown ();
+
+			return exitCode;
 		}
 	}
 	catch (const std::exception& e)
