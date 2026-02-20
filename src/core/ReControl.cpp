@@ -282,13 +282,21 @@ void ReControlSession::CmdPen (const QStringList& args)
 	int x = args[2].toInt ();
 	int y = args[3].toInt ();
 
-	// Suspend CPU to safely inject pen event
-	EmSessionStopper stopper (gSession, kStopOnCycle);
+	ReControlSession* self = this;
 
-	EmPenEvent penEvent (EmPoint (x, y), isDown);
-	gSession->PostPenEvent (penEvent);
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [x, y, isDown]() {
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			EmPenEvent penEvent (EmPoint (x, y), isDown);
+			gSession->PostPenEvent (penEvent);
+		},
+		.response = [self]() {
+			self->Send ("OK\n");
+		}
+	};
 
-	Send ("OK\n");
+	gCPUWorker->queueCommand(cmd);
 }
 
 void ReControlSession::CmdKey (const QStringList& args)
