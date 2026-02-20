@@ -22,6 +22,7 @@
 #include "ReControl.h"
 #include "EmSession.h"
 #include "EmApplication.h"
+#include "EmDocument.h"
 #include "Skins.h"
 #include "EmTypes.h"
 #include "EmScreen.h"
@@ -69,6 +70,7 @@ private:
 	void CmdLaunch (const QStringList& args);
 	void CmdSave (const QStringList& args);
 	void CmdLoad (const QStringList& args);
+	void CmdInfo (const QStringList& args);
 	void ProcessBufferedCommands (void);
 
 	QTcpSocket* fSocket;
@@ -457,6 +459,62 @@ void ReControlSession::CmdLoad (const QStringList& args)
 	SendErr ("usage", "load not yet implemented");
 }
 
+void ReControlSession::CmdInfo (const QStringList& args)
+{
+	// First line: OK with POSE64 version
+	Send ("OK POSE64 0.9.0\n");
+
+	if (gSession)
+	{
+		Configuration cfg = gSession->GetConfiguration ();
+
+		// Device information
+		Send (" device=" + cfg.fDevice.GetIDString () + "\n");
+
+		// RAM size (in bytes, convert to MB for readability)
+		int ramSizeMB = cfg.fRAMSize / (1024 * 1024);
+		if (ramSizeMB > 0)
+		{
+			Send (" ram=" + std::to_string (ramSizeMB) + "MB\n");
+		}
+
+		// ROM filename
+		if (cfg.fROMFile.IsSpecified ())
+		{
+			Send (" rom=" + cfg.fROMFile.GetName () + "\n");
+		}
+
+		// Screen dimensions - stop the session and get screen info
+		EmSessionStopper stopper (gSession, kStopNow);
+		if (stopper.Stopped ())
+		{
+			EmScreen::InvalidateAll ();
+
+			EmScreenUpdateInfo info;
+			info.fScreenLow  = 0;
+			info.fScreenHigh = 0xFFFFFFFF;
+			if (EmScreen::GetBits (info))
+			{
+				EmPoint size = info.fImage.GetSize ();
+				Send (" screen=" + std::to_string (size.fX) + "x" + std::to_string (size.fY) + "\n");
+			}
+		}
+	}
+
+	// Session file path
+	if (gDocument)
+	{
+		EmFileRef ref = gDocument->GetFileRef ();
+		if (ref.IsSpecified ())
+		{
+			Send (" session=" + ref.GetFullPath () + "\n");
+		}
+	}
+
+	// Terminator
+	Send (".\n");
+}
+
 void ReControlSession::ProcessBufferedCommands ()
 {
 	while (!fCommandBuffer.isEmpty ())
@@ -518,6 +576,10 @@ void ReControlSession::ProcessBufferedCommands ()
 		else if (cmd == "load")
 		{
 			CmdLoad (parts);
+		}
+		else if (cmd == "info")
+		{
+			CmdInfo (parts);
 		}
 		else
 		{
@@ -610,6 +672,10 @@ void ReControlSession::OnReadyRead ()
 		else if (cmd == "load")
 		{
 			CmdLoad (parts);
+		}
+		else if (cmd == "info")
+		{
+			CmdInfo (parts);
 		}
 		else
 		{
