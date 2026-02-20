@@ -12,15 +12,18 @@
 #include "EmApplication.h"
 #include "Skins.h"
 #include "EmTypes.h"
+#include "EmScreen.h"
 
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
+#include <QImage>
 
 #include <string>
 #include <memory>
+#include <cstring>
 
 // Forward declarations
 class ReControlServer;
@@ -57,6 +60,7 @@ private:
 	void CmdButton (const QStringList& args);
 	void CmdReset (const QStringList& args);
 	void CmdSleep (const QStringList& args);
+	void CmdScreenshot (const QStringList& args);
 	void ProcessBufferedCommands (void);
 
 	QTcpSocket* fSocket;
@@ -273,6 +277,56 @@ void ReControlSession::OnSleepDone ()
 	ProcessBufferedCommands ();
 }
 
+void ReControlSession::CmdScreenshot (const QStringList& args)
+{
+	if (args.size () != 2) { SendErr ("usage", "screenshot <filepath>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	EmSessionStopper stopper (gSession, kStopNow);
+	if (!stopper.Stopped ())
+	{
+		SendErr ("transient", "could not stop session");
+		return;
+	}
+
+	// Capture screen
+	EmScreen::InvalidateAll ();
+
+	EmScreenUpdateInfo info;
+	info.fScreenLow  = 0;
+	info.fScreenHigh = 0xFFFFFFFF;
+	if (!EmScreen::GetBits (info))
+	{
+		SendErr ("transient", "could not capture screen");
+		return;
+	}
+
+	// Convert EmPixMap to QImage
+	EmPoint size = info.fImage.GetSize ();
+	int w = size.fX;
+	int h = size.fY;
+
+	info.fImage.ConvertToFormat (kPixMapFormat24RGB);
+
+	QImage img (w, h, QImage::Format_RGB888);
+	const uint8_t* src = (const uint8_t*) info.fImage.GetBits ();
+	EmPixMapRowBytes srcRowBytes = info.fImage.GetRowBytes ();
+	for (int y = 0; y < h; y++)
+	{
+		memcpy (img.scanLine (y), src + y * srcRowBytes, w * 3);
+	}
+
+	// Save as PNG
+	QString path = args[1];
+	if (!img.save (path, "PNG"))
+	{
+		SendErr ("transient", "could not write " + path.toStdString ());
+		return;
+	}
+
+	Send ("OK " + std::to_string (w) + " " + std::to_string (h) + "\n");
+}
+
 void ReControlSession::ProcessBufferedCommands ()
 {
 	while (!fCommandBuffer.isEmpty ())
@@ -310,6 +364,10 @@ void ReControlSession::ProcessBufferedCommands ()
 		else if (cmd == "reset")
 		{
 			CmdReset (parts);
+		}
+		else if (cmd == "screenshot")
+		{
+			CmdScreenshot (parts);
 		}
 		else if (cmd == "sleep")
 		{
@@ -382,6 +440,10 @@ void ReControlSession::OnReadyRead ()
 		else if (cmd == "reset")
 		{
 			CmdReset (parts);
+		}
+		else if (cmd == "screenshot")
+		{
+			CmdScreenshot (parts);
 		}
 		else if (cmd == "sleep")
 		{
