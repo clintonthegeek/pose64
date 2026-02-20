@@ -35,6 +35,8 @@
 #include "EmFileImport.h"
 #include "EmStreamFile.h"
 #include "ROMStubs.h"
+#include "PalmFormReader.h"
+#include "Hardware/EmMemory.h"
 
 // Forward declarations
 class ReControlServer;
@@ -77,6 +79,7 @@ private:
 	void CmdSave (const QStringList& args);
 	void CmdLoad (const QStringList& args);
 	void CmdInfo (const QStringList& args);
+	void CmdUI (const QStringList& args);
 	void ProcessBufferedCommands (void);
 
 	QTcpSocket* fSocket;
@@ -521,6 +524,22 @@ void ReControlSession::CmdInfo (const QStringList& args)
 	Send (".\n");
 }
 
+void ReControlSession::CmdUI (const QStringList& args)
+{
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	EmSessionStopper stopper (gSession, kStopOnCycle);
+	if (!stopper.Stopped ())
+	{
+		SendErr ("transient", "could not stop session");
+		return;
+	}
+
+	CEnableFullAccess munge;
+	std::string result = PalmFormReader_ReadActiveForm ();
+	Send (result);
+}
+
 void ReControlSession::ProcessBufferedCommands ()
 {
 	while (!fCommandBuffer.isEmpty ())
@@ -586,6 +605,10 @@ void ReControlSession::ProcessBufferedCommands ()
 		else if (cmd == "info")
 		{
 			CmdInfo (parts);
+		}
+		else if (cmd == "ui")
+		{
+			CmdUI (parts);
 		}
 		else
 		{
@@ -682,6 +705,10 @@ void ReControlSession::OnReadyRead ()
 		else if (cmd == "info")
 		{
 			CmdInfo (parts);
+		}
+		else if (cmd == "ui")
+		{
+			CmdUI (parts);
 		}
 		else
 		{
