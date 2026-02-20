@@ -226,6 +226,9 @@ void ReControlSession::CmdTap (const QStringList& args)
 	int x = args[1].toInt ();
 	int y = args[2].toInt ();
 
+	// Suspend CPU to safely inject pen event
+	EmSessionStopper stopper (gSession, kStopOnCycle);
+
 	EmPenEvent penDown (EmPoint (x, y), true);
 	gSession->PostPenEvent (penDown);
 
@@ -247,6 +250,9 @@ void ReControlSession::CmdPen (const QStringList& args)
 	int x = args[2].toInt ();
 	int y = args[3].toInt ();
 
+	// Suspend CPU to safely inject pen event
+	EmSessionStopper stopper (gSession, kStopOnCycle);
+
 	EmPenEvent penEvent (EmPoint (x, y), isDown);
 	gSession->PostPenEvent (penEvent);
 
@@ -259,6 +265,10 @@ void ReControlSession::CmdKey (const QStringList& args)
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
 	int charcode = args[1].toInt ();
+
+	// Suspend CPU to safely inject key event
+	EmSessionStopper stopper (gSession, kStopOnCycle);
+
 	EmKeyEvent keyEvent (charcode);
 	gSession->PostKeyEvent (keyEvent);
 
@@ -284,6 +294,9 @@ void ReControlSession::CmdButton (const QStringList& args)
 	else if (name == "cradle") button = kElement_CradleButton;
 	else if (name == "contrast") button = kElement_ContrastButton;
 	else { SendErr ("usage", "unknown button '" + name.toStdString () + "'"); return; }
+
+	// Suspend CPU to safely inject button event
+	EmSessionStopper stopper (gSession, kStopOnCycle);
 
 	if (action == "down")      gSession->SetButtonDown (button);
 	else if (action == "up")   gSession->SetButtonUp (button);
