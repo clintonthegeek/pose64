@@ -1980,17 +1980,15 @@ void PrvWakeUpCPU (long strID)
 	// queued in thread-safe queues; if we can't reach a syscall boundary
 	// in time, the CPU will process them on its next natural wakeup.
 	//
-	// IMPORTANT: Only call from the main (UI) thread.  The EvtWakeup
-	// ROM stub calls ExecuteSubroutine, which runs fCPU->Execute()
-	// inline in the calling thread.  The UAE 68K core uses global
-	// mutable state (regs, memory banks) with no thread safety.  If
-	// both the main thread and the CPUWorkerThread call this function
-	// simultaneously, they can both enter fCPU->Execute() concurrently,
-	// corrupting CPU registers and emulated memory.
+	// IMPORTANT: The EvtWakeup ROM stub calls ExecuteSubroutine, which
+	// runs fCPU->Execute() inline in the calling thread.  The UAE 68K
+	// core uses global mutable state (regs, memory banks) with no
+	// thread safety.  Only the main thread may call EvtWakeup directly.
 	//
-	// From the CPUWorkerThread, the events are already in thread-safe
-	// queues (fPenQueue, fKeyQueue) and will be picked up by the CPU
-	// on its next CycleSlowly iteration (~2ms emulated time).
+	// From other threads (CPUWorkerThread, etc.), schedule the wakeup
+	// on the main thread via QMetaObject::invokeMethod.  This ensures
+	// EvtWakeup runs safely while still waking the emulated CPU from
+	// sleep (EvtGetEvent blocks indefinitely when no events are pending).
 
 #if HAS_OMNI_THREAD
 	if (gSession && gSession->InCPUThread ())
@@ -1998,7 +1996,14 @@ void PrvWakeUpCPU (long strID)
 
 	QCoreApplication* app = QCoreApplication::instance ();
 	if (app && QThread::currentThread () != app->thread ())
+	{
+		// Bounce to main thread — events are already in the queue,
+		// we just need to wake the emulated CPU to process them.
+		QMetaObject::invokeMethod (app, [strID]() {
+			::PrvWakeUpCPU (strID);
+		}, Qt::QueuedConnection);
 		return;
+	}
 #endif
 
 	EmSessionStopper	stopper (gSession, kStopOnSysCall, 2000);

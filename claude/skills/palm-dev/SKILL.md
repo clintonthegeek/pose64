@@ -141,6 +141,13 @@ ui = read_multiline(c, "ui")       # check what form appeared
 assert "Set Time" in ui            # verify expected dialog
 ```
 
+## App-Specific Workflows
+
+See `claude/skills/palm-dev/references/builtin-apps.md` for detailed,
+tested workflows for each built-in Palm OS app (To Do List, Date Book, etc.).
+These include stable object IDs, step-by-step command sequences, and gotchas
+discovered through live testing.
+
 ## Anti-Patterns (Do NOT)
 
 - **Do NOT screenshot after every action** — use `screen-hash` or `ui` instead

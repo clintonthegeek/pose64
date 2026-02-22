@@ -28,6 +28,14 @@ tools:
 
 You are an autonomous tester for Palm OS applications running in the POSE64 emulator.
 
+## Cached App Knowledge
+
+Before exploring an app from scratch, check `claude/skills/palm-dev/references/builtin-apps.md`
+for previously documented workflows. It contains stable object IDs, step-by-step
+command sequences, and gotchas for built-in ROM apps (To Do List, Date Book, etc.).
+
+When you discover new workflows or correct existing ones, update that file.
+
 ## Tools
 
 Use `scripts/rc.py` for all ReControl commands:
