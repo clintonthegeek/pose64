@@ -117,6 +117,24 @@ file.cpp:42:15: runtime error: signed integer overflow: 2147483647 + 1
 UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0" ./pose64
 ```
 
+**Suppressing known warnings:**
+
+Legacy UAE and hardware emulation code produces ~10 UBSAN warnings that are expected
+behavior (integer overflow in 32-bit register emulation, bool values read from raw memory).
+A suppression file silences these without modifying legacy code:
+
+```bash
+UBSAN_OPTIONS="suppressions=ubsan.supp:print_stacktrace=1:halt_on_error=0" ./pose64
+```
+
+The suppression file (`ubsan.supp` in the repo root) filters warnings from:
+- `cpuemu.c` — signed integer overflow and shift overflow in 68K instruction emulation
+- `readcpu.cpp` — negative shift exponent in CPU table initialization
+- `EmSPISlaveADS784x.cpp`, `EmRegsVZ.cpp` — left shift of negative values in hardware emulation
+- `EmRegsVZ.cpp`, `EmPatchState.h` — invalid bool values read from raw emulated memory
+
+Any NEW UBSAN warnings (not from these files) indicate real bugs and should be investigated.
+
 ---
 
 ## GDB

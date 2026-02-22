@@ -42,6 +42,13 @@
 #include "ErrorHandling.h"		// Errors::Initialize ();
 #include "EmPalmOS.h"			// EmPalmOS::Initialize
 
+// Undefine Palm OS macros that conflict with Qt
+#undef daysInYear
+#undef monthsInYear
+
+#include <QThread>
+#include <QCoreApplication>
+
 using namespace std;
 
 EmSession*	gSession;
@@ -809,7 +816,29 @@ Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 		fSleepLock.unlock ();
 
 		// Wait for it to stop.
-		// !!! Do a timed wait in case we never reach the desired stop point?
+
+		// Compute the absolute deadline ONCE before the loop.
+		// Previously this was inside the while loop, causing the
+		// timeout to reset on every spurious wakeup (broadcasts from
+		// ExecuteSubroutine, ResumeThread, etc.) — the timeout would
+		// never actually fire, blocking the calling thread forever.
+
+		unsigned long deadline_sec  = 0;
+		unsigned long deadline_nsec = 0;
+		Bool useTimeout = (timeoutMs > 0 && how == kStopOnSysCall);
+
+		if (useTimeout)
+		{
+			struct timespec now;
+			clock_gettime (CLOCK_REALTIME, &now);
+			deadline_sec  = now.tv_sec + (timeoutMs / 1000);
+			deadline_nsec = now.tv_nsec + ((timeoutMs % 1000) * 1000000UL);
+			if (deadline_nsec >= 1000000000UL)
+			{
+				deadline_sec  += 1;
+				deadline_nsec -= 1000000000UL;
+			}
+		}
 
 		while (fState == kRunning)
 		{
@@ -841,20 +870,9 @@ Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 			fBreakOnSysCall	= desiredBreakOnSysCall;
 			fSharedCondition.broadcast ();
 
-			if (timeoutMs > 0 && how == kStopOnSysCall)
+			if (useTimeout)
 			{
-				// Compute absolute deadline
-				struct timespec now;
-				clock_gettime (CLOCK_REALTIME, &now);
-				unsigned long abs_sec  = now.tv_sec + (timeoutMs / 1000);
-				unsigned long abs_nsec = now.tv_nsec + ((timeoutMs % 1000) * 1000000UL);
-				if (abs_nsec >= 1000000000UL)
-				{
-					abs_sec  += 1;
-					abs_nsec -= 1000000000UL;
-				}
-
-				int rc = fSharedCondition.timedwait (abs_sec, abs_nsec);
+				int rc = fSharedCondition.timedwait (deadline_sec, deadline_nsec);
 				if (rc == 0)  // timeout (0 = timeout, 1 = signaled)
 				{
 					// Clean up: cancel the syscall break request
@@ -1961,6 +1979,27 @@ void PrvWakeUpCPU (long strID)
 	// Use a timeout to prevent indefinite blocking.  Events are already
 	// queued in thread-safe queues; if we can't reach a syscall boundary
 	// in time, the CPU will process them on its next natural wakeup.
+	//
+	// IMPORTANT: Only call from the main (UI) thread.  The EvtWakeup
+	// ROM stub calls ExecuteSubroutine, which runs fCPU->Execute()
+	// inline in the calling thread.  The UAE 68K core uses global
+	// mutable state (regs, memory banks) with no thread safety.  If
+	// both the main thread and the CPUWorkerThread call this function
+	// simultaneously, they can both enter fCPU->Execute() concurrently,
+	// corrupting CPU registers and emulated memory.
+	//
+	// From the CPUWorkerThread, the events are already in thread-safe
+	// queues (fPenQueue, fKeyQueue) and will be picked up by the CPU
+	// on its next CycleSlowly iteration (~2ms emulated time).
+
+#if HAS_OMNI_THREAD
+	if (gSession && gSession->InCPUThread ())
+		return;
+
+	QCoreApplication* app = QCoreApplication::instance ();
+	if (app && QThread::currentThread () != app->thread ())
+		return;
+#endif
 
 	EmSessionStopper	stopper (gSession, kStopOnSysCall, 2000);
 

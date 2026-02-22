@@ -295,7 +295,7 @@ FOR_EACH_FORMAT_PAIR (DECLARE_CONVERTER)
 	EmAssert (srcColors);										\
 															\
 	EmCoord xx = 0;											\
-	while (1)												\
+	while (xx < right)										\
 	{														\
 		uint8	bits = *srcPtr++;							\
 		CONVERT_PACKED_BYTE_##src_format(dest_format)		\

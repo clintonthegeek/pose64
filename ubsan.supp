@@ -1,0 +1,10 @@
+# Legacy UAE 68K CPU emulation — integer overflow is expected
+# behavior for 32-bit register emulation
+signed-integer-overflow:cpuemu.c
+shift-exponent:readcpu.cpp
+shift:EmSPISlaveADS784x.cpp
+shift:EmRegsVZ.cpp
+
+# Legacy hardware emulation — bool values read from raw memory
+bool:EmRegsVZ.cpp
+bool:EmPatchState.h
