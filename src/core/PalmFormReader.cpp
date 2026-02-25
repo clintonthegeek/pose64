@@ -333,6 +333,82 @@ static void ReadGadget(std::ostringstream& out, emuptr dataPtr)
 }
 
 //============================================================================
+// Read MenuBarType from emulated memory
+//============================================================================
+static void ReadMenuBar(std::ostringstream& out)
+{
+	// Read uiCurrentMenu from PalmOS low-memory globals
+	emuptr menuBarPtr = EmLowMem_GetGlobal(uiGlobalsCommon.uiCurrentMenu);
+
+	if (!IsValidPtr(menuBarPtr))
+		return;  // No menu bar active — normal case
+
+	int16  curMenu  = (int16)EmMemGet16(menuBarPtr + kMenuBarType_curMenu);
+	int16  curItem  = (int16)EmMemGet16(menuBarPtr + kMenuBarType_curItem);
+	int16  numMenus = (int16)EmMemGet16(menuBarPtr + kMenuBarType_numMenus);
+	emuptr menusPtr = EmMemGet32(menuBarPtr + kMenuBarType_menus);
+
+	if (!IsValidPtr(menusPtr) || numMenus <= 0 || numMenus > 20)
+		return;
+
+	out << " MENUBAR curMenu=" << curMenu << " curItem=" << curItem << "\n";
+
+	for (int m = 0; m < numMenus; ++m)
+	{
+		emuptr pullDown = menusPtr + (m * kMenuPullDownType_size);
+
+		emuptr titlePtr = EmMemGet32(pullDown + kMenuPullDownType_title);
+		uint16 hiddenNumItems = EmMemGet16(pullDown + kMenuPullDownType_hiddenNumItems);
+		// Bit 15 (MSB) = hidden flag, bits 14..0 = numItems
+		int numItems = hiddenNumItems & 0x7FFF;
+		emuptr itemsPtr = EmMemGet32(pullDown + kMenuPullDownType_items);
+
+		out << "  MENU ";
+		if (IsValidPtr(titlePtr))
+		{
+			std::string title = ReadEmuString(titlePtr);
+			out << "\"" << EscapeString(title) << "\"";
+		}
+		else
+		{
+			out << "(null)";
+		}
+		out << "\n";
+
+		if (!IsValidPtr(itemsPtr) || numItems <= 0)
+			continue;
+
+		int maxItems = std::min(numItems, 30);  // Safety cap
+		for (int i = 0; i < maxItems; ++i)
+		{
+			emuptr item = itemsPtr + (i * kMenuItemType_size);
+
+			uint16 id      = EmMemGet16(item + kMenuItemType_id);
+			uint8  command  = (uint8)EmMemGet8(item + kMenuItemType_command);
+			uint8  hiddenByte = (uint8)EmMemGet8(item + kMenuItemType_hidden);
+			emuptr itemStr = EmMemGet32(item + kMenuItemType_itemStr);
+
+			// Bit 7 (MSB) = hidden flag
+			if (hiddenByte & 0x80)
+				continue;
+
+			out << "   ITEM id=" << id;
+
+			if (IsValidPtr(itemStr))
+			{
+				std::string text = ReadEmuString(itemStr);
+				out << " \"" << EscapeString(text) << "\"";
+			}
+
+			if (command != 0)
+				out << " cmd=" << (char)command;
+
+			out << "\n";
+		}
+	}
+}
+
+//============================================================================
 // PalmFormReader_ReadActiveForm
 //============================================================================
 
@@ -447,6 +523,9 @@ std::string PalmFormReader_ReadActiveForm(void)
 			}
 		}
 	}
+
+	// Append menu bar info if a menu is active
+	ReadMenuBar(result);
 
 	result << ".\n";
 	return result.str();

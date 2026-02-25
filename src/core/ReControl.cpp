@@ -19,7 +19,9 @@
 #include <string>
 #include <memory>
 #include <cstring>
+#include <vector>
 #include <zlib.h>
+#include <QThread>
 
 #include "EmCommon.h"
 
@@ -36,15 +38,22 @@
 #include "EmScreen.h"
 #include "EmFileImport.h"
 #include "EmStreamFile.h"
+#include "LoadApplication.h"
 #include "ROMStubs.h"
 #include "PalmFormReader.h"
 #include "Hardware/EmMemory.h"
 #include "EmLowMem.h"
 #include "CPUWorkerThread.h"
+#include "Patches/EmPatchState.h"
+#include "UAE.h"
 
 // Forward declarations
 class ReControlServer;
 class ReControlSession;
+
+// From EmDlgQt.cpp — remote dialog handling
+extern std::string EmDlgQt_GetPendingDialog (void);
+extern bool EmDlgQt_RespondToDialog (const std::string& buttonName);
 
 // Global CPU worker thread instance
 CPUWorkerThread* gCPUWorker = nullptr;
@@ -82,6 +91,7 @@ private:
 	void CmdSleep (const QStringList& args);
 	void CmdScreenshot (const QStringList& args);
 	void CmdInstall (const QStringList& args);
+	void CmdExport (const QStringList& args);
 	void CmdLaunch (const QStringList& args);
 	void CmdSave (const QStringList& args);
 	void CmdLoad (const QStringList& args);
@@ -91,6 +101,14 @@ private:
 	void CmdType (const QStringList& args);
 	void CmdTapId (const QStringList& args);
 	void CmdApps (const QStringList& args);
+	void CmdDialog (const QStringList& args);
+	void CmdRun (const QStringList& args);
+	void CmdPeek (const QStringList& args);
+	void CmdPoke (const QStringList& args);
+	void CmdRegs (const QStringList& args);
+	void CmdMenu (const QStringList& args);
+	void DoMenuLookup (std::string menuTitle, std::string itemTitle, bool activated);
+	void CmdDelete (const QStringList& args);
 	void ProcessBufferedCommands (void);
 	void DispatchCommand (const QStringList& parts);
 
@@ -508,6 +526,47 @@ void ReControlSession::CmdInstall (const QStringList& args)
 	});
 }
 
+void ReControlSession::CmdExport (const QStringList& args)
+{
+	if (args.size () < 3) { SendErr ("usage", "export <dbname> <filepath>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	// Rejoin args[1..N-1] as dbname (may contain spaces), last arg is filepath
+	QString path = args.last ();
+	QString nameQ;
+	for (int i = 1; i < args.size () - 1; i++)
+	{
+		if (i > 1) nameQ += ' ';
+		nameQ += args[i];
+	}
+	std::string name = nameQ.toStdString ();
+	std::string pathStr = path.toStdString ();
+
+	QueueWorkResult ([name, pathStr]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+		if (!stopper.Stopped () || !stopper.CanCall ())
+			return "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+
+		try
+		{
+			// Verify the database exists
+			LocalID dbID = DmFindDatabase (0, name.c_str ());
+			if (dbID == 0)
+				return "ERR usage: database not found: " + name + "\n";
+
+			EmStreamFile stream (EmFileRef (pathStr), kCreateOrEraseForWrite);
+			SavePalmFile (stream, 0, name.c_str ());
+
+			return "OK\n";
+		}
+		catch (...)
+		{
+			return "ERR fatal: export failed - emulator exception during ROM call (recommend reset)\n";
+		}
+	});
+}
+
 void ReControlSession::CmdLaunch (const QStringList& args)
 {
 	if (args.size () < 2) { SendErr ("usage", "launch <dbname>"); return; }
@@ -711,6 +770,27 @@ void ReControlSession::CmdInfo (const QStringList& args)
 			}
 		}
 
+		// OS version from Palm ROM
+		UInt32 osVer = EmPatchState::OSMajorMinorVersion ();
+		if (osVer > 0)
+			out += " os=" + std::to_string (osVer / 10) + "." + std::to_string (osVer % 10) + "\n";
+
+		// Current app name
+		EmuAppInfo appInfo = EmPatchState::GetCurrentAppInfo ();
+		if (appInfo.fName[0] != '\0')
+			out += " app=" + std::string (appInfo.fName) + "\n";
+
+		// Active form ID
+		{
+			CEnableFullAccess munge;
+			emuptr formPtr = EmLowMem_GetGlobal (uiGlobalsCommon.currentForm);
+			if (formPtr != 0)
+			{
+				uint16 formId = EmMemGet16 (formPtr + kFormType_formId);
+				out += " form=" + std::to_string (formId) + "\n";
+			}
+		}
+
 		if (!sessionPath.empty ())
 			out += " session=" + sessionPath + "\n";
 		out += ".\n";
@@ -899,7 +979,11 @@ void ReControlSession::CmdApps (const QStringList& args)
 {
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
-	QueueWorkResult ([]() -> std::string {
+	bool appsOnly = true;
+	if (args.size () >= 2 && args[1].toLower () == "all")
+		appsOnly = false;
+
+	QueueWorkResult ([appsOnly]() -> std::string {
 		if (!gSession) return "ERR transient: no session\n";
 		EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
 		if (!stopper.Stopped () || !stopper.CanCall ())
@@ -916,18 +1000,19 @@ void ReControlSession::CmdApps (const QStringList& args)
 				if (dbID == 0) continue;
 
 				Char name[dmDBNameLength];
+				UInt16 attributes = 0;
 				UInt32 type = 0;
 				UInt32 creator = 0;
 
 				Err err = DmDatabaseInfo (0, dbID, name,
-					NULL, NULL, NULL, NULL, NULL, NULL,
+					&attributes, NULL, NULL, NULL, NULL, NULL,
 					NULL, NULL, &type, &creator);
 				if (err != errNone) continue;
 
-				// Only list applications
-				if (type != sysFileTApplication) continue;
+				// Filter to applications only unless "all" requested
+				if (appsOnly && type != sysFileTApplication) continue;
 
-				// Format creator as 4-char code
+				// Format type and creator as 4-char codes
 				char typeStr[5], creatorStr[5];
 				typeStr[0] = (char) ((type >> 24) & 0xFF);
 				typeStr[1] = (char) ((type >> 16) & 0xFF);
@@ -946,6 +1031,13 @@ void ReControlSession::CmdApps (const QStringList& args)
 				out += typeStr;
 				out += " creator=";
 				out += creatorStr;
+
+				if (!appsOnly)
+				{
+					bool isResource = (attributes & dmHdrAttrResDB) != 0;
+					out += isResource ? " res" : " rec";
+				}
+
 				out += "\n";
 			}
 
@@ -958,6 +1050,708 @@ void ReControlSession::CmdApps (const QStringList& args)
 		}
 	});
 }
+
+void ReControlSession::CmdDialog (const QStringList& args)
+{
+	if (args.size () >= 3 && args[1].toLower () == "respond")
+	{
+		std::string buttonName = args[2].toLower ().toStdString ();
+		if (EmDlgQt_RespondToDialog (buttonName))
+			Send ("OK\n");
+		else
+			SendErr ("usage", "no pending dialog or unknown button: " + buttonName);
+		return;
+	}
+
+	std::string info = EmDlgQt_GetPendingDialog ();
+	if (info.empty ())
+	{
+		Send ("OK none\n");
+		return;
+	}
+
+	Send (info);
+}
+
+// ============================================================================
+// CmdRun — batch/script command
+// ============================================================================
+// Executes multiple sub-commands in a single worker thread invocation,
+// eliminating TCP round-trip overhead.  Only input commands are allowed:
+// tap, pen, key, type, button, sleep, repeat.
+//
+// Syntax:  run <cmd1>; <cmd2>; sleep <ms>; repeat <N> { <cmd>; <cmd> }
+
+// Helper: execute one sub-command within the worker thread.
+// Returns empty string on success, or error message on failure.
+static std::string RunOneSub (const QString& cmdLine)
+{
+	QStringList parts = cmdLine.trimmed ().split (' ', Qt::SkipEmptyParts);
+	if (parts.isEmpty ()) return "";
+
+	QString cmd = parts[0].toLower ();
+
+	if (cmd == "tap")
+	{
+		if (parts.size () != 3) return "tap requires 2 arguments";
+		if (!gSession) return "no session";
+		int x = parts[1].toInt ();
+		int y = parts[2].toInt ();
+		EmPenEvent penDown (EmPoint (x, y), true);
+		gSession->PostPenEvent (penDown);
+		EmPenEvent penUp (EmPoint (-1, -1), false);
+		gSession->PostPenEvent (penUp);
+		return "";
+	}
+
+	if (cmd == "pen")
+	{
+		if (parts.size () != 4) return "pen requires 3 arguments";
+		if (!gSession) return "no session";
+		QString state = parts[1].toLower ();
+		if (state != "down" && state != "up") return "pen action must be down or up";
+		int x = parts[2].toInt ();
+		int y = parts[3].toInt ();
+		EmPenEvent penEvent (EmPoint (x, y), state == "down");
+		gSession->PostPenEvent (penEvent);
+		return "";
+	}
+
+	if (cmd == "key")
+	{
+		if (parts.size () != 2) return "key requires 1 argument";
+		if (!gSession) return "no session";
+		int charcode = parts[1].toInt ();
+		EmKeyEvent keyEvent (charcode);
+		gSession->PostKeyEvent (keyEvent);
+		return "";
+	}
+
+	if (cmd == "type")
+	{
+		if (parts.size () < 2) return "type requires text";
+		if (!gSession) return "no session";
+		QString text;
+		for (int i = 1; i < parts.size (); i++)
+		{
+			if (i > 1) text += ' ';
+			text += parts[i];
+		}
+		QByteArray latin1 = text.toLatin1 ();
+		for (int i = 0; i < latin1.size (); i++)
+		{
+			EmKeyEvent keyEvent ((unsigned char) latin1[i]);
+			gSession->PostKeyEvent (keyEvent);
+		}
+		return "";
+	}
+
+	if (cmd == "button")
+	{
+		if (parts.size () != 3) return "button requires 2 arguments";
+		if (!gSession) return "no session";
+		QString name = parts[1].toLower ();
+		QString action = parts[2].toLower ();
+
+		SkinElementType button = kElement_None;
+		if (name == "power")        button = kElement_PowerButton;
+		else if (name == "up")      button = kElement_UpButton;
+		else if (name == "down")    button = kElement_DownButton;
+		else if (name == "app1")    button = kElement_App1Button;
+		else if (name == "app2")    button = kElement_App2Button;
+		else if (name == "app3")    button = kElement_App3Button;
+		else if (name == "app4")    button = kElement_App4Button;
+		else if (name == "cradle")  button = kElement_CradleButton;
+		else if (name == "contrast") button = kElement_ContrastButton;
+		else return "unknown button '" + name.toStdString () + "'";
+
+		if (action == "down")      gSession->SetButtonDown (button);
+		else if (action == "up")   gSession->SetButtonUp (button);
+		else if (action == "tap")  gSession->SetButtonTap (button);
+		else return "button action must be down, up, or tap";
+		return "";
+	}
+
+	if (cmd == "sleep")
+	{
+		if (parts.size () != 2) return "sleep requires 1 argument";
+		int ms = parts[1].toInt ();
+		if (ms < 1 || ms > 30000) return "sleep ms must be 1-30000";
+		QThread::msleep (ms);
+		return "";
+	}
+
+	return "unknown command '" + cmd.toStdString () + "' (only tap/pen/key/type/button/sleep/repeat allowed in run)";
+}
+
+// Helper: execute a list of sub-commands (semicolon-delimited tokens already split).
+// Handles "repeat N { ... }" by recursion.
+// Returns empty string on success, or "command N '<cmd>': <reason>" on failure.
+static std::string RunSubCommands (const QStringList& subcmds)
+{
+	int cmdNum = 0;
+
+	for (int i = 0; i < subcmds.size (); i++)
+	{
+		QString sub = subcmds[i].trimmed ();
+		if (sub.isEmpty ()) continue;
+		cmdNum++;
+
+		// Check for "repeat N { ... }"
+		QStringList words = sub.split (' ', Qt::SkipEmptyParts);
+		if (!words.isEmpty () && words[0].toLower () == "repeat")
+		{
+			if (words.size () < 2)
+				return "command " + std::to_string (cmdNum) + " 'repeat': requires count";
+
+			int count = words[1].toInt ();
+			if (count < 1 || count > 10000)
+				return "command " + std::to_string (cmdNum) + " 'repeat': count must be 1-10000";
+
+			// Collect the brace-enclosed body from remaining subcmds
+			// The opening brace should be the next token or at the end of this subcmd
+			// Format: repeat N { cmd1; cmd2 }
+			// After semicolon split, we look for a subcmd starting with { and ending with }
+
+			// First, check if there's a { in the rest of this word list
+			QString body;
+			bool foundOpen = false;
+			bool foundClose = false;
+
+			// Check if brace is in the remaining words of this subcmd
+			for (int w = 2; w < words.size (); w++)
+			{
+				QString word = words[w];
+				if (word.startsWith ('{'))
+				{
+					foundOpen = true;
+					word = word.mid (1);  // strip leading brace
+				}
+				if (word.endsWith ('}'))
+				{
+					foundClose = true;
+					word.chop (1);  // strip trailing brace
+				}
+				if (!body.isEmpty ()) body += ' ';
+				body += word;
+			}
+
+			// If we didn't find close brace, scan following subcmds
+			if (foundOpen && !foundClose)
+			{
+				for (i++; i < subcmds.size (); i++)
+				{
+					QString next = subcmds[i].trimmed ();
+					if (next.endsWith ('}'))
+					{
+						next.chop (1);
+						if (!body.isEmpty ()) body += ';';
+						body += next;
+						foundClose = true;
+						break;
+					}
+					if (!body.isEmpty ()) body += ';';
+					body += next;
+				}
+			}
+
+			if (!foundOpen || !foundClose)
+				return "command " + std::to_string (cmdNum) + " 'repeat': missing { } body";
+
+			// Split body on semicolons and execute N times
+			QStringList bodyParts = body.split (';');
+			for (int r = 0; r < count; r++)
+			{
+				std::string err = RunSubCommands (bodyParts);
+				if (!err.empty ())
+					return "command " + std::to_string (cmdNum) + " repeat iteration " + std::to_string (r + 1) + ": " + err;
+			}
+			continue;
+		}
+
+		// Normal sub-command
+		std::string err = RunOneSub (sub);
+		if (!err.empty ())
+			return "command " + std::to_string (cmdNum) + " '" + sub.toStdString () + "': " + err;
+	}
+
+	return "";
+}
+
+void ReControlSession::CmdRun (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "run <cmd1>; <cmd2>; ..."); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	// Rejoin everything after "run" and split on semicolons
+	QString script;
+	for (int i = 1; i < args.size (); i++)
+	{
+		if (i > 1) script += ' ';
+		script += args[i];
+	}
+
+	QStringList subcmds = script.split (';');
+
+	QueueWorkResult ([subcmds]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+
+		std::string err = RunSubCommands (subcmds);
+		if (!err.empty ())
+			return "ERR transient: " + err + "\n";
+
+		// Count non-empty commands
+		int count = 0;
+		for (const QString& s : subcmds)
+			if (!s.trimmed ().isEmpty ()) count++;
+		return "OK " + std::to_string (count) + " commands\n";
+	});
+}
+
+// ============================================================================
+// CmdPeek — read emulated memory
+// ============================================================================
+// Address formats:
+//   0x00012345    — absolute hex
+//   a5@-6423      — A5-relative (signed decimal offset)
+//   global.<name> — named low-memory global pointer
+
+static bool ParseAddress (const std::string& addrStr, emuptr& outAddr)
+{
+	// Absolute hex: 0x...
+	if (addrStr.size () > 2 && addrStr[0] == '0' && (addrStr[1] == 'x' || addrStr[1] == 'X'))
+	{
+		unsigned long val = strtoul (addrStr.c_str () + 2, nullptr, 16);
+		outAddr = (emuptr) val;
+		return true;
+	}
+
+	// A5-relative: a5@<offset> or a5@-<offset>
+	if (addrStr.size () > 3 &&
+		(addrStr[0] == 'a' || addrStr[0] == 'A') &&
+		addrStr[1] == '5' && addrStr[2] == '@')
+	{
+		int offset = atoi (addrStr.c_str () + 3);
+		uint32 a5 = m68k_areg (regs, 5);
+		outAddr = (emuptr) ((int32) a5 + offset);
+		return true;
+	}
+
+	// Named global: global.<name>
+	if (addrStr.size () > 7 && addrStr.substr (0, 7) == "global.")
+	{
+		std::string name = addrStr.substr (7);
+		CEnableFullAccess munge;
+		if (name == "uiCurrentMenu")
+			outAddr = EmLowMem_GetGlobal (uiGlobalsCommon.uiCurrentMenu);
+		else if (name == "currentForm")
+			outAddr = EmLowMem_GetGlobal (uiGlobalsCommon.currentForm);
+		else
+			return false;
+		return true;
+	}
+
+	// Plain decimal
+	unsigned long val = strtoul (addrStr.c_str (), nullptr, 10);
+	if (val > 0)
+	{
+		outAddr = (emuptr) val;
+		return true;
+	}
+
+	return false;
+}
+
+void ReControlSession::CmdPeek (const QStringList& args)
+{
+	if (args.size () != 3) { SendErr ("usage", "peek <addr> <nbytes>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	std::string addrStr = args[1].toStdString ();
+	int nbytes = args[2].toInt ();
+	if (nbytes < 1 || nbytes > 256) { SendErr ("usage", "nbytes must be 1-256"); return; }
+
+	QueueWorkResult ([addrStr, nbytes]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnCycle);
+		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+		CEnableFullAccess munge;
+
+		emuptr addr;
+		if (!ParseAddress (addrStr, addr))
+			return "ERR usage: invalid address '" + addrStr + "'\n";
+
+		// Read bytes and format as hex
+		std::string hex;
+		hex.reserve (nbytes * 2);
+		for (int i = 0; i < nbytes; i++)
+		{
+			uint8 b = EmMemGet8 (addr + i);
+			char buf[4];
+			snprintf (buf, sizeof (buf), "%02X", b);
+			hex += buf;
+		}
+
+		return "OK " + hex + "\n";
+	});
+}
+
+// ============================================================================
+// CmdPoke — write emulated memory
+// ============================================================================
+
+void ReControlSession::CmdPoke (const QStringList& args)
+{
+	if (args.size () != 4) { SendErr ("usage", "poke <addr> <nbytes> <hexdata>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	std::string addrStr = args[1].toStdString ();
+	int nbytes = args[2].toInt ();
+	std::string hexdata = args[3].toStdString ();
+
+	if (nbytes < 1 || nbytes > 256) { SendErr ("usage", "nbytes must be 1-256"); return; }
+	if ((int) hexdata.size () != nbytes * 2) { SendErr ("usage", "hexdata length must be nbytes*2"); return; }
+
+	// Parse hex data
+	std::vector<uint8> data;
+	data.reserve (nbytes);
+	for (int i = 0; i < nbytes; i++)
+	{
+		char hi = hexdata[i * 2];
+		char lo = hexdata[i * 2 + 1];
+		auto hexVal = [](char c) -> int {
+			if (c >= '0' && c <= '9') return c - '0';
+			if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+			if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+			return -1;
+		};
+		int h = hexVal (hi);
+		int l = hexVal (lo);
+		if (h < 0 || l < 0) { SendErr ("usage", "invalid hex in data"); return; }
+		data.push_back ((uint8) ((h << 4) | l));
+	}
+
+	QueueWorkResult ([addrStr, data]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnCycle);
+		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+		CEnableFullAccess munge;
+
+		emuptr addr;
+		if (!ParseAddress (addrStr, addr))
+			return "ERR usage: invalid address '" + addrStr + "'\n";
+
+		for (size_t i = 0; i < data.size (); i++)
+			EmMemPut8 (addr + i, data[i]);
+
+		return "OK\n";
+	});
+}
+
+// ============================================================================
+// CmdRegs — dump m68k registers
+// ============================================================================
+
+void ReControlSession::CmdRegs (const QStringList& args)
+{
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QueueWorkResult ([]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnCycle);
+		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+		char buf[512];
+		snprintf (buf, sizeof (buf),
+			"OK D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X"
+			" A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X"
+			" PC=%08X SR=%04X\n",
+			(unsigned) m68k_dreg (regs, 0), (unsigned) m68k_dreg (regs, 1),
+			(unsigned) m68k_dreg (regs, 2), (unsigned) m68k_dreg (regs, 3),
+			(unsigned) m68k_dreg (regs, 4), (unsigned) m68k_dreg (regs, 5),
+			(unsigned) m68k_dreg (regs, 6), (unsigned) m68k_dreg (regs, 7),
+			(unsigned) m68k_areg (regs, 0), (unsigned) m68k_areg (regs, 1),
+			(unsigned) m68k_areg (regs, 2), (unsigned) m68k_areg (regs, 3),
+			(unsigned) m68k_areg (regs, 4), (unsigned) m68k_areg (regs, 5),
+			(unsigned) m68k_areg (regs, 6), (unsigned) m68k_areg (regs, 7),
+			(unsigned) regs.pc, (unsigned) regs.sr);
+
+		return std::string (buf);
+	});
+}
+
+// ============================================================================
+// CmdMenu — trigger menu item by name
+// ============================================================================
+// Syntax:  menu <"Menu Title"> <"Item Title">
+// Looks up the menu bar from uiCurrentMenu, finds the matching item,
+// and posts a menuEvent with the item's ID.
+//
+// If the menu bar is not active, auto-activates it by posting a vchrMenu
+// key event, letting the CPU process it, then retrying the lookup.
+
+void ReControlSession::CmdMenu (const QStringList& args)
+{
+	if (args.size () < 3) { SendErr ("usage", "menu <menutitle> <itemtitle>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	// Rejoin args after "menu" to parse quoted strings
+	QString fullArgs;
+	for (int i = 1; i < args.size (); i++)
+	{
+		if (i > 1) fullArgs += ' ';
+		fullArgs += args[i];
+	}
+
+	// Parse two arguments (possibly quoted)
+	QStringList parsed;
+	QString current;
+	bool inQuotes = false;
+	for (int i = 0; i < fullArgs.size (); i++)
+	{
+		QChar ch = fullArgs[i];
+		if (ch == '"')
+		{
+			inQuotes = !inQuotes;
+			continue;
+		}
+		if (ch == ' ' && !inQuotes)
+		{
+			if (!current.isEmpty ())
+			{
+				parsed.append (current);
+				current.clear ();
+			}
+			continue;
+		}
+		current += ch;
+	}
+	if (!current.isEmpty ())
+		parsed.append (current);
+
+	if (parsed.size () < 2) { SendErr ("usage", "menu <menutitle> <itemtitle>"); return; }
+
+	std::string menuTitle = parsed[0].toStdString ();
+	std::string itemTitle = parsed[1].toStdString ();
+
+	DoMenuLookup (menuTitle, itemTitle, false);
+}
+
+// ----------------------------------------------------------------------------
+// DoMenuLookup — internal helper for CmdMenu
+// If the menu bar is not active and `activated` is false, posts vchrMenu key
+// to the emulator's key queue, waits 300ms for the CPU to process it, then
+// retries with activated=true.
+
+void ReControlSession::DoMenuLookup (std::string menuTitle, std::string itemTitle, bool activated)
+{
+	if (!gCPUWorker) { SendErr ("transient", "no CPU worker"); return; }
+
+	QPointer<ReControlSession> safeRef (this);
+	auto result = std::make_shared<std::string>();
+
+	CPUWorkerThread::Command cmd{
+		.type = CPUWorkerThread::CMD_INJECT_EVENT,
+		.handler = [result, menuTitle, itemTitle, activated]() {
+			if (!gSession) { *result = "ERR transient: no session\n"; return; }
+			EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+			if (!stopper.Stopped () || !stopper.CanCall ())
+			{
+				*result = "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+				return;
+			}
+
+			CEnableFullAccess munge;
+
+			emuptr menuBarPtr = EmLowMem_GetGlobal (uiGlobalsCommon.uiCurrentMenu);
+			if (menuBarPtr == 0)
+			{
+				if (!activated)
+				{
+					// Check that the form has a menu before attempting activation
+					emuptr formPtr = EmLowMem_GetGlobal (uiGlobalsCommon.currentForm);
+					if (formPtr == 0) { *result = "ERR transient: no active form\n"; return; }
+
+					uint16 menuRscId = EmMemGet16 (formPtr + kFormType_menuRscId);
+					if (menuRscId == 0)
+					{
+						*result = "ERR transient: current form has no menu bar\n";
+						return;
+					}
+
+					// Post vchrMenu to the emulator key queue.  When the CPU
+					// resumes it will process the key, which causes Palm OS to
+					// call MenuHandleEvent -> MenuInit -> set uiCurrentMenu.
+					gSession->PostKeyEvent (EmKeyEvent (0x0105));
+					*result = "";  // empty = signal to retry
+					return;
+				}
+				*result = "ERR transient: no menu bar active\n";
+				return;
+			}
+
+			// Menu bar is active — walk the structure
+			int16 numMenus = (int16) EmMemGet16 (menuBarPtr + kMenuBarType_numMenus);
+			emuptr menusPtr = EmMemGet32 (menuBarPtr + kMenuBarType_menus);
+			if (menusPtr == 0 || numMenus <= 0 || numMenus > 20)
+			{
+				*result = "ERR transient: invalid menu bar structure\n";
+				return;
+			}
+
+			for (int m = 0; m < numMenus; m++)
+			{
+				emuptr pullDown = menusPtr + (m * kMenuPullDownType_size);
+				emuptr titlePtr = EmMemGet32 (pullDown + kMenuPullDownType_title);
+				if (titlePtr == 0) continue;
+
+				char titleBuf[256];
+				int ti = 0;
+				for (; ti < 255; ti++)
+				{
+					uint8 ch = EmMemGet8 (titlePtr + ti);
+					if (ch == 0) break;
+					titleBuf[ti] = (char) ch;
+				}
+				titleBuf[ti] = '\0';
+
+				if (strcasecmp (titleBuf, menuTitle.c_str ()) != 0)
+					continue;
+
+				// Found the menu — search items
+				uint16 hiddenNumItems = EmMemGet16 (pullDown + kMenuPullDownType_hiddenNumItems);
+				int numItems = hiddenNumItems & 0x7FFF;
+				emuptr itemsPtr = EmMemGet32 (pullDown + kMenuPullDownType_items);
+				if (itemsPtr == 0 || numItems <= 0) continue;
+
+				int maxItems = (numItems > 30) ? 30 : numItems;
+				for (int i = 0; i < maxItems; i++)
+				{
+					emuptr item = itemsPtr + (i * kMenuItemType_size);
+					uint16 id = EmMemGet16 (item + kMenuItemType_id);
+					uint8 hiddenByte = EmMemGet8 (item + kMenuItemType_hidden);
+					emuptr itemStr = EmMemGet32 (item + kMenuItemType_itemStr);
+
+					if (hiddenByte & 0x80) continue;
+					if (itemStr == 0) continue;
+
+					char itemBuf[256];
+					int ii = 0;
+					for (; ii < 255; ii++)
+					{
+						uint8 ch = EmMemGet8 (itemStr + ii);
+						if (ch == 0) break;
+						itemBuf[ii] = (char) ch;
+					}
+					itemBuf[ii] = '\0';
+
+					// Case-insensitive: exact match first, then substring
+					bool match = false;
+					if (strcasecmp (itemBuf, itemTitle.c_str ()) == 0)
+						match = true;
+					else
+					{
+						std::string lowerItem (itemBuf);
+						std::string lowerSearch (itemTitle);
+						for (char& c : lowerItem) c = tolower (c);
+						for (char& c : lowerSearch) c = tolower (c);
+						if (lowerItem.find (lowerSearch) != std::string::npos)
+							match = true;
+					}
+
+					if (!match) continue;
+
+					// Post menuEvent
+					try
+					{
+						EventType event;
+						memset (&event, 0, sizeof (event));
+						event.eType = menuEvent;
+						event.data.menu.itemID = id;
+						EvtAddEventToQueue (&event);
+					}
+					catch (...)
+					{
+						*result = "ERR fatal: exception posting menuEvent\n";
+						return;
+					}
+
+					*result = "OK id=" + std::to_string (id) + "\n";
+					return;
+				}
+
+				*result = "ERR usage: item '" + itemTitle + "' not found in menu '" + menuTitle + "'\n";
+				return;
+			}
+
+			*result = "ERR usage: menu '" + menuTitle + "' not found\n";
+		},
+		.response = [safeRef, result, menuTitle, itemTitle]() {
+			if (!safeRef) return;
+			if (result->empty ())
+			{
+				// Menu bar was not active — we posted vchrMenu, now wait
+				// for the CPU to process it and retry.
+				QTimer::singleShot (300, safeRef, [safeRef, menuTitle, itemTitle]() {
+					if (safeRef)
+						safeRef->DoMenuLookup (menuTitle, itemTitle, true);
+				});
+			}
+			else
+			{
+				safeRef->Send (*result);
+			}
+		}
+	};
+
+	gCPUWorker->queueCommand (cmd);
+}
+
+// ============================================================================
+// CmdDelete — delete a database
+// ============================================================================
+
+void ReControlSession::CmdDelete (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "delete <dbname>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString nameQ;
+	for (int i = 1; i < args.size (); i++)
+	{
+		if (i > 1) nameQ += ' ';
+		nameQ += args[i];
+	}
+	std::string name = nameQ.toStdString ();
+
+	QueueWorkResult ([name]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+		if (!stopper.Stopped () || !stopper.CanCall ())
+			return "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+
+		try
+		{
+			LocalID dbID = DmFindDatabase (0, name.c_str ());
+			if (dbID == 0)
+				return "ERR usage: database not found: " + name + "\n";
+
+			Err err = DmDeleteDatabase (0, dbID);
+			if (err != errNone)
+				return "ERR fatal: DmDeleteDatabase failed (err=" + std::to_string (err) + ")\n";
+
+			return "OK\n";
+		}
+		catch (...)
+		{
+			return "ERR fatal: delete failed - emulator exception during ROM call (recommend reset)\n";
+		}
+	});
+}
+
+// ============================================================================
 
 void ReControlSession::ProcessBufferedCommands ()
 {
@@ -986,12 +1780,20 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 	else if (cmd == "screen-hash") CmdScreenHash (parts);
 	else if (cmd == "sleep")       CmdSleep (parts);
 	else if (cmd == "install")     CmdInstall (parts);
+	else if (cmd == "export")      CmdExport (parts);
 	else if (cmd == "launch")      CmdLaunch (parts);
 	else if (cmd == "save")        CmdSave (parts);
 	else if (cmd == "load")        CmdLoad (parts);
 	else if (cmd == "info")        CmdInfo (parts);
 	else if (cmd == "ui")          CmdUI (parts);
 	else if (cmd == "apps")        CmdApps (parts);
+	else if (cmd == "dialog")      CmdDialog (parts);
+	else if (cmd == "run")         CmdRun (parts);
+	else if (cmd == "peek")        CmdPeek (parts);
+	else if (cmd == "poke")        CmdPoke (parts);
+	else if (cmd == "regs")        CmdRegs (parts);
+	else if (cmd == "menu")        CmdMenu (parts);
+	else if (cmd == "delete")      CmdDelete (parts);
 	else
 		SendErr ("usage", "unknown command '" + cmd.toStdString () + "'");
 }

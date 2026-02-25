@@ -265,3 +265,15 @@ if(NOT WIN32)
     install(FILES data/icons/24x24.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/24x24/apps RENAME ca.vibekoder.pose64.png)
     install(FILES data/icons/16x16.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/16x16/apps RENAME ca.vibekoder.pose64.png)
 endif()
+
+# MCP-to-ReControl bridge proxy (standalone, no Qt)
+add_executable(pose64-mcp-proxy src/pose64-mcp-proxy.cpp)
+target_include_directories(pose64-mcp-proxy PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp-mcp/common
+)
+# Proxy is standalone — must not inherit ASAN/UBSAN from debug builds
+target_compile_options(pose64-mcp-proxy PRIVATE -fno-sanitize=address,undefined -O2)
+target_link_options(pose64-mcp-proxy PRIVATE -fno-sanitize=address,undefined)
+if(NOT WIN32)
+    install(TARGETS pose64-mcp-proxy RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

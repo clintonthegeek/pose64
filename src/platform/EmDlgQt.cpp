@@ -67,6 +67,72 @@ static QDialog* sGremlinControlDlg = nullptr;
 
 
 // ---------------------------------------------------------------------------
+//	Pending dialog state for remote control
+// ---------------------------------------------------------------------------
+
+struct PendingDialogInfo
+{
+	bool          active;
+	QString       message;
+	struct { QString label; QString id; QPushButton* button; } buttons[3];
+	int           buttonCount;
+	QMessageBox*  msgBox;
+};
+
+static PendingDialogInfo gPendingDialog = {};
+
+static QString PrvButtonIdString (EmDlgItemID id)
+{
+	switch (id)
+	{
+		case kDlgItemOK:       return "ok";
+		case kDlgItemCancel:   return "cancel";
+		case kDlgItemYes:      return "yes";
+		case kDlgItemNo:       return "no";
+		case kDlgItemContinue: return "continue";
+		case kDlgItemDebug:    return "debug";
+		case kDlgItemReset:    return "reset";
+		default:               return "unknown";
+	}
+}
+
+std::string EmDlgQt_GetPendingDialog (void)
+{
+	if (!gPendingDialog.active)
+		return std::string ();
+
+	std::string out = "OK\n";
+	out += " message=" + gPendingDialog.message.toStdString () + "\n";
+	for (int i = 0; i < gPendingDialog.buttonCount; i++)
+	{
+		out += " button " + gPendingDialog.buttons[i].id.toStdString ()
+			 + " " + gPendingDialog.buttons[i].label.toStdString () + "\n";
+	}
+	out += ".\n";
+	return out;
+}
+
+bool EmDlgQt_RespondToDialog (const std::string& buttonName)
+{
+	if (!gPendingDialog.active || !gPendingDialog.msgBox)
+		return false;
+
+	QString target = QString::fromStdString (buttonName).toLower ();
+
+	for (int i = 0; i < gPendingDialog.buttonCount; i++)
+	{
+		if (gPendingDialog.buttons[i].id.toLower () == target)
+		{
+			gPendingDialog.buttons[i].button->click ();
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+// ---------------------------------------------------------------------------
 //	HandleDialogs / CloseAllDialogs
 // ---------------------------------------------------------------------------
 // The FLTK version maintains a list of modeless dialogs and processes
@@ -633,7 +699,27 @@ static EmDlgItemID PrvHostCommonDialog (EmDlgFn /*fn*/, void* userData)
 		}
 	}
 
+	// Populate pending dialog state for remote control
+	gPendingDialog.active      = true;
+	gPendingDialog.message     = QString::fromUtf8 (data.fMessage);
+	gPendingDialog.msgBox      = &msgBox;
+	gPendingDialog.buttonCount = 0;
+	for (int ii = 0; ii < 3; ++ii)
+	{
+		if (buttons[ii].visible && qButtons[ii])
+		{
+			int idx = gPendingDialog.buttonCount++;
+			gPendingDialog.buttons[idx].label  = buttons[ii].label;
+			gPendingDialog.buttons[idx].id     = PrvButtonIdString (buttons[ii].id);
+			gPendingDialog.buttons[idx].button = qButtons[ii];
+		}
+	}
+
 	msgBox.exec ();
+
+	// Clear pending dialog state
+	gPendingDialog.active = false;
+	gPendingDialog.msgBox = nullptr;
 
 	QAbstractButton* clicked = msgBox.clickedButton ();
 

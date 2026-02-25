@@ -1,157 +1,302 @@
 ---
 name: palm-dev
-description: Use when developing or testing Palm OS applications in the POSE64 emulator, including interacting with ReControl TCP interface, automating emulator actions, or writing Palm app test scripts.
+description: Use when developing or testing Palm OS applications in the POSE64 emulator, including using MCP tools, automating emulator actions, or writing Palm app test scripts.
 ---
 
-# ReControl: POSE64 TCP Control Interface
+# POSE64 Emulator Control
 
-ReControl is a text-based TCP protocol for controlling the POSE64 Palm OS emulator. One command per line, `\n` terminated. One active connection at a time.
+Control the POSE64 Palm OS emulator using native MCP tool calls.
 
-## Connecting
+## Architecture
 
-Use `scripts/rc.py` for one-shot commands from Bash:
+```
+Claude Code <-- stdio JSON-RPC --> pose64-mcp-proxy <-- TCP --> pose64:6416
+```
+
+- **`pose64`** -- the emulator GUI. Listens for ReControl TCP commands on
+  `localhost:6416` by default (`--port <N>` to override, `--no-recontrol` to
+  disable). Launch with a session file: `pose64 session.psf`
+- **`pose64-mcp-proxy`** -- standalone stdio bridge that translates MCP
+  JSON-RPC into ReControl TCP commands. Flags: `--host HOST` (default
+  `127.0.0.1`), `--port PORT` (default `6416`). Both binaries are installed
+  to `$PATH` by the system package.
+
+## Setup
+
+Add the MCP server to Claude Code (one-time, per-project or global):
 
 ```bash
-python3 scripts/rc.py --port 6416 state
-python3 scripts/rc.py --port 6416 ui
-python3 scripts/rc.py --port 6416 tap-id 1005
+# Per-project: create .mcp.json in project root
+echo '{ "mcpServers": { "pose64": { "type": "stdio", "command": "pose64-mcp-proxy" } } }' > .mcp.json
+
+# Or global: add to ~/.claude/mcp.json
 ```
 
-For multi-command sessions, use `ReControlClient` from `test_recontrol.py`:
+Then launch the emulator with a session:
 
-```python
-from test_recontrol import ReControlClient
-c = ReControlClient(port=6416, timeout=5)
-c.connect()
-resp = c.send_command("state")
-c.disconnect()
+```bash
+pose64 /path/to/session.psf &
 ```
 
-**Port conventions:** 6416 (dev), 6425 (secondary), 6427 (automated testing).
+Once both are running, `palm_*` MCP tools are available -- call them directly.
 
-## Command Reference
+## MCP Tools
 
-### State Commands
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `palm_ping` | -- | Test MCP connectivity |
+| `palm_state` | -- | Emulator state + device info (JSON) |
+| `palm_ui` | -- | Active form structure with object IDs |
+| `palm_apps` | -- | Installed applications (JSON array) |
+| `palm_tap` | `x`, `y` | Tap at display coordinates |
+| `palm_tap_id` | `id` | Tap form object by stable ID |
+| `palm_pen` | `action`, `x`, `y` | Raw pen down/up |
+| `palm_key` | `code` | Key event by character code |
+| `palm_type` | `text` | Type full text string |
+| `palm_button` | `name`, `action` | Hardware button (power/up/down/app1-4) |
+| `palm_screenshot` | `path` (optional) | Save PNG or return base64 image |
+| `palm_screen_hash` | -- | Screen CRC32 hash + dimensions |
+| `palm_launch` | `app` | Launch app by database name |
+| `palm_install` | `path` | Install .prc/.pdb file |
+| `palm_export` | `db`, `path` | Export database as .prc/.pdb file |
+| `palm_save` | `path` | Save session state |
+| `palm_load` | `path` | Load session (replaces current) |
+| `palm_reset` | `type` (optional) | Reset device (soft/hard/debug) |
+| `palm_sleep` | `ms` | Wait N milliseconds |
+| `palm_dialog` | `respond` (optional) | Query or dismiss a pending modal dialog |
+| `palm_quit` | -- | Exit emulator |
+| `palm_run` | `script` | Batch commands separated by `;` (see below) |
+| `palm_peek` | `addr`, `nbytes` | Read bytes from emulated memory |
+| `palm_poke` | `addr`, `nbytes`, `data` | Write bytes to emulated memory |
+| `palm_regs` | -- | Read m68k CPU registers (D0-D7, A0-A7, PC, SR) |
+| `palm_menu` | `menu`, `item` | Trigger a menu item by menu and item title |
+| `palm_dbs` | -- | List all databases (apps, data, overlays, libraries, etc.) |
+| `palm_delete` | `db` | Delete a database from the device |
 
-| Command | Response | Description |
-|---------|----------|-------------|
-| `state` | `OK running\n` | Emulator state (running/suspended/stopped) |
-| `info` | Multi-line, `.` terminated | Device info, screen size, ROM, session path |
-| `apps` | Multi-line, `.` terminated | List installed applications with type/creator |
-
-### Input Commands
-
-| Command | Response | Description |
-|---------|----------|-------------|
-| `tap <x> <y>` | `OK\n` | Pen down+up at display coordinates |
-| `tap-id <id>` | `OK <x> <y>\n` | Tap center of form object by ID |
-| `pen <down\|up> <x> <y>` | `OK\n` | Pen down or up separately |
-| `key <charcode>` | `OK\n` | Single key event |
-| `type <text>` | `OK\n` | Type full text string (Latin-1) |
-| `button <name> <down\|up\|tap>` | `OK\n` | Hardware button (power/up/down/app1-4) |
-
-### Screen Commands
-
-| Command | Response | Description |
-|---------|----------|-------------|
-| `screenshot <path>` | `OK <hash> <w> <h>\n` | Save PNG, returns CRC32 hash |
-| `screen-hash` | `OK <hash> <w> <h>\n` | Screen CRC32 without saving file |
-| `ui` | Multi-line, `.` terminated | Active form structure with object IDs/bounds |
-
-### Session Commands
-
-| Command | Response | Description |
-|---------|----------|-------------|
-| `save <path>` | `OK\n` | Save session state |
-| `load <path>` | `OK\n` | Load session state (destroys current) |
-| `install <path>` | `OK\n` | Install .prc/.pdb file |
-| `launch <dbname>` | `OK\n` | Launch app by database name |
-| `reset [soft\|hard\|debug]` | `OK\n` | Reset emulator |
-| `sleep <ms>` | `OK\n` | Pause command processing (1-30000ms) |
-| `quit` | `OK\n` | Exit emulator |
-
-### Multi-line Response Protocol
-
-Commands `ui`, `info`, and `apps` return multi-line responses terminated by a line containing only `.`. Use `latin-1` decoding (Palm OS text is not UTF-8).
+All tools return structured text. No Bash calls needed for emulator interaction.
 
 ## Efficiency Patterns
 
-### Use `ui` first, `screenshot` second
+### Use `palm_ui` first, `palm_screenshot` second
 
-The `ui` command returns structured text describing every form object: buttons with IDs and labels, fields with text content, lists with items. This is far more informative than a screenshot and requires no image decoding.
+`palm_ui` returns structured text describing every form object: buttons with IDs
+and labels, fields with text content, lists with items. This is far more
+informative than a screenshot and requires no image decoding.
 
-```bash
-# GOOD: Read the form structure
-python3 scripts/rc.py ui
-# Output: OK FORM id=1000 "Date Book"
-#   BUTTON id=1015 "New" (44,147,22,12)
-#   FIELD id=1109 (0,16,153,121) "Meeting notes..."
-```
+Only use `palm_screenshot` when you need to verify visual layout or see content
+that `palm_ui` doesn't capture (like graphics or custom-drawn views).
 
-Only use `screenshot` when you need to verify visual layout or see content that `ui` doesn't capture (like graphics or custom-drawn views).
-
-### Use `screen-hash` to skip redundant screenshots
+### Use `palm_screen_hash` to skip redundant screenshots
 
 After any action, check the hash before taking a screenshot:
 
-```python
-hash1 = c.send_command("screen-hash")  # "OK a3f7c012 160 160"
-c.send_command("tap 80 80")
-hash2 = c.send_command("screen-hash")  # same hash? screen didn't change
-if hash1 != hash2:
-    c.send_command("screenshot /tmp/screen.png")  # only capture if changed
+```
+palm_screen_hash  ->  hash1
+palm_tap 80 80
+palm_screen_hash  ->  hash2
+# Only screenshot if hash1 != hash2 (screen changed)
 ```
 
-### Use `tap-id` instead of coordinates
+### Use `palm_tap_id` instead of coordinates
 
 Object IDs are stable across screen sizes and layout changes. Coordinates break.
 
-```bash
+```
 # BAD: hardcoded coordinates
-python3 scripts/rc.py tap 44 153
+palm_tap x=44 y=153
 
-# GOOD: tap by object ID (from ui output)
-python3 scripts/rc.py tap-id 1015
+# GOOD: tap by object ID (from palm_ui output)
+palm_tap_id id=1015
 ```
 
-### Use `type` for text entry
+### Use `palm_type` for text entry
 
-One command instead of N `key` commands:
+One call instead of N `palm_key` calls:
 
-```bash
+```
 # BAD: character by character
-python3 scripts/rc.py key 72   # H
-python3 scripts/rc.py key 101  # e
-python3 scripts/rc.py key 108  # l
-python3 scripts/rc.py key 108  # l
-python3 scripts/rc.py key 111  # o
+palm_key code=72   # H
+palm_key code=101  # e
 
-# GOOD: one command
-python3 scripts/rc.py type Hello
+# GOOD: one call
+palm_type text="Hello"
 ```
 
-### Use `ui` to verify actions
+### Use `palm_ui` to verify actions
 
-After tapping a button, read `ui` to confirm the expected form appeared:
+After tapping a button, read `palm_ui` to confirm the expected form appeared:
 
-```python
-c.send_command("tap-id 1015")      # tap "New" button
-time.sleep(0.5)
-ui = read_multiline(c, "ui")       # check what form appeared
-assert "Set Time" in ui            # verify expected dialog
 ```
+palm_tap_id id=1015     # tap "New" button
+palm_sleep ms=500
+palm_ui                 # check what form appeared -- verify expected dialog
+```
+
+### Handle modal dialogs with `palm_dialog`
+
+When the emulator hits an error (illegal instruction, ROM warning, debugger break),
+it shows a modal dialog and the CPU blocks (`blocked_on_ui` in `palm_state`).
+Use `palm_dialog` to inspect and dismiss these programmatically:
+
+```
+palm_state              -> "blocked_on_ui" means a dialog is pending
+palm_dialog             -> returns message text + available buttons
+palm_dialog respond=continue   -> dismisses the dialog, CPU resumes
+palm_state              -> should be "running" again
+```
+
+Common button names: `ok`, `cancel`, `continue`, `debug`, `reset`, `yes`, `no`.
+Omit `respond` to just query. If no dialog is pending, returns `OK none`.
 
 ## App-Specific Workflows
 
 See `claude/skills/palm-dev/references/builtin-apps.md` for detailed,
 tested workflows for each built-in Palm OS app (To Do List, Date Book, etc.).
-These include stable object IDs, step-by-step command sequences, and gotchas
+These include stable object IDs, step-by-step sequences, and gotchas
 discovered through live testing.
+
+## Batch Commands with `palm_run`
+
+Execute multiple commands in a single MCP call, eliminating round-trip latency:
+
+```
+palm_run script="tap 12 148; sleep 150; type Hello; tap 12 148; sleep 150"
+```
+
+Supported sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`.
+Use `repeat N { ... }` for loops:
+
+```
+palm_run script="repeat 5 { tap_id 1005; sleep 500; type Item; sleep 300 }"
+```
+
+This is the most efficient way to perform mechanical UI sequences.
+
+## Memory Inspection
+
+Read and write emulated device memory directly, useful for verifying patches
+or inspecting app state without navigating the UI.
+
+**Address formats:**
+- `0x00012345` -- absolute hex address
+- `a5@-6423` -- A5-relative signed decimal offset (app globals)
+- `global.uiCurrentMenu` -- named low-memory global
+
+```
+palm_peek addr="a5@-6423" nbytes=2     # read 2 bytes from app global
+palm_poke addr="0x1234" nbytes=1 data="FF"   # write 1 byte
+palm_regs                               # dump all CPU registers
+```
+
+Max 256 bytes per peek/poke. Data is hex-encoded.
+
+## Triggering Menus by Name
+
+Palm OS menus are difficult to interact with via coordinates (pen-drag-release).
+Use `palm_menu` to trigger a menu item directly by title:
+
+```
+palm_menu menu="Record" item="Delete Item..."
+palm_menu menu="Options" item="About"
+```
+
+Item matching is case-insensitive and supports substring matching.
+The menu bar is auto-activated if not already open -- no need to press
+the menu key first. This posts a `menuEvent` to the Palm OS event queue --
+the app processes it as if the user selected the menu item normally.
+
+**Discovering available menus:** `palm_ui` only includes menu bar contents
+(MENUBAR/MENU/ITEM lines) when the menu bar is currently open. If you need
+to enumerate available menus and items, first open the menu bar with
+`palm_key code=261`, then call `palm_ui` to read the full menu structure.
+Normal `palm_ui` output (menu bar closed) will NOT show any menu information.
+
+## Deleting Databases
+
+Remove an installed app or database before re-installing:
+
+```
+palm_delete db="Shadow"
+palm_install path="/path/to/Shadow.prc"
+```
+
+This replaces the manual UI workflow of Launcher -> App menu -> Delete.
+
+## Navigation and Key Codes
+
+**IMPORTANT: Always use key codes for system actions.** The Palm OS
+silkscreen area (below the display) contains buttons for Home, Menu,
+Find, and Calculator, but their pixel positions vary by device and skin.
+NEVER try to guess or tap silkscreen coordinates. Instead, use the
+corresponding `palm_key` codes, which work reliably on all devices:
+
+### Going Home (Launcher)
+
+```
+palm_launch app="Launcher"     # switch to the app launcher (preferred)
+palm_key code=264              # vchrLaunch (0x0108) -- also goes home
+```
+
+### Useful Virtual Character Codes
+
+These are sent via `palm_key code=N`. Virtual chars (>= 256) trigger
+system actions; printable chars (< 128) are typed as text.
+
+| Code | Name | Effect |
+|------|------|--------|
+| 8 | Backspace | Delete character before cursor |
+| 10 | Newline/Enter | Line break in text fields (does NOT submit forms) |
+| 11 | Page Up | Scroll up in lists/text (same as hardware Up button) |
+| 12 | Page Down | Scroll down in lists/text (same as hardware Down button) |
+| 28 | Left Arrow | Move cursor left |
+| 29 | Right Arrow | Move cursor right |
+| 30 | Up Arrow | Move cursor/selection up |
+| 31 | Down Arrow | Move cursor/selection down |
+| 259 | Next Field | Tab to next field in form (vchrNextField) |
+| 261 | Menu | Activate menu bar (vchrMenu) -- prefer `palm_menu` instead |
+| 264 | Launch | Go to Launcher / Home (vchrLaunch) |
+| 266 | Find | Open global Find dialog (vchrFind) |
+| 267 | Calculator | Open Calculator (vchrCalc) |
+| 268 | Prev Field | Tab to previous field in form (vchrPrevField) |
+
+### Hardware Buttons
+
+Sent via `palm_button name=<name> action=<tap|down|up>`:
+
+| Name | Default Mapping |
+|------|----------------|
+| `app1` | Date Book |
+| `app2` | Address Book |
+| `app3` | To Do List |
+| `app4` | Note Pad |
+| `up` | Page Up / Previous |
+| `down` | Page Down / Next |
+| `power` | Power on/off |
+| `cradle` | HotSync cradle button |
+| `contrast` | Contrast adjustment |
+
+### Scrolling
+
+```
+palm_button name=up action=tap     # page up in current view
+palm_button name=down action=tap   # page down in current view
+palm_key code=11                   # same as hardware Up (pageUp)
+palm_key code=12                   # same as hardware Down (pageDown)
+```
 
 ## Anti-Patterns (Do NOT)
 
-- **Do NOT screenshot after every action** — use `screen-hash` or `ui` instead
-- **Do NOT hardcode pixel coordinates** — use `tap-id` or read coordinates from `ui`
-- **Do NOT use `sleep` for synchronization** — use `ui` to poll for expected form state
-- **Do NOT type character by character** — use `type`
-- **Do NOT parse screenshots for text** — use `ui` which returns structured text directly
+- **Do NOT tap silkscreen areas to open menus, go home, or find** -- the silkscreen
+  is below the 160x160 display area and coordinates vary by device/skin. Use key
+  codes instead: `palm_key code=261` (menu), `palm_key code=264` (home),
+  `palm_key code=266` (find). Or better: `palm_menu` for menus, `palm_launch`
+  for switching apps.
+- **Do NOT try to read menu contents from `palm_ui` without opening the menu first** --
+  `palm_ui` only includes MENUBAR/MENU/ITEM lines when the menu bar is open.
+  To discover menus: `palm_key code=261` then `palm_ui`. To trigger an item
+  you already know by name: just call `palm_menu` directly.
+- **Do NOT screenshot after every action** -- use `palm_screen_hash` or `palm_ui` instead
+- **Do NOT hardcode pixel coordinates** -- use `palm_tap_id` or read coordinates from `palm_ui`
+- **Do NOT use `palm_sleep` for synchronization** -- use `palm_ui` to poll for expected form state
+- **Do NOT type character by character** -- use `palm_type`
+- **Do NOT parse screenshots for text** -- use `palm_ui` which returns structured text directly

@@ -294,6 +294,75 @@ constexpr int kScrollBarType_penPosInCar = 20;
 constexpr int kScrollBarType_savePos = 22;
 
 // ============================================================================
+// MenuItemType Structure Analysis
+// ============================================================================
+// struct MenuItemType {
+//   UInt16 id;                      // +0
+//   Char command;                   // +2 (shortcut key, 0 = none)
+//   UInt8 hidden:1, reserved:7;    // +3
+//   Char* itemStr;                  // +4 (ptr, 4 bytes)
+// };
+// Total m68k size: 8 bytes
+
+constexpr int kMenuItemType_size = 8;
+constexpr int kMenuItemType_id = 0;
+constexpr int kMenuItemType_command = 2;
+constexpr int kMenuItemType_hidden = 3;
+constexpr int kMenuItemType_itemStr = 4;
+
+// ============================================================================
+// MenuPullDownType Structure Analysis
+// ============================================================================
+// struct MenuPullDownType {
+//   WinHandle menuWin;             // +0 (ptr, 4 bytes)
+//   RectangleType bounds;          // +4 (8 bytes)
+//   WinHandle bitsBehind;          // +12 (ptr, 4 bytes)
+//   RectangleType titleBounds;     // +16 (8 bytes)
+//   Char* title;                   // +24 (ptr, 4 bytes)
+//   UInt16 hidden:1, numItems:15;  // +28 (bitfield)
+//   MenuItemType* items;           // +30 (ptr, 4 bytes)
+// };
+// Total m68k size: 34 bytes
+
+constexpr int kMenuPullDownType_size = 34;
+constexpr int kMenuPullDownType_menuWin = 0;
+constexpr int kMenuPullDownType_bounds = 4;
+constexpr int kMenuPullDownType_bitsBehind = 12;
+constexpr int kMenuPullDownType_titleBounds = 16;
+constexpr int kMenuPullDownType_title = 24;
+constexpr int kMenuPullDownType_hiddenNumItems = 28;
+constexpr int kMenuPullDownType_items = 30;
+
+// ============================================================================
+// MenuBarType Structure Analysis
+// ============================================================================
+// struct MenuBarType {
+//   WinHandle barWin;              // +0 (ptr, 4 bytes)
+//   WinHandle bitsBehind;          // +4 (ptr, 4 bytes)
+//   WinHandle savedActiveWin;      // +8 (ptr, 4 bytes)
+//   WinHandle bitsBehindStatus;    // +12 (ptr, 4 bytes)
+//   UInt16 attr;                   // +16 (MenuBarAttrType bitfield)
+//   Int16 curMenu;                 // +18 (currently visible pull-down index)
+//   Int16 curItem;                 // +20 (currently highlighted item index)
+//   Int32 commandTick;             // +22 (4 bytes)
+//   Int16 numMenus;                // +26
+//   MenuPullDownPtr menus;         // +28 (ptr, 4 bytes)
+// };
+// Total m68k size: 32 bytes
+
+constexpr int kMenuBarType_size = 32;
+constexpr int kMenuBarType_barWin = 0;
+constexpr int kMenuBarType_bitsBehind = 4;
+constexpr int kMenuBarType_savedActiveWin = 8;
+constexpr int kMenuBarType_bitsBehindStatus = 12;
+constexpr int kMenuBarType_attr = 16;
+constexpr int kMenuBarType_curMenu = 18;
+constexpr int kMenuBarType_curItem = 20;
+constexpr int kMenuBarType_commandTick = 22;
+constexpr int kMenuBarType_numMenus = 26;
+constexpr int kMenuBarType_menus = 28;
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
