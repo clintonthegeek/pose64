@@ -17,6 +17,7 @@
 #include <cerrno>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -376,7 +377,7 @@ static json get_tools_list ()
 
     add ("palm_screenshot",
          "Take a screenshot. Returns image data if no path given, otherwise saves to path. "
-         "Use scale/grid/annotate for AI-friendly coordinate overlays.",
+         "Use scale/grid/annotate/crosshair for AI-friendly coordinate overlays.",
          make_schema ({{"path",      str_prop ("File path to save PNG (optional, default /tmp/pose64_screenshot.png)")},
                        {"scale",     int_prop ("Integer scale multiplier, e.g. 4 for 640x640 from 160x160 (default 1)")},
                        {"grid",      bool_prop ("Draw coordinate grid overlay with rulers (default false)")},
@@ -526,10 +527,16 @@ static json dispatch_tool (const json& id, const std::string& name, const json& 
         // Build TCP command with optional flags
         std::string cmd = "screenshot " + path;
 
-        int  scale    = args.value ("scale", 0);
+        int  scale    = args.value ("scale", 1);
         bool grid     = args.value ("grid", false);
         bool annotate = args.value ("annotate", false);
         std::string crosshair = args.value ("crosshair", std::string ());
+
+        // Sanitise crosshair: strip whitespace, validate "int,int" format
+        crosshair.erase (std::remove (crosshair.begin (), crosshair.end (), ' '), crosshair.end ());
+        crosshair.erase (std::remove (crosshair.begin (), crosshair.end (), '\n'), crosshair.end ());
+        if (!crosshair.empty () && crosshair.find (',') == std::string::npos)
+            return make_tool_result (id, "ERR: crosshair must be 'x,y' (e.g. '80,72')", true);
 
         if (scale > 1)
             cmd += " scale=" + std::to_string (scale);
@@ -545,7 +552,15 @@ static json dispatch_tool (const json& id, const std::string& name, const json& 
             return make_tool_result (id, resp, true);
 
         if (has_path)
+        {
+            if (annotate)
+            {
+                // Return OK line + ui text together so caller gets annotation data
+                std::string ui_text = rc_command_multi ("ui");
+                return make_tool_result (id, resp + "\n" + ui_text);
+            }
             return make_tool_result (id, resp);
+        }
 
         // Read the PNG and return as base64 image
         std::ifstream file (path, std::ios::binary);
@@ -556,7 +571,10 @@ static json dispatch_tool (const json& id, const std::string& name, const json& 
                                     std::istreambuf_iterator<char> ());
         std::string b64 = base64_encode (data);
 
-        // If annotate is on, also fetch palm_ui text and return both
+        // If annotate is on, also fetch palm_ui text and return both.
+        // ui_text may be "ERR ..." if no active form; we include it as
+        // informational text alongside the annotated image without marking
+        // the result as an error (the image itself is still valid).
         if (annotate)
         {
             std::string ui_text = rc_command_multi ("ui");
