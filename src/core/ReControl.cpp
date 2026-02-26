@@ -194,7 +194,15 @@ void ReControlSession::QueueWork (std::function<void()> handler)
 
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
-		.handler = std::move (handler),
+		.handler = [handler = std::move (handler)]() {
+			try {
+				handler ();
+			} catch (...) {
+				// RAII cleanup (EmSessionStopper) happens via stack unwinding.
+				// Swallow — the response will still send "OK\n" which isn't
+				// ideal, but preventing thread death is more important.
+			}
+		},
 		.response = [safeRef]() {
 			if (safeRef) safeRef->Send ("OK\n");
 		}
@@ -213,7 +221,13 @@ void ReControlSession::QueueWorkResult (std::function<std::string()> handler)
 	CPUWorkerThread::Command cmd{
 		.type = CPUWorkerThread::CMD_INJECT_EVENT,
 		.handler = [result, handler = std::move (handler)]() {
-			*result = handler ();
+			try {
+				*result = handler ();
+			} catch (const std::exception& e) {
+				*result = "ERR internal: " + std::string (e.what ()) + "\n";
+			} catch (...) {
+				*result = "ERR internal: unhandled exception in worker\n";
+			}
 		},
 		.response = [safeRef, result]() {
 			if (safeRef) safeRef->Send (*result);
@@ -385,7 +399,9 @@ void ReControlSession::CmdReset (const QStringList& args)
 		else if (t != "soft") { SendErr ("usage", "reset [soft|hard|debug]"); return; }
 	}
 
-	gSession->ScheduleReset (type);
+	// Use ForceReset so reset works even when the CPU is stuck
+	// in a suspended state (debugger break, stale lock, etc.).
+	gSession->ForceReset (type);
 	Send ("OK\n");
 }
 

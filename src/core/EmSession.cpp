@@ -2221,6 +2221,38 @@ void EmSession::ScheduleReset (EmResetType resetType)
 }
 
 
+void EmSession::ForceReset (EmResetType resetType)
+{
+#if HAS_OMNI_THREAD
+	omni_mutex_lock lock (fSharedLock);
+#endif
+
+	fReset = 1;
+	fResetType = resetType;
+
+	// Clear suspend counters that prevent the CPU from running.
+	// This allows reset to work even when the CPU is suspended
+	// by a debugger break or stale external lock.
+	// Do NOT clear fSuspendByUIThread — it's managed by
+	// SuspendThread/ResumeThread RAII and must stay balanced.
+	fSuspendState.fCounters.fSuspendByDebugger = 0;
+	fSuspendState.fCounters.fSuspendByExternal = 0;
+	fSuspendState.fCounters.fSuspendBySysCall = 0;
+	fSuspendState.fCounters.fSuspendBySubroutineReturn = 0;
+
+	EmAssert (fCPU);
+	fCPU->CheckAfterCycle ();
+
+#if HAS_OMNI_THREAD
+	// Wake the CPU thread from suspend wait or sleep.
+	fSharedCondition.broadcast ();
+	fSleepLock.lock ();
+	fSleepCondition.broadcast ();
+	fSleepLock.unlock ();
+#endif
+}
+
+
 void EmSession::ScheduleResetBanks (void)
 {
 	fResetBanks = 1;

@@ -520,6 +520,7 @@ class EmSession
 		// cycle.  Called inside the CPU thread.
 
 		void					ScheduleReset							(EmResetType);
+		void					ForceReset								(EmResetType);
 		void					ScheduleResetBanks						(void);
 		void					ScheduleAutoSaveState					(void);
 		void					ScheduleSaveRootState					(void);
