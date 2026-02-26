@@ -487,7 +487,14 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 		}
 	}
 
-	QueueWorkResult ([path, scaleFactor, drawGrid, drawAnnotate, drawCrosshair, crossX, crossY]() -> std::string {
+	// Construct fonts on the main thread (QFontDatabase is not fully thread-safe)
+	QFont gridFont;
+	gridFont.setPixelSize (std::max (8, scaleFactor * 3));
+	QFont crossFont;
+	crossFont.setPixelSize (std::max (10, scaleFactor * 3));
+	crossFont.setBold (true);
+
+	QueueWorkResult ([path, scaleFactor, drawGrid, drawAnnotate, drawCrosshair, crossX, crossY, gridFont, crossFont]() -> std::string {
 		if (!gSession) return "ERR transient: no session\n";
 		EmSessionStopper stopper (gSession, kStopNow);
 		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
@@ -529,7 +536,8 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 		int sh = h * scaleFactor;
 		int s  = scaleFactor;  // shorthand
 
-		QImage img = raw.scaled (sw, sh, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+		QImage img = raw.scaled (sw, sh, Qt::IgnoreAspectRatio, Qt::FastTransformation)
+		                 .convertToFormat (QImage::Format_RGB32);
 
 		QPainter painter (&img);
 		painter.setRenderHint (QPainter::Antialiasing, false);
@@ -546,26 +554,25 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 				painter.drawLine (0, py * s, sw, py * s);
 
 			// Coordinate labels every 20 Palm pixels
-			QFont font;
-			font.setPixelSize (std::max (8, s * 3));
-			painter.setFont (font);
+			painter.setFont (gridFont);
+			int textBase = gridFont.pixelSize ();
 
-			for (int px = 0; px <= w; px += 20)
+			for (int px = 0; px < w; px += 20)
 			{
 				QString num = QString::number (px);
 				int tx = px * s + 2;
 
 				// Outline: draw dark text offset in 4 directions
 				painter.setPen (QColor (0, 0, 0, 200));
-				painter.drawText (tx - 1, s * 3, num);
-				painter.drawText (tx + 1, s * 3, num);
-				painter.drawText (tx, s * 3 - 1, num);
-				painter.drawText (tx, s * 3 + 1, num);
+				painter.drawText (tx - 1, textBase, num);
+				painter.drawText (tx + 1, textBase, num);
+				painter.drawText (tx, textBase - 1, num);
+				painter.drawText (tx, textBase + 1, num);
 				// Foreground
 				painter.setPen (QColor (255, 255, 0, 220));
-				painter.drawText (tx, s * 3, num);
+				painter.drawText (tx, textBase, num);
 			}
-			for (int py = 20; py <= h; py += 20)
+			for (int py = 20; py < h; py += 20)
 			{
 				QString num = QString::number (py);
 				int ty = py * s + s * 2;
@@ -597,12 +604,13 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 		// ── Annotate ───────────────────────────────────────────────
 		if (drawAnnotate)
 		{
-			CEnableFullAccess munge;
-			std::vector<PalmObjInfo> objs = PalmFormReader_GetObjectBounds ();
+			std::vector<PalmObjInfo> objs;
+			{
+				CEnableFullAccess munge;
+				objs = PalmFormReader_GetObjectBounds ();
+			}
 
-			QFont labelFont;
-			labelFont.setPixelSize (std::max (8, s * 3));
-			painter.setFont (labelFont);
+			painter.setFont (gridFont);
 
 			for (const auto& obj : objs)
 			{
@@ -639,8 +647,8 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 				QString idText = QString::number (obj.id);
 				int labelX = rx + 2;
 				int labelY = ry - 2;
-				if (labelY < labelFont.pixelSize ())
-					labelY = ry + labelFont.pixelSize () + 2;  // below if too close to top
+				if (labelY < gridFont.pixelSize ())
+					labelY = ry + gridFont.pixelSize () + 2;  // below if too close to top
 
 				// Outline
 				painter.setPen (QColor (0, 0, 0, 220));
@@ -666,15 +674,12 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 			painter.drawLine (0, cy, sw, cy);     // horizontal
 
 			// Coordinate label
-			QFont crossFont;
-			crossFont.setPixelSize (std::max (10, s * 3));
-			crossFont.setBold (true);
 			painter.setFont (crossFont);
 
 			QString coordText = QString ("(%1,%2)").arg (crossX).arg (crossY);
 			int tx = cx + s;
 			int ty = cy - s;
-			if (tx + s * 20 > sw) tx = cx - s * 20;  // flip side if near right edge
+			if (tx + s * 20 > sw) tx = std::max (0, cx - s * 20);
 			if (ty < crossFont.pixelSize ()) ty = cy + crossFont.pixelSize () + s;
 
 			painter.setPen (QColor (0, 0, 0, 220));
