@@ -391,35 +391,49 @@ CallROMType SysHeadpatch::DmCloseDatabase (void)
 
 	// Allow for a NULL reference.  Applications shouldn't be doing
 	// this, but the test harness does in order to make sure the
-	// OS recovers OK.  We need to check for it specially, because
-	// even though DmCloseDatabase checks for and handles the NULL
-	// reference, we're inserting a call to DmOpenDatabaseInfo here,
-	// which does NOT handle the NULL reference (it will call
-	// ErrDisplay, but subsequent code is not defensive and will crash).
+	// OS recovers OK.
 
 	if (dbR == NULL)
 		return kExecuteROM;
 
-	UInt16	openCount;
-	Boolean	resDB;
+	// ---------------------------------------------------------------
+	// Read database info via direct memory access instead of ROM trap
+	// calls.  The original code called DmOpenDatabaseInfo,
+	// DmNumResources, DmGetResourceIndex, and DmNextOpenDatabase
+	// here, all of which dispatch through the 68K trap table and
+	// re-enter the Data Manager while a close is already in
+	// progress.  This reentrancy corrupts DM linked-list state in
+	// some applications (e.g. ShadowPlan's "severed linked
+	// connections" warning).  Direct memory reads avoid the problem.
+	// ---------------------------------------------------------------
 
-	Err	err = ::DmOpenDatabaseInfo (
-		dbR,		// DmOpenRef dbR,
-		NULL,		// LocalID* dbIDP,
-		&openCount,	// UInt16 * openCountP,
-		NULL,		// UInt16 * modeP,
-		NULL,		// UInt16 * cardNoP,
-		&resDB);	// Boolean * resDBP)
+	emuptr						dbAccessP = (emuptr)(uintptr_t) (DmOpenRef) dbR;
+	EmAliasDmAccessType<PAS>	dbAccess (dbAccessP);
 
-	if (!err && resDB && openCount == 1)
+	emuptr						openInfoP = dbAccess.openP;
+	if (openInfoP == EmMemNULL)
+		return kExecuteROM;
+
+	EmAliasDmOpenInfoType<PAS>	openInfo (openInfoP);
+
+	UInt16	openCount	= openInfo.openCount;
+	UInt16	flags		= openInfo.flags;
+	Boolean	resDB		= (flags & 0x2000) != 0;	// bit 2 of bitfield: exclusive:1, writeAccess:1, resDB:1
+
+	if (resDB && openCount == 1)
 	{
-		MemHandle	resource;
-		UInt16		ii;
-		UInt16		numResources = ::DmNumResources (dbR);
+		// Unregister bitmap handles for every resource in this DB.
+		// Read the handle table pointer and resource count directly
+		// from the DmOpenInfoType instead of calling DmNumResources
+		// and DmGetResourceIndex (which are ROM traps).
 
+		UInt16	numResources = openInfo.numRecords;
+		emuptr	handleTableP = openInfo.handleTableP;
+
+		UInt16		ii;
 		for (ii = 0; ii < numResources; ++ii)
 		{
-			resource = ::DmGetResourceIndex (dbR, ii);
+			MemHandle resource = (MemHandle)(uintptr_t) EmMemGet32 (handleTableP + ii * 4);
 			MetaMemory::UnregisterBitmapHandle (resource);
 		}
 
@@ -431,9 +445,6 @@ CallROMType SysHeadpatch::DmCloseDatabase (void)
 
 		if (EmPatchState::OSMajorMinorVersion () >= 35)
 		{
-			emuptr						dbAccessP = (emuptr)(uintptr_t) (DmOpenRef) dbR;
-			EmAliasDmAccessType<PAS>	dbAccess (dbAccessP);
-
 			// If this is a "base" database, look for a corresponding
 			// overlay database.  Do this by iterating over the list
 			// of open databases and finding the one in the list
@@ -441,23 +452,25 @@ CallROMType SysHeadpatch::DmCloseDatabase (void)
 
 			if (dbAccess.openType == openTypeBase)
 			{
-				// Get the first open database.
+				// Get the head of the current app's open-database
+				// chain from sysAMXAppInfoP->dmAccessP, instead of
+				// calling DmNextOpenDatabase (a ROM trap).
 
-				DmOpenRef	olRef = ::DmNextOpenDatabase (NULL);
+				emuptr	appInfoP = EmLowMem_GetGlobal (sysAMXAppInfoP);
+				emuptr	olAccessP = EmMemNULL;
+				if (appInfoP)
+					olAccessP = EmMemGet32 (appInfoP + 30 /* m68k offsetof(SysAppInfoType, dmAccessP) */);
 
 				// Iterate over the open databases until we get to the end
-				// or until we meet up with then one we're closing.  The
+				// or until we meet up with the one we're closing.  The
 				// overlay database will appear in the linked list *before*
 				// the one we're closing, so if we get to that one without
 				// finding the overlay, we never will find it.
 
-				while (olRef && olRef != dbR)
-				{
-					// For each open database, see if it's an overlay type.
-					// If it is, see if the "next" field points to the database
-					// we're closing.
+				Bool	foundOverlay = false;
 
-					emuptr						olAccessP = (emuptr)(uintptr_t) olRef;
+				while (olAccessP && olAccessP != dbAccessP)
+				{
 					EmAliasDmAccessType<PAS>	olAccess (olAccessP);
 
 					UInt8	openType	= olAccess.openType;
@@ -465,30 +478,37 @@ CallROMType SysHeadpatch::DmCloseDatabase (void)
 
 					if (openType == openTypeOverlay && next == dbAccessP)
 					{
-						// OK, now that we're here, let's iterate over
-						// the database and release any resources it
-						// has, too.
+						// Found the overlay — iterate over its
+						// resources and unregister bitmap handles,
+						// reading directly from its DmOpenInfoType.
 
-						numResources = ::DmNumResources (olRef);
-						for (ii = 0; ii < numResources; ++ii)
+						emuptr olOpenInfoP = olAccess.openP;
+						if (olOpenInfoP)
 						{
-							resource = ::DmGetResourceIndex (olRef, ii);
-							MetaMemory::UnregisterBitmapHandle (resource);
+							EmAliasDmOpenInfoType<PAS>	olOpenInfo (olOpenInfoP);
+
+							UInt16	olNumResources	= olOpenInfo.numRecords;
+							emuptr	olHandleTableP	= olOpenInfo.handleTableP;
+
+							for (ii = 0; ii < olNumResources; ++ii)
+							{
+								MemHandle resource = (MemHandle)(uintptr_t) EmMemGet32 (olHandleTableP + ii * 4);
+								MetaMemory::UnregisterBitmapHandle (resource);
+							}
 						}
 
-						break;	// Break out of the "while (olRef && olRef != dbR)..." loop.
+						foundOverlay = true;
+						break;	// Break out of the while loop.
 					}
 
-					// This either wasn't an overlay database, or it didn't
-					// belong to the base database we were closing.  Move
-					// on to the next database.
-
-					olRef = ::DmNextOpenDatabase (olRef);
+					// Move on to the next database in the chain.
+					olAccessP = olAccess.next;
 				}
 
-				// Make sure we found the overlay.
-
-				EmAssert (olRef && olRef != dbR);
+				// Soft check — if the overlay wasn't found it's not
+				// fatal; we just skip cleanup of overlay bitmaps.
+				UNUSED_PARAM (foundOverlay);
+				EmAssert (foundOverlay);
 			}
 		}
 	}
