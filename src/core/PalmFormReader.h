@@ -2,6 +2,7 @@
 #define PalmFormReader_h
 
 #include <string>
+#include <vector>
 
 // M68K struct offset constants for direct memory reading of PalmOS forms.
 //
@@ -372,5 +373,23 @@ constexpr int kMenuBarType_menus = 28;
 ///   <one line per object>
 ///   ".\n"
 std::string PalmFormReader_ReadActiveForm(void);
+
+/// Structured info about one form object, with screen-absolute coordinates.
+struct PalmObjInfo
+{
+	int         type;       // kFrmControlObj, kFrmFieldObj, etc.
+	int         id;         // Palm OS object ID (0 for TITLE)
+	std::string label;      // display text (type name + optional text)
+	int         screenX;    // absolute screen X (includes form window offset)
+	int         screenY;    // absolute screen Y
+	int         w;          // width  (0 for labels with no extent)
+	int         h;          // height (0 for labels with no extent)
+	bool        focused;    // true if this is the focused object
+};
+
+/// Read the active form's tappable objects with screen-absolute bounds.
+/// Returns empty vector if no active form.  Caller must hold EmSessionStopper
+/// and CEnableFullAccess.
+std::vector<PalmObjInfo> PalmFormReader_GetObjectBounds(void);
 
 #endif // PalmFormReader_h

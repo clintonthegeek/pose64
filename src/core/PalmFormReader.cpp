@@ -530,3 +530,137 @@ std::string PalmFormReader_ReadActiveForm(void)
 	result << ".\n";
 	return result.str();
 }
+
+//============================================================================
+// PalmFormReader_GetObjectBounds
+//============================================================================
+
+std::vector<PalmObjInfo> PalmFormReader_GetObjectBounds(void)
+{
+	std::vector<PalmObjInfo> result;
+
+	emuptr formPtr = EmLowMem_GetGlobal(uiGlobalsCommon.currentForm);
+	if (!IsValidPtr(formPtr))
+		return result;
+
+	// Form window origin — needed to convert form-local to screen-absolute
+	int16 winX = (int16)EmMemGet16(formPtr + kWindowType_windowBounds_topLeft_x);
+	int16 winY = (int16)EmMemGet16(formPtr + kWindowType_windowBounds_topLeft_y);
+
+	uint16 numObjects = EmMemGet16(formPtr + kFormType_numObjects);
+	emuptr objectsPtr = EmMemGet32(formPtr + kFormType_objects);
+	uint16 focusIdx   = EmMemGet16(formPtr + kFormType_focus);
+
+	if (!IsValidPtr(objectsPtr) || numObjects == 0)
+		return result;
+
+	for (uint16 i = 0; i < numObjects; ++i)
+	{
+		emuptr objEntry = objectsPtr + (i * kFormObjListType_size);
+		uint8  objType  = (uint8)EmMemGet8(objEntry + kFormObjListType_objectType);
+		emuptr dataPtr  = EmMemGet32(objEntry + kFormObjListType_object);
+
+		if (!IsValidPtr(dataPtr))
+			continue;
+
+		PalmObjInfo info;
+		info.type    = objType;
+		info.id      = 0;
+		info.focused = (i == focusIdx);
+
+		int16 bx = 0, by = 0, bw = 0, bh = 0;
+
+		switch (objType)
+		{
+			case kFrmControlObj:
+			{
+				info.id = EmMemGet16(dataPtr + kControlType_id);
+				bx = (int16)EmMemGet16(dataPtr + kControlType_bounds_topLeft_x);
+				by = (int16)EmMemGet16(dataPtr + kControlType_bounds_topLeft_y);
+				bw = (int16)EmMemGet16(dataPtr + kControlType_bounds_extent_x);
+				bh = (int16)EmMemGet16(dataPtr + kControlType_bounds_extent_y);
+				uint8 style = (uint8)EmMemGet8(dataPtr + kControlType_style);
+				emuptr textP = EmMemGet32(dataPtr + kControlType_text);
+				info.label = ControlStyleName(style);
+				if (IsValidPtr(textP))
+					info.label += std::string(" \"") + ReadEmuString(textP) + "\"";
+				break;
+			}
+			case kFrmFieldObj:
+			{
+				info.id = EmMemGet16(dataPtr + kFieldType_id);
+				bx = (int16)EmMemGet16(dataPtr + kFieldType_rect_topLeft_x);
+				by = (int16)EmMemGet16(dataPtr + kFieldType_rect_topLeft_y);
+				bw = (int16)EmMemGet16(dataPtr + kFieldType_rect_extent_x);
+				bh = (int16)EmMemGet16(dataPtr + kFieldType_rect_extent_y);
+				info.label = "FIELD";
+				break;
+			}
+			case kFrmListObj:
+			{
+				info.id = EmMemGet16(dataPtr + kListType_id);
+				bx = (int16)EmMemGet16(dataPtr + kListType_bounds_topLeft_x);
+				by = (int16)EmMemGet16(dataPtr + kListType_bounds_topLeft_y);
+				bw = (int16)EmMemGet16(dataPtr + kListType_bounds_extent_x);
+				bh = (int16)EmMemGet16(dataPtr + kListType_bounds_extent_y);
+				info.label = "LIST";
+				break;
+			}
+			case kFrmTitleObj:
+			{
+				bx = (int16)EmMemGet16(dataPtr + kFormTitleType_rect_topLeft_x);
+				by = (int16)EmMemGet16(dataPtr + kFormTitleType_rect_topLeft_y);
+				bw = (int16)EmMemGet16(dataPtr + kFormTitleType_rect_extent_x);
+				bh = (int16)EmMemGet16(dataPtr + kFormTitleType_rect_extent_y);
+				emuptr textP = EmMemGet32(dataPtr + kFormTitleType_text);
+				info.label = "TITLE";
+				if (IsValidPtr(textP))
+					info.label += std::string(" \"") + ReadEmuString(textP) + "\"";
+				break;
+			}
+			case kFrmLabelObj:
+			{
+				info.id = EmMemGet16(dataPtr + kFormLabelType_id);
+				bx = (int16)EmMemGet16(dataPtr + kFormLabelType_pos_x);
+				by = (int16)EmMemGet16(dataPtr + kFormLabelType_pos_y);
+				bw = 0;
+				bh = 0;
+				emuptr textP = EmMemGet32(dataPtr + kFormLabelType_text);
+				info.label = "LABEL";
+				if (IsValidPtr(textP))
+					info.label += std::string(" \"") + ReadEmuString(textP) + "\"";
+				break;
+			}
+			case kFrmGadgetObj:
+			{
+				info.id = EmMemGet16(dataPtr + kFormGadgetType_id);
+				bx = (int16)EmMemGet16(dataPtr + kFormGadgetType_rect_topLeft_x);
+				by = (int16)EmMemGet16(dataPtr + kFormGadgetType_rect_topLeft_y);
+				bw = (int16)EmMemGet16(dataPtr + kFormGadgetType_rect_extent_x);
+				bh = (int16)EmMemGet16(dataPtr + kFormGadgetType_rect_extent_y);
+				info.label = "GADGET";
+				break;
+			}
+			case kFrmScrollBarObj:
+			{
+				info.id = EmMemGet16(dataPtr + kScrollBarType_id);
+				bx = (int16)EmMemGet16(dataPtr + kScrollBarType_bounds_topLeft_x);
+				by = (int16)EmMemGet16(dataPtr + kScrollBarType_bounds_topLeft_y);
+				bw = (int16)EmMemGet16(dataPtr + kScrollBarType_bounds_extent_x);
+				bh = (int16)EmMemGet16(dataPtr + kScrollBarType_bounds_extent_y);
+				info.label = "SCROLLBAR";
+				break;
+			}
+			default:
+				continue;  // skip non-visual types
+		}
+
+		info.screenX = winX + bx;
+		info.screenY = winY + by;
+		info.w       = bw;
+		info.h       = bh;
+		result.push_back(info);
+	}
+
+	return result;
+}
