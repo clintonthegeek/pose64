@@ -54,7 +54,7 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_key` | `code` | Key event by character code |
 | `palm_type` | `text` | Type full text string |
 | `palm_button` | `name`, `action` | Hardware button (power/up/down/app1-4) |
-| `palm_screenshot` | `path` (optional) | Save PNG or return base64 image |
+| `palm_screenshot` | `path`, `scale`, `grid`, `annotate`, `crosshair` | Save PNG or return base64 image (see below) |
 | `palm_screen_hash` | -- | Screen CRC32 hash + dimensions |
 | `palm_launch` | `app` | Launch app by database name |
 | `palm_install` | `path` | Install .prc/.pdb file |
@@ -85,6 +85,37 @@ informative than a screenshot and requires no image decoding.
 
 Only use `palm_screenshot` when you need to verify visual layout or see content
 that `palm_ui` doesn't capture (like graphics or custom-drawn views).
+
+### Screenshot annotation overlays
+
+When you do need a screenshot, use the overlay parameters to get accurate
+coordinate information instead of guessing from a tiny 160x160 image:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | string | File path to save PNG (optional; omit to get base64 inline) |
+| `scale` | int | Upscale factor, e.g. 4 for 640x640 (default 1, max 16) |
+| `grid` | bool | Draw coordinate rulers and gridlines every 10/20 Palm pixels |
+| `annotate` | bool | Draw colored bounding boxes with IDs from `palm_ui` data |
+| `crosshair` | string | Draw red crosshair at `"x,y"` coordinates, e.g. `"80,72"` |
+
+```
+# AI-friendly annotated screenshot (recommended for visual inspection)
+palm_screenshot scale=4 grid=true annotate=true
+
+# Probe a specific coordinate
+palm_screenshot scale=4 crosshair="80,72"
+
+# Raw screenshot (old behavior, no overlays)
+palm_screenshot
+```
+
+When `annotate=true`, the response includes both the image and `palm_ui`
+structured text in a single call. Color coding: blue=buttons, green=fields,
+orange=lists, purple=gadgets, yellow=scrollbars, cyan=titles, gray=labels.
+
+The CRC hash returned is always computed on raw pixels (before overlays),
+so `palm_screen_hash` comparisons remain stable regardless of overlay options.
 
 ### Use `palm_screen_hash` to skip redundant screenshots
 

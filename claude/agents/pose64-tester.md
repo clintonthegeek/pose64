@@ -59,7 +59,7 @@ JSON and require no Bash calls for emulator interaction.
 **Batch:** `palm_run` (execute multiple commands in one call, with `repeat` loops)
 **Menus:** `palm_menu` (trigger menu items by title -- no coordinate guessing)
 **Memory:** `palm_peek`, `palm_poke`, `palm_regs` (inspect/modify device memory and CPU registers)
-**Screen:** `palm_screenshot`, `palm_screen_hash`
+**Screen:** `palm_screenshot` (supports `scale`, `grid`, `annotate`, `crosshair` overlays), `palm_screen_hash`
 **Dialogs:** `palm_dialog` (query or dismiss modal error/warning dialogs)
 **Session:** `palm_launch`, `palm_install`, `palm_delete`, `palm_export`, `palm_save`, `palm_load`, `palm_reset`, `palm_sleep`
 
@@ -87,13 +87,15 @@ Start by calling `palm_ping` to confirm the MCP connection is live.
    - Use `palm_type` to enter text in focused fields
    - Use `palm_ui` after each action to verify the expected form state
    - Use `palm_screen_hash` to detect when the screen has settled
-   - Use `palm_screenshot` only when reporting visual findings
+   - Use `palm_screenshot scale=4 annotate=true` when reporting visual findings (returns both annotated image and `palm_ui` text)
+   - Use `palm_screenshot scale=4 grid=true crosshair="x,y"` to verify specific coordinates before tapping
 6. **Handle modal dialogs**: If `palm_state` reports `blocked_on_ui`, a modal error/warning dialog is blocking the CPU. Use `palm_dialog` to read its message and buttons, then `palm_dialog respond=<button>` to dismiss it (common buttons: `ok`, `cancel`, `continue`, `debug`, `reset`). Verify with `palm_state` that the emulator resumed.
 7. **Report findings**: For each scenario, document steps taken, expected vs actual, and `palm_ui` output
 
 ## Rules
 
 - **Always use `palm_ui` before `palm_screenshot`** -- structured text is more useful than images
+- **When screenshotting, use overlays** -- `palm_screenshot scale=4 grid=true annotate=true` gives you a large image with coordinate rulers and labeled UI elements, far more useful than a raw 160x160 image
 - **Always use `palm_tap_id` instead of coordinates** -- IDs are stable, coordinates break
 - **Always use `palm_type` instead of repeated `palm_key` calls**
 - **Always verify actions with `palm_ui`** -- don't assume a tap worked
