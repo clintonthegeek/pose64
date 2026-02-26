@@ -256,6 +256,15 @@ static json make_tool_image (const json& id, const std::string& base64data)
     return make_result (id, {{"content", content}});
 }
 
+static json make_tool_image_text (const json& id, const std::string& base64data,
+                                  const std::string& text)
+{
+    json content = json::array ();
+    content.push_back ({{"type", "image"}, {"data", base64data}, {"mimeType", "image/png"}});
+    content.push_back ({{"type", "text"}, {"text", latin1_to_utf8 (text)}});
+    return make_result (id, {{"content", content}});
+}
+
 // ============================================================================
 // Base64 encoder (for screenshot PNG)
 // ============================================================================
@@ -310,6 +319,11 @@ static json str_prop (const std::string& desc)
     return {{"type", "string"}, {"description", desc}};
 }
 
+static json bool_prop (const std::string& desc)
+{
+    return {{"type", "boolean"}, {"description", desc}};
+}
+
 static json get_tools_list ()
 {
     json tools = json::array ();
@@ -360,8 +374,14 @@ static json get_tools_list ()
                        {"action", str_prop ("'down', 'up', or 'tap'")}},
                       {"name", "action"}));
 
-    add ("palm_screenshot", "Take a screenshot. Returns image data if no path given, otherwise saves to path.",
-         make_schema ({{"path", str_prop ("File path to save PNG (optional, default /tmp/pose64_screenshot.png)")}}));
+    add ("palm_screenshot",
+         "Take a screenshot. Returns image data if no path given, otherwise saves to path. "
+         "Use scale/grid/annotate for AI-friendly coordinate overlays.",
+         make_schema ({{"path",      str_prop ("File path to save PNG (optional, default /tmp/pose64_screenshot.png)")},
+                       {"scale",     int_prop ("Integer scale multiplier, e.g. 4 for 640x640 from 160x160 (default 1)")},
+                       {"grid",      bool_prop ("Draw coordinate grid overlay with rulers (default false)")},
+                       {"annotate",  bool_prop ("Draw UI element bounding boxes with IDs (default false)")},
+                       {"crosshair", str_prop ("Draw crosshair at 'x,y' coordinates, e.g. '80,72'")}}));
 
     add ("palm_screen_hash", "Get a CRC32 hash of the current screen contents.",
          make_schema ());
@@ -503,21 +523,47 @@ static json dispatch_tool (const json& id, const std::string& name, const json& 
         if (!has_path)
             path = "/tmp/pose64_screenshot.png";
 
-        std::string resp = rc_command ("screenshot " + path);
+        // Build TCP command with optional flags
+        std::string cmd = "screenshot " + path;
+
+        int  scale    = args.value ("scale", 0);
+        bool grid     = args.value ("grid", false);
+        bool annotate = args.value ("annotate", false);
+        std::string crosshair = args.value ("crosshair", std::string ());
+
+        if (scale > 1)
+            cmd += " scale=" + std::to_string (scale);
+        if (grid)
+            cmd += " grid";
+        if (annotate)
+            cmd += " annotate";
+        if (!crosshair.empty ())
+            cmd += " crosshair=" + crosshair;
+
+        std::string resp = rc_command (cmd);
         if (resp.substr (0, 2) != "OK")
             return make_tool_result (id, resp, true);
 
         if (has_path)
             return make_tool_result (id, resp);
 
-        // No path given — read the PNG and return as base64 image
+        // Read the PNG and return as base64 image
         std::ifstream file (path, std::ios::binary);
         if (!file)
             return make_tool_result (id, "ERR: could not read " + path, true);
 
         std::vector<uint8_t> data ((std::istreambuf_iterator<char> (file)),
                                     std::istreambuf_iterator<char> ());
-        return make_tool_image (id, base64_encode (data));
+        std::string b64 = base64_encode (data);
+
+        // If annotate is on, also fetch palm_ui text and return both
+        if (annotate)
+        {
+            std::string ui_text = rc_command_multi ("ui");
+            return make_tool_image_text (id, b64, ui_text);
+        }
+
+        return make_tool_image (id, b64);
     }
 
     if (name == "palm_screen_hash")  return rc_tool (id, "screen-hash");
