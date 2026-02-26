@@ -13,9 +13,18 @@ class EmSession;
 /**
  * CPUWorkerThread
  *
- * Runs m68k CPU emulation in a separate thread to prevent
- * blocking the Qt event loop. Receives commands via thread-safe
- * queue and signals completion when done.
+ * Dedicated thread for executing ReControl command handlers that
+ * would otherwise block the Qt main thread.  Operations like
+ * EmSessionStopper, PostPenEvent, and PostKeyEvent internally call
+ * PrvWakeUpCPU which blocks until the CPU reaches a syscall
+ * boundary.  Running these handlers here keeps the Qt event loop
+ * responsive.
+ *
+ * NOTE: This thread does NOT run the m68k CPU loop.  The CPU
+ * continues to run on the omni_thread created by
+ * EmSession::CreateThread (EmSession::Run -> CallCPU ->
+ * EmCPU68K::Execute).  This thread only dispatches handler
+ * lambdas queued by ReControl commands.
  */
 class CPUWorkerThread : public QThread
 {
@@ -51,8 +60,9 @@ public:
     void shutdown();
 
     /**
-     * Main thread loop - runs CPU emulation.
-     * Overrides QThread::run().
+     * Thread entry point — command processing loop.
+     * Blocks on the queue, executes handler lambdas, delivers
+     * response callbacks to the main thread.  Overrides QThread::run().
      */
     void run() override;
 

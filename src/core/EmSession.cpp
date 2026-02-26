@@ -1844,10 +1844,12 @@ void EmSession::PostKeyEvent (const EmKeyEvent& event)
 
 	fKeyQueue.Put (event);
 
-	// Wake up the CPU in case it's sleeping so that it can
-	// quickly handle the event.
-
-	::PrvWakeUpCPU (kStr_EnterPen);
+	// Events are picked up by the SysEvGroupWait tailpatch in
+	// EmPatchMgr.  No need to call PrvWakeUpCPU here — doing so
+	// blocks the main thread via EmSessionStopper, which deadlocks
+	// when the CPU is inside ExecuteSubroutine (e.g. after loading
+	// a .psf mid-syscall).  The CPU will process the event at its
+	// next natural SysEvGroupWait or timer interrupt (~10 ms).
 }
 
 
@@ -1897,10 +1899,12 @@ void EmSession::PostPenEvent (const EmPenEvent& event)
 
 	fLastPenEvent = event;
 
-	// Wake up the CPU in case it's sleeping so that it can
-	// quickly handle the event.
-
-	::PrvWakeUpCPU (kStr_EnterPen);
+	// Events are picked up by the SysEvGroupWait tailpatch in
+	// EmPatchMgr.  No need to call PrvWakeUpCPU here — doing so
+	// blocks the main thread via EmSessionStopper, which deadlocks
+	// when the CPU is inside ExecuteSubroutine (e.g. after loading
+	// a .psf mid-syscall).  The CPU will process the event at its
+	// next natural SysEvGroupWait or timer interrupt (~10 ms).
 }
 
 
