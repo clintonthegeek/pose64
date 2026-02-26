@@ -13,6 +13,8 @@
 #include <QStringList>
 #include <QTimer>
 #include <QImage>
+#include <QPainter>
+#include <QFont>
 #include <QFileInfo>
 #include <QApplication>
 
@@ -443,12 +445,49 @@ static std::string ComputeScreenHash (EmScreenUpdateInfo& info, int w, int h)
 
 void ReControlSession::CmdScreenshot (const QStringList& args)
 {
-	if (args.size () != 2) { SendErr ("usage", "screenshot <filepath>"); return; }
+	if (args.size () < 2) { SendErr ("usage", "screenshot <filepath> [scale=N] [grid] [annotate] [crosshair=X,Y]"); return; }
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
 	QString path = args[1];
 
-	QueueWorkResult ([path]() -> std::string {
+	// Parse optional flags
+	int  scaleFactor  = 1;
+	bool drawGrid     = false;
+	bool drawAnnotate = false;
+	bool drawCrosshair = false;
+	int  crossX = 0, crossY = 0;
+
+	for (int i = 2; i < args.size (); i++)
+	{
+		QString flag = args[i].toLower ();
+		if (flag.startsWith ("scale="))
+		{
+			scaleFactor = flag.mid (6).toInt ();
+			if (scaleFactor < 1) scaleFactor = 1;
+			if (scaleFactor > 16) scaleFactor = 16;
+		}
+		else if (flag == "grid")
+		{
+			drawGrid = true;
+		}
+		else if (flag == "annotate")
+		{
+			drawAnnotate = true;
+		}
+		else if (flag.startsWith ("crosshair="))
+		{
+			drawCrosshair = true;
+			QString coords = flag.mid (10);
+			QStringList xy = coords.split (',');
+			if (xy.size () == 2)
+			{
+				crossX = xy[0].toInt ();
+				crossY = xy[1].toInt ();
+			}
+		}
+	}
+
+	QueueWorkResult ([path, scaleFactor, drawGrid, drawAnnotate, drawCrosshair, crossX, crossY]() -> std::string {
 		if (!gSession) return "ERR transient: no session\n";
 		EmSessionStopper stopper (gSession, kStopNow);
 		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
@@ -468,13 +507,186 @@ void ReControlSession::CmdScreenshot (const QStringList& args)
 
 		std::string hash = ComputeScreenHash (info, w, h);
 
-		QImage img (w, h, QImage::Format_RGB888);
+		// Build raw QImage from LCD framebuffer
+		QImage raw (w, h, QImage::Format_RGB888);
 		const uint8_t* src = (const uint8_t*) info.fImage.GetBits ();
 		EmPixMapRowBytes srcRowBytes = info.fImage.GetRowBytes ();
 		for (int y = 0; y < h; y++)
+			memcpy (raw.scanLine (y), src + y * srcRowBytes, w * 3);
+
+		bool hasOverlays = drawGrid || drawAnnotate || drawCrosshair || (scaleFactor > 1);
+
+		if (!hasOverlays)
 		{
-			memcpy (img.scanLine (y), src + y * srcRowBytes, w * 3);
+			// Raw mode — save directly, same as before
+			if (!raw.save (path, "PNG"))
+				return "ERR transient: could not write " + path.toStdString () + "\n";
+			return "OK " + hash + " " + std::to_string (w) + " " + std::to_string (h) + "\n";
 		}
+
+		// ── Scale ──────────────────────────────────────────────────
+		int sw = w * scaleFactor;
+		int sh = h * scaleFactor;
+		int s  = scaleFactor;  // shorthand
+
+		QImage img = raw.scaled (sw, sh, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+
+		QPainter painter (&img);
+		painter.setRenderHint (QPainter::Antialiasing, false);
+
+		// ── Grid ───────────────────────────────────────────────────
+		if (drawGrid)
+		{
+			// Light gridlines every 10 Palm pixels
+			QPen gridPen (QColor (255, 255, 255, 60), 1);
+			painter.setPen (gridPen);
+			for (int px = 10; px < w; px += 10)
+				painter.drawLine (px * s, 0, px * s, sh);
+			for (int py = 10; py < h; py += 10)
+				painter.drawLine (0, py * s, sw, py * s);
+
+			// Coordinate labels every 20 Palm pixels
+			QFont font;
+			font.setPixelSize (std::max (8, s * 3));
+			painter.setFont (font);
+
+			for (int px = 0; px <= w; px += 20)
+			{
+				QString num = QString::number (px);
+				int tx = px * s + 2;
+
+				// Outline: draw dark text offset in 4 directions
+				painter.setPen (QColor (0, 0, 0, 200));
+				painter.drawText (tx - 1, s * 3, num);
+				painter.drawText (tx + 1, s * 3, num);
+				painter.drawText (tx, s * 3 - 1, num);
+				painter.drawText (tx, s * 3 + 1, num);
+				// Foreground
+				painter.setPen (QColor (255, 255, 0, 220));
+				painter.drawText (tx, s * 3, num);
+			}
+			for (int py = 20; py <= h; py += 20)
+			{
+				QString num = QString::number (py);
+				int ty = py * s + s * 2;
+
+				painter.setPen (QColor (0, 0, 0, 200));
+				painter.drawText (1, ty, num);
+				painter.drawText (3, ty, num);
+				painter.drawText (2, ty - 1, num);
+				painter.drawText (2, ty + 1, num);
+				painter.setPen (QColor (255, 255, 0, 220));
+				painter.drawText (2, ty, num);
+			}
+
+			// Tick marks every 10 Palm pixels along edges
+			QPen tickPen (QColor (255, 255, 0, 200), 1);
+			painter.setPen (tickPen);
+			for (int px = 10; px < w; px += 10)
+			{
+				int tickLen = (px % 20 == 0) ? s * 2 : s;
+				painter.drawLine (px * s, 0, px * s, tickLen);
+			}
+			for (int py = 10; py < h; py += 10)
+			{
+				int tickLen = (py % 20 == 0) ? s * 2 : s;
+				painter.drawLine (0, py * s, tickLen, py * s);
+			}
+		}
+
+		// ── Annotate ───────────────────────────────────────────────
+		if (drawAnnotate)
+		{
+			CEnableFullAccess munge;
+			std::vector<PalmObjInfo> objs = PalmFormReader_GetObjectBounds ();
+
+			QFont labelFont;
+			labelFont.setPixelSize (std::max (8, s * 3));
+			painter.setFont (labelFont);
+
+			for (const auto& obj : objs)
+			{
+				// Color by type
+				QColor color;
+				switch (obj.type)
+				{
+					case kFrmControlObj:   color = QColor (80, 140, 255, 140); break; // blue
+					case kFrmFieldObj:     color = QColor (80, 220, 80, 140);  break; // green
+					case kFrmListObj:      color = QColor (255, 160, 40, 140); break; // orange
+					case kFrmGadgetObj:    color = QColor (180, 80, 220, 140); break; // purple
+					case kFrmScrollBarObj: color = QColor (220, 220, 40, 140); break; // yellow
+					case kFrmTitleObj:     color = QColor (40, 200, 200, 140); break; // cyan
+					case kFrmLabelObj:     color = QColor (200, 200, 200, 100); break; // gray
+					default:               color = QColor (255, 255, 255, 100); break;
+				}
+
+				int rx = obj.screenX * s;
+				int ry = obj.screenY * s;
+				int rw = obj.w * s;
+				int rh = obj.h * s;
+
+				if (rw > 0 && rh > 0)
+				{
+					// Fill
+					painter.fillRect (rx, ry, rw, rh, color);
+					// Border
+					QPen borderPen (color.darker (150), std::max (1, s / 2));
+					painter.setPen (borderPen);
+					painter.drawRect (rx, ry, rw, rh);
+				}
+
+				// ID label
+				QString idText = QString::number (obj.id);
+				int labelX = rx + 2;
+				int labelY = ry - 2;
+				if (labelY < labelFont.pixelSize ())
+					labelY = ry + labelFont.pixelSize () + 2;  // below if too close to top
+
+				// Outline
+				painter.setPen (QColor (0, 0, 0, 220));
+				painter.drawText (labelX - 1, labelY, idText);
+				painter.drawText (labelX + 1, labelY, idText);
+				painter.drawText (labelX, labelY - 1, idText);
+				painter.drawText (labelX, labelY + 1, idText);
+				// Foreground — use same hue as box but bright
+				painter.setPen (color.lighter (200));
+				painter.drawText (labelX, labelY, idText);
+			}
+		}
+
+		// ── Crosshair ──────────────────────────────────────────────
+		if (drawCrosshair)
+		{
+			int cx = crossX * s;
+			int cy = crossY * s;
+
+			QPen crossPen (QColor (255, 0, 0, 200), std::max (1, s / 2));
+			painter.setPen (crossPen);
+			painter.drawLine (cx, 0, cx, sh);    // vertical
+			painter.drawLine (0, cy, sw, cy);     // horizontal
+
+			// Coordinate label
+			QFont crossFont;
+			crossFont.setPixelSize (std::max (10, s * 3));
+			crossFont.setBold (true);
+			painter.setFont (crossFont);
+
+			QString coordText = QString ("(%1,%2)").arg (crossX).arg (crossY);
+			int tx = cx + s;
+			int ty = cy - s;
+			if (tx + s * 20 > sw) tx = cx - s * 20;  // flip side if near right edge
+			if (ty < crossFont.pixelSize ()) ty = cy + crossFont.pixelSize () + s;
+
+			painter.setPen (QColor (0, 0, 0, 220));
+			painter.drawText (tx - 1, ty, coordText);
+			painter.drawText (tx + 1, ty, coordText);
+			painter.drawText (tx, ty - 1, coordText);
+			painter.drawText (tx, ty + 1, coordText);
+			painter.setPen (QColor (255, 50, 50, 255));
+			painter.drawText (tx, ty, coordText);
+		}
+
+		painter.end ();
 
 		if (!img.save (path, "PNG"))
 			return "ERR transient: could not write " + path.toStdString () + "\n";
