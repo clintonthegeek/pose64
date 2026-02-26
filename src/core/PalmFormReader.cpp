@@ -566,7 +566,7 @@ std::vector<PalmObjInfo> PalmFormReader_GetObjectBounds(void)
 		PalmObjInfo info;
 		info.type    = objType;
 		info.id      = 0;
-		info.focused = (i == focusIdx);
+		info.focused = (focusIdx != 0xFFFF) && (i == focusIdx);
 
 		int16 bx = 0, by = 0, bw = 0, bh = 0;
 
@@ -583,7 +583,7 @@ std::vector<PalmObjInfo> PalmFormReader_GetObjectBounds(void)
 				emuptr textP = EmMemGet32(dataPtr + kControlType_text);
 				info.label = ControlStyleName(style);
 				if (IsValidPtr(textP))
-					info.label += std::string(" \"") + ReadEmuString(textP) + "\"";
+					info.label += std::string(" \"") + EscapeString(ReadEmuString(textP)) + "\"";
 				break;
 			}
 			case kFrmFieldObj:
@@ -615,7 +615,7 @@ std::vector<PalmObjInfo> PalmFormReader_GetObjectBounds(void)
 				emuptr textP = EmMemGet32(dataPtr + kFormTitleType_text);
 				info.label = "TITLE";
 				if (IsValidPtr(textP))
-					info.label += std::string(" \"") + ReadEmuString(textP) + "\"";
+					info.label += std::string(" \"") + EscapeString(ReadEmuString(textP)) + "\"";
 				break;
 			}
 			case kFrmLabelObj:
@@ -628,7 +628,7 @@ std::vector<PalmObjInfo> PalmFormReader_GetObjectBounds(void)
 				emuptr textP = EmMemGet32(dataPtr + kFormLabelType_text);
 				info.label = "LABEL";
 				if (IsValidPtr(textP))
-					info.label += std::string(" \"") + ReadEmuString(textP) + "\"";
+					info.label += std::string(" \"") + EscapeString(ReadEmuString(textP)) + "\"";
 				break;
 			}
 			case kFrmGadgetObj:
