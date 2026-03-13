@@ -18,9 +18,10 @@ Every command declares its threading requirement in a static dispatch table:
 | Category | CPU State Required | Runs On | Stopper |
 |----------|-------------------|---------|---------|
 | `kCmdImmediate` | None | Main thread, synchronous | None |
-| `kCmdWorkerDirect` | `kStopNow` | Worker thread, fire-and-forget | `kStopNow` |
+| `kCmdWorkerDirect` | None | Worker thread, fire-and-forget, sends OK | None (events use queues with locks) |
 | `kCmdWorkerCycle` | Stopped at cycle boundary | Worker thread, returns result | `kStopOnCycle` |
 | `kCmdWorkerSysCall` | Stopped at syscall boundary | Worker thread, returns result | `kStopOnSysCall` + timeout |
+| `kCmdWorkerRaw` | Handler decides | Worker thread, returns result | None (handler creates own stopper) |
 | `kCmdAdaptive` | Direct if `blocked_on_ui`, else worker | Main or worker | `kStopOnCycle` (when not blocked) |
 | `kCmdCustom` | Handler manages own threading | Varies | Handler's responsibility |
 
@@ -37,15 +38,15 @@ Every command declares its threading requirement in a static dispatch table:
 | 7 | `type` | WorkerDirect | — | Input | Multi-key sequence |
 | 8 | `button` | WorkerDirect | — | Input | Skin button press |
 | 9 | `reset` | Custom | — | Session | ForceReset + dialog dismiss; unique control flow |
-| 10 | `screenshot` | WorkerCycle | — | Query | kStopNow in current code; kStopOnCycle is equivalent here |
-| 11 | `screen-hash` | WorkerCycle | — | Query | CRC32 of screen buffer |
+| 10 | `screenshot` | WorkerRaw | — | Query | Uses kStopNow internally |
+| 11 | `screen-hash` | WorkerRaw | — | Query | Uses kStopNow internally |
 | 12 | `sleep` | Custom | — | Session | Pauses processing via QTimer |
-| 13 | `install` | WorkerSysCall | scaled | Session | Timeout scales with file size |
+| 13 | `install` | WorkerRaw | — | Session | Dynamic timeout scales with file size |
 | 14 | `export` | WorkerSysCall | 5000 | Session | ROM calls for DB export |
 | 15 | `launch` | WorkerSysCall | 5000 | Session | SetSwitchApp + EvtWakeup |
-| 16 | `save` | WorkerCycle | — | Session | Session file write |
+| 16 | `save` | WorkerRaw | — | Session | Uses kStopNow internally |
 | 17 | `load` | Custom | — | Session | Tears down/rebuilds session, deferred execution |
-| 18 | `info` | WorkerCycle | — | Session | kStopNow; null-session returns version only |
+| 18 | `info` | WorkerRaw | — | Session | Uses kStopNow; null-session returns version only |
 | 19 | `ui` | WorkerCycle | — | Query | Reads form structure |
 | 20 | `apps` | WorkerSysCall | 5000 | Session | ROM calls (DmGetNextDatabaseByTypeCreator) |
 | 21 | `dialog` | Custom | — | Session | Reads Qt dialog state, optionally responds |
@@ -61,12 +62,12 @@ Every command declares its threading requirement in a static dispatch table:
 | 31 | `watch` | WorkerCycle | — | Debug | All sub-commands under stopper (fixes `status` race) |
 | 32 | `spy` | WorkerCycle | — | Debug | All sub-commands under stopper (fixes `status` race) |
 | 33 | `log` | Immediate | — | Debug | Preference reads/writes only |
-| 34 | `gremlin` | WorkerCycle | — | Debug | All sub-commands under stopper (fixes `status` race) |
+| 34 | `gremlin` | WorkerRaw | — | Debug | Mixed stoppers per sub-command (new=kStopOnSysCall, stop=kStopNow, etc.) |
 | 35 | `check` | Immediate | — | Debug | Preference reads/writes only |
 | 36 | `errorhandling` | Immediate | — | Debug | Preference reads/writes only |
-| 37 | `profile` | WorkerCycle | — | Profile | `#if HAS_PROFILING`; all sub-commands under stopper |
+| 37 | `profile` | WorkerRaw | — | Profile | `#if HAS_PROFILING`; mixed stoppers per sub-command |
 
-**Summary**: 6 Immediate, 5 WorkerDirect, 10 WorkerCycle, 5 WorkerSysCall, 4 Adaptive, 6 Custom, 1 alias = 37 table entries.
+**Summary**: 6 Immediate, 5 WorkerDirect, 4 WorkerCycle, 4 WorkerSysCall, 7 WorkerRaw, 4 Adaptive, 6 Custom, 1 alias = 37 table entries.
 
 ### Sub-command threading unification
 
@@ -93,6 +94,7 @@ enum CommandCategory {
     kCmdWorkerDirect,
     kCmdWorkerCycle,
     kCmdWorkerSysCall,
+    kCmdWorkerRaw,
     kCmdAdaptive,
     kCmdCustom
 };
