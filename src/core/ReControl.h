@@ -5,11 +5,15 @@
 #define ReControl_h
 
 #include <string>
+#include <functional>
+#include <QObject>
 #include <QStringList>
+#include <QByteArray>
 
 // Forward declarations
 class CPUWorkerThread;
-class ReControlSession;
+class QTcpSocket;
+class QTcpServer;
 
 // Global instance - initialized in main.cpp
 extern CPUWorkerThread* gCPUWorker;
@@ -33,6 +37,7 @@ enum CommandCategory {
 using CmdHandler = std::string (*)(const QStringList& args);
 
 // Custom handler: receives session for direct I/O control.
+class ReControlSession;
 using CustomCmdHandler = void (*)(ReControlSession* session,
                                   const QStringList& args);
 
@@ -42,6 +47,65 @@ struct CommandEntry {
 	int              timeoutMs;      // for kCmdWorkerSysCall (0 = default 5000)
 	CmdHandler       handler;        // non-null for standard categories
 	CustomCmdHandler customHandler;  // non-null for kCmdCustom
+};
+
+// ---------------------------------------------------------------------------
+// ReControlServer — TCP server, manages sessions
+// ---------------------------------------------------------------------------
+
+class ReControlServer : public QObject
+{
+	Q_OBJECT
+
+public:
+	ReControlServer (int port, QObject* parent = nullptr);
+	~ReControlServer ();
+
+	bool IsListening () const;
+	void NotifySessionGone (ReControlSession* session);
+
+private slots:
+	void OnNewConnection ();
+
+private:
+	QTcpServer* fServer;
+	ReControlSession* fActiveSession;
+};
+
+// ---------------------------------------------------------------------------
+// ReControlSession — One per connected client
+// ---------------------------------------------------------------------------
+
+class ReControlSession : public QObject
+{
+	Q_OBJECT
+
+public:
+	ReControlSession (QTcpSocket* socket, ReControlServer* server);
+	~ReControlSession ();
+
+	// Public for custom command handlers
+	void Send (const std::string& msg);
+	void SendErr (const std::string& category, const std::string& msg);
+	void PauseProcessing (int ms);
+	void DoMenuLookup (std::string menuTitle, std::string itemTitle, bool activated);
+	void QueueWork (std::function<void()> handler);
+	void QueueWorkResult (std::function<std::string()> handler);
+
+private slots:
+	void OnReadyRead ();
+	void OnDisconnected ();
+	void OnSleepDone ();
+
+private:
+	void ProcessBufferedCommands (void);
+	void DispatchCommand (const QStringList& parts);
+
+	QTcpSocket* fSocket;
+	ReControlServer* fServer;
+	QByteArray fReadBuffer;
+	bool fProcessingPaused;
+	QStringList fCommandBuffer;
 };
 
 // ---------------------------------------------------------------------------
