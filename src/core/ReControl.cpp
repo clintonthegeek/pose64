@@ -52,6 +52,7 @@
 #include "Hordes.h"
 #include "CGremlins.h"
 #include "Logging.h"
+#include "Profiling.h"
 #include "UAE.h"
 
 // Forward declarations
@@ -125,6 +126,9 @@ private:
 	void CmdGremlin (const QStringList& args);
 	void CmdCheck (const QStringList& args);
 	void CmdErrorHandling (const QStringList& args);
+#if HAS_PROFILING
+	void CmdProfile (const QStringList& args);
+#endif
 	void ProcessBufferedCommands (void);
 	void DispatchCommand (const QStringList& parts);
 
@@ -2806,6 +2810,115 @@ void ReControlSession::CmdErrorHandling (const QStringList& args)
 }
 
 // ============================================================================
+// CmdProfile — CPU profiling
+// ============================================================================
+
+#if HAS_PROFILING
+void ReControlSession::CmdProfile (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "profile <init|start|stop|dump|print|cleanup|cycles>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "init")
+	{
+		int maxCalls = MAXFNCALLS;
+		int maxDepth = 200;
+		if (args.size () >= 3) maxCalls = args[2].toInt ();
+		if (args.size () >= 4) maxDepth = args[3].toInt ();
+		if (maxCalls < 1) maxCalls = MAXFNCALLS;
+		if (maxDepth < 1) maxDepth = 200;
+
+		QueueWorkResult ([maxCalls, maxDepth]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			ProfileInit (maxCalls, maxDepth);
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "start")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			ProfileStart ();
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "stop")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			ProfileStop ();
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "dump")
+	{
+		if (args.size () < 3) { SendErr ("usage", "profile dump <path>"); return; }
+		std::string path = args[2].toStdString ();
+
+		QueueWorkResult ([path]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			ProfileDump (path.c_str ());
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "print")
+	{
+		if (args.size () < 3) { SendErr ("usage", "profile print <path>"); return; }
+		std::string path = args[2].toStdString ();
+
+		QueueWorkResult ([path]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			ProfilePrint (path.c_str ());
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "cleanup")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			ProfileCleanup ();
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "cycles")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+
+			char buf[128];
+			snprintf (buf, sizeof (buf), "OK clock=%lld read=%lld write=%lld\n",
+				(long long) gClockCycles, (long long) gReadCycles, (long long) gWriteCycles);
+			return std::string (buf);
+		});
+		return;
+	}
+
+	SendErr ("usage", "profile <init|start|stop|dump|print|cleanup|cycles>");
+}
+#endif // HAS_PROFILING
+
+// ============================================================================
 
 void ReControlSession::ProcessBufferedCommands ()
 {
@@ -2857,6 +2970,9 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 	else if (cmd == "gremlin")     CmdGremlin (parts);
 	else if (cmd == "check")       CmdCheck (parts);
 	else if (cmd == "errorhandling") CmdErrorHandling (parts);
+#if HAS_PROFILING
+	else if (cmd == "profile")     CmdProfile (parts);
+#endif
 	else
 		SendErr ("usage", "unknown command '" + cmd.toStdString () + "'");
 }

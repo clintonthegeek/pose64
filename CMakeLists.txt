@@ -43,7 +43,7 @@ include_directories(
 # Compiler definitions (common to all builds)
 add_definitions(
     -D__PALMOS_TRAPS__=0
-    -DHAS_PROFILING=0
+    -DHAS_PROFILING=1
     -D_REENTRANT
     -DNoNanoSleep
     -DPthreadDraftVersion=10
