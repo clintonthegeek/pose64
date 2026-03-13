@@ -47,6 +47,11 @@
 #include "EmLowMem.h"
 #include "CPUWorkerThread.h"
 #include "Patches/EmPatchState.h"
+#include "EmPalmOS.h"
+#include "DebugMgr.h"
+#include "Hordes.h"
+#include "CGremlins.h"
+#include "Logging.h"
 #include "UAE.h"
 
 // Forward declarations
@@ -56,6 +61,7 @@ class ReControlSession;
 // From EmDlgQt.cpp — remote dialog handling
 extern std::string EmDlgQt_GetPendingDialog (void);
 extern bool EmDlgQt_RespondToDialog (const std::string& buttonName);
+extern void EmDlgQt_DismissIfPending (void);
 
 // Global CPU worker thread instance
 CPUWorkerThread* gCPUWorker = nullptr;
@@ -111,6 +117,14 @@ private:
 	void CmdMenu (const QStringList& args);
 	void DoMenuLookup (std::string menuTitle, std::string itemTitle, bool activated);
 	void CmdDelete (const QStringList& args);
+	void CmdBacktrace (const QStringList& args);
+	void CmdBreak (const QStringList& args);
+	void CmdWatch (const QStringList& args);
+	void CmdSpy (const QStringList& args);
+	void CmdLog (const QStringList& args);
+	void CmdGremlin (const QStringList& args);
+	void CmdCheck (const QStringList& args);
+	void CmdErrorHandling (const QStringList& args);
 	void ProcessBufferedCommands (void);
 	void DispatchCommand (const QStringList& parts);
 
@@ -401,10 +415,23 @@ void ReControlSession::CmdReset (const QStringList& args)
 		else if (t != "soft") { SendErr ("usage", "reset [soft|hard|debug]"); return; }
 	}
 
+	bool wasBlocked = (gSession->GetSessionState () == kBlockedOnUI);
+
+	// If a modal error dialog is blocking the CPU thread, dismiss it
+	// so that BlockOnDialog's wait loop can exit.  ForceReset sets
+	// fReset which the loop now checks, and DismissIfPending rejects
+	// the QMessageBox so exec() returns on the UI thread.
+	if (wasBlocked)
+		EmDlgQt_DismissIfPending ();
+
 	// Use ForceReset so reset works even when the CPU is stuck
 	// in a suspended state (debugger break, stale lock, etc.).
 	gSession->ForceReset (type);
-	Send ("OK\n");
+
+	if (wasBlocked)
+		Send ("OK reset (was blocked_on_ui, dialog dismissed)\n");
+	else
+		Send ("OK\n");
 }
 
 void ReControlSession::CmdSleep (const QStringList& args)
@@ -732,11 +759,23 @@ void ReControlSession::CmdInstall (const QStringList& args)
 
 	std::string pathStr = path.toStdString ();
 
-	QueueWorkResult ([pathStr]() -> std::string {
+	// Scale timeout with file size: 5s base + ~10s per MB.
+	// A 174KB file gets ~7s, a 4MB file gets ~45s.
+	int timeoutMs = 5000 + (int) (fileSize / 100);
+
+	QueueWorkResult ([pathStr, timeoutMs, fileSize]() -> std::string {
 		if (!gSession) return "ERR transient: no session\n";
-		EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+		EmSessionStopper stopper (gSession, kStopOnSysCall, timeoutMs);
 		if (!stopper.Stopped ())
-			return "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+		{
+			char msg[512];
+			snprintf (msg, sizeof (msg),
+				"ERR timeout: CPU did not reach syscall boundary within %dms. "
+				"File: %s (%lldKB). "
+				"Recovery: palm_reset type=soft, then retry install.\n",
+				timeoutMs, pathStr.c_str (), (long long) fileSize / 1024);
+			return msg;
+		}
 
 		try
 		{
@@ -747,14 +786,28 @@ void ReControlSession::CmdInstall (const QStringList& args)
 			{
 				ErrCode err = importer.Continue ();
 				if (err != errNone)
-					return "ERR fatal: install failed - EmFileImport returned error\n";
+				{
+					char msg[512];
+					snprintf (msg, sizeof (msg),
+						"ERR fatal: install failed - ROM import error (code %ld). "
+						"File: %s (%lldKB). "
+						"Recovery: palm_reset type=hard recommended before retry.\n",
+						(long) err, pathStr.c_str (), (long long) fileSize / 1024);
+					return std::string (msg);
+				}
 			}
 
 			return "OK\n";
 		}
 		catch (...)
 		{
-			return "ERR fatal: install failed - emulator exception during ROM call (recommend reset)\n";
+			char msg[512];
+			snprintf (msg, sizeof (msg),
+				"ERR fatal: install failed - emulator exception during ROM call. "
+				"File: %s (%lldKB). Session may be corrupted. "
+				"Recovery: palm_reset type=hard recommended before retry.\n",
+				pathStr.c_str (), (long long) fileSize / 1024);
+			return std::string (msg);
 		}
 	});
 }
@@ -861,7 +914,6 @@ void ReControlSession::CmdSave (const QStringList& args)
 void ReControlSession::CmdLoad (const QStringList& args)
 {
 	if (args.size () != 2) { SendErr ("usage", "load <filepath>"); return; }
-	if (!gDocument) { SendErr ("transient", "no document"); return; }
 
 	QString path = args[1];
 	QFileInfo fi (path);
@@ -893,6 +945,11 @@ void ReControlSession::CmdLoad (const QStringList& args)
 
 		try
 		{
+			// If a modal dialog is blocking the CPU thread, dismiss it
+			// before tearing down the session.
+			if (gSession && gSession->GetSessionState () == kBlockedOnUI)
+				EmDlgQt_DismissIfPending ();
+
 			// Shut down the CPU worker thread before destroying the session.
 			// Commands in the queue reference gSession which is about to die.
 			if (gCPUWorker)
@@ -1303,6 +1360,37 @@ void ReControlSession::CmdDialog (const QStringList& args)
 		return;
 	}
 
+	// Append CPU register dump when a dialog is pending.
+	// The CPU thread is frozen in BlockOnDialog, so registers
+	// are stable and can be read without EmSessionStopper.
+	// This gives crash diagnostics (PC, registers) inline with
+	// the dialog query so the caller doesn't need a separate
+	// palm_regs call (which would fail in blocked_on_ui state).
+	if (gSession && gSession->GetSessionState () == kBlockedOnUI)
+	{
+		// Insert register line before the terminating ".\n"
+		std::string regLine;
+		char buf[512];
+		snprintf (buf, sizeof (buf),
+			" regs PC=%08X SR=%04X"
+			" D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X"
+			" A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X\n",
+			(unsigned) regs.pc, (unsigned) regs.sr,
+			(unsigned) m68k_dreg (regs, 0), (unsigned) m68k_dreg (regs, 1),
+			(unsigned) m68k_dreg (regs, 2), (unsigned) m68k_dreg (regs, 3),
+			(unsigned) m68k_dreg (regs, 4), (unsigned) m68k_dreg (regs, 5),
+			(unsigned) m68k_dreg (regs, 6), (unsigned) m68k_dreg (regs, 7),
+			(unsigned) m68k_areg (regs, 0), (unsigned) m68k_areg (regs, 1),
+			(unsigned) m68k_areg (regs, 2), (unsigned) m68k_areg (regs, 3),
+			(unsigned) m68k_areg (regs, 4), (unsigned) m68k_areg (regs, 5),
+			(unsigned) m68k_areg (regs, 6), (unsigned) m68k_areg (regs, 7));
+
+		// info ends with ".\n", insert regs before it
+		size_t dotPos = info.rfind (".\n");
+		if (dotPos != std::string::npos)
+			info.insert (dotPos, buf);
+	}
+
 	Send (info);
 }
 
@@ -1604,11 +1692,8 @@ void ReControlSession::CmdPeek (const QStringList& args)
 	int nbytes = args[2].toInt ();
 	if (nbytes < 1 || nbytes > 256) { SendErr ("usage", "nbytes must be 1-256"); return; }
 
-	QueueWorkResult ([addrStr, nbytes]() -> std::string {
-		if (!gSession) return "ERR transient: no session\n";
-		EmSessionStopper stopper (gSession, kStopOnCycle);
-		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
-
+	// Helper lambda for the actual peek operation
+	auto doPeek = [addrStr, nbytes]() -> std::string {
 		CEnableFullAccess munge;
 
 		emuptr addr;
@@ -1627,6 +1712,21 @@ void ReControlSession::CmdPeek (const QStringList& args)
 		}
 
 		return "OK " + hex + "\n";
+	};
+
+	// When blocked on a dialog, memory is stable — read directly.
+	if (gSession->GetSessionState () == kBlockedOnUI)
+	{
+		Send (doPeek ());
+		return;
+	}
+
+	QueueWorkResult ([doPeek]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnCycle);
+		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+		return doPeek ();
 	});
 }
 
@@ -1687,31 +1787,45 @@ void ReControlSession::CmdPoke (const QStringList& args)
 // CmdRegs — dump m68k registers
 // ============================================================================
 
+// Helper: format m68k register dump string.  Used by CmdRegs and CmdDialog.
+static std::string PrvFormatRegs (void)
+{
+	char buf[512];
+	snprintf (buf, sizeof (buf),
+		"OK D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X"
+		" A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X"
+		" PC=%08X SR=%04X\n",
+		(unsigned) m68k_dreg (regs, 0), (unsigned) m68k_dreg (regs, 1),
+		(unsigned) m68k_dreg (regs, 2), (unsigned) m68k_dreg (regs, 3),
+		(unsigned) m68k_dreg (regs, 4), (unsigned) m68k_dreg (regs, 5),
+		(unsigned) m68k_dreg (regs, 6), (unsigned) m68k_dreg (regs, 7),
+		(unsigned) m68k_areg (regs, 0), (unsigned) m68k_areg (regs, 1),
+		(unsigned) m68k_areg (regs, 2), (unsigned) m68k_areg (regs, 3),
+		(unsigned) m68k_areg (regs, 4), (unsigned) m68k_areg (regs, 5),
+		(unsigned) m68k_areg (regs, 6), (unsigned) m68k_areg (regs, 7),
+		(unsigned) regs.pc, (unsigned) regs.sr);
+	return std::string (buf);
+}
+
 void ReControlSession::CmdRegs (const QStringList& args)
 {
 	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	// When the CPU is blocked on a dialog, registers are frozen and
+	// stable — read them directly without EmSessionStopper (which
+	// would fail because the CPU thread is in a condvar wait).
+	if (gSession->GetSessionState () == kBlockedOnUI)
+	{
+		Send (PrvFormatRegs ());
+		return;
+	}
 
 	QueueWorkResult ([]() -> std::string {
 		if (!gSession) return "ERR transient: no session\n";
 		EmSessionStopper stopper (gSession, kStopOnCycle);
 		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
 
-		char buf[512];
-		snprintf (buf, sizeof (buf),
-			"OK D0=%08X D1=%08X D2=%08X D3=%08X D4=%08X D5=%08X D6=%08X D7=%08X"
-			" A0=%08X A1=%08X A2=%08X A3=%08X A4=%08X A5=%08X A6=%08X A7=%08X"
-			" PC=%08X SR=%04X\n",
-			(unsigned) m68k_dreg (regs, 0), (unsigned) m68k_dreg (regs, 1),
-			(unsigned) m68k_dreg (regs, 2), (unsigned) m68k_dreg (regs, 3),
-			(unsigned) m68k_dreg (regs, 4), (unsigned) m68k_dreg (regs, 5),
-			(unsigned) m68k_dreg (regs, 6), (unsigned) m68k_dreg (regs, 7),
-			(unsigned) m68k_areg (regs, 0), (unsigned) m68k_areg (regs, 1),
-			(unsigned) m68k_areg (regs, 2), (unsigned) m68k_areg (regs, 3),
-			(unsigned) m68k_areg (regs, 4), (unsigned) m68k_areg (regs, 5),
-			(unsigned) m68k_areg (regs, 6), (unsigned) m68k_areg (regs, 7),
-			(unsigned) regs.pc, (unsigned) regs.sr);
-
-		return std::string (buf);
+		return PrvFormatRegs ();
 	});
 }
 
@@ -1985,6 +2099,713 @@ void ReControlSession::CmdDelete (const QStringList& args)
 }
 
 // ============================================================================
+// CmdBacktrace — stack crawl
+// ============================================================================
+
+void ReControlSession::CmdBacktrace (const QStringList& args)
+{
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	// Stack crawl reads memory — works in blocked_on_ui (frozen CPU)
+	auto doBacktrace = []() -> std::string {
+		CEnableFullAccess munge;
+		EmStackFrameList frameList;
+		EmPalmOS::GenerateStackCrawl (frameList);
+
+		std::string result = "OK backtrace\n";
+		for (size_t i = 0; i < frameList.size (); i++)
+		{
+			char buf[80];
+			snprintf (buf, sizeof (buf), " #%zu PC=%08X A6=%08X\n",
+				i,
+				(unsigned) frameList[i].fAddressInFunction,
+				(unsigned) frameList[i].fA6);
+			result += buf;
+		}
+		result += ".\n";
+		return result;
+	};
+
+	if (gSession->GetSessionState () == kBlockedOnUI)
+	{
+		Send (doBacktrace ());
+		return;
+	}
+
+	QueueWorkResult ([doBacktrace]() -> std::string {
+		if (!gSession) return "ERR transient: no session\n";
+		EmSessionStopper stopper (gSession, kStopOnCycle);
+		if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+		return doBacktrace ();
+	});
+}
+
+// ============================================================================
+// CmdBreak — manage instruction breakpoints
+// ============================================================================
+
+void ReControlSession::CmdBreak (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "break <list|set|clear|enable|disable> [args...]"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "list")
+	{
+		// List can read globals directly — no CPU interaction needed
+		std::string result = "OK break list\n";
+		for (int i = 0; i < dbgTotalBreakpoints; i++)
+		{
+			char buf[256];
+			const char* condStr = "";
+			if (gDebuggerGlobals.bpCondition[i] && gDebuggerGlobals.bpCondition[i]->source)
+				condStr = gDebuggerGlobals.bpCondition[i]->source;
+
+			snprintf (buf, sizeof (buf), " [%d] %s addr=%08X%s%s",
+				i,
+				gDebuggerGlobals.bp[i].enabled ? "enabled " : "disabled",
+				(unsigned)(uintptr_t) gDebuggerGlobals.bp[i].addr,
+				condStr[0] ? " condition=\"" : "",
+				condStr[0] ? condStr : "");
+			std::string line (buf);
+			if (condStr[0])
+				line += "\"";
+			line += "\n";
+			result += line;
+		}
+		result += ".\n";
+		Send (result);
+		return;
+	}
+
+	if (sub == "set")
+	{
+		// break set <index> <addr> [condition...]
+		if (args.size () < 4) { SendErr ("usage", "break set <index> <addr> [condition]"); return; }
+
+		int index = args[2].toInt ();
+		if (index < 0 || index >= dbgTotalBreakpoints)
+		{
+			SendErr ("usage", "index must be 0-" + std::to_string (dbgTotalBreakpoints - 1));
+			return;
+		}
+
+		std::string addrStr = args[3].toStdString ();
+		emuptr addr;
+		if (!ParseAddress (addrStr, addr))
+		{
+			SendErr ("usage", "invalid address '" + addrStr + "'");
+			return;
+		}
+
+		// Optional condition string (remaining args joined)
+		std::string condStr;
+		for (int i = 4; i < args.size (); i++)
+		{
+			if (!condStr.empty ()) condStr += ' ';
+			condStr += args[i].toStdString ();
+		}
+
+		BreakpointCondition* cond = nullptr;
+		if (!condStr.empty ())
+		{
+			cond = Debug::NewBreakpointCondition (condStr.c_str ());
+			if (!cond)
+			{
+				SendErr ("usage", "invalid condition '" + condStr + "'");
+				return;
+			}
+		}
+
+		QueueWorkResult ([index, addr, cond]() -> std::string {
+			if (!gSession) { delete cond; return "ERR transient: no session\n"; }
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) { delete cond; return "ERR transient: could not stop session\n"; }
+
+			Debug::SetBreakpoint (index, addr, cond);
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "clear")
+	{
+		if (args.size () < 3) { SendErr ("usage", "break clear <index>"); return; }
+		int index = args[2].toInt ();
+		if (index < 0 || index >= dbgTotalBreakpoints)
+		{
+			SendErr ("usage", "index must be 0-" + std::to_string (dbgTotalBreakpoints - 1));
+			return;
+		}
+
+		QueueWorkResult ([index]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			Debug::ClearBreakpoint (index);  // also deletes condition internally
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "enable" || sub == "disable")
+	{
+		if (args.size () < 3) { SendErr ("usage", "break " + sub.toStdString () + " <index>"); return; }
+		int index = args[2].toInt ();
+		if (index < 0 || index >= dbgTotalBreakpoints)
+		{
+			SendErr ("usage", "index must be 0-" + std::to_string (dbgTotalBreakpoints - 1));
+			return;
+		}
+
+		bool enable = (sub == "enable");
+		QueueWorkResult ([index, enable]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			gDebuggerGlobals.bp[index].enabled = enable;
+			return "OK\n";
+		});
+		return;
+	}
+
+	SendErr ("usage", "break <list|set|clear|enable|disable> [args...]");
+}
+
+// ============================================================================
+// CmdWatch — data watchpoints
+// ============================================================================
+
+void ReControlSession::CmdWatch (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "watch <set|clear|status>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "status")
+	{
+		char buf[128];
+		if (gDebuggerGlobals.watchEnabled)
+			snprintf (buf, sizeof (buf), "OK watch enabled addr=%08X nbytes=%u\n",
+				(unsigned) gDebuggerGlobals.watchAddr,
+				(unsigned) gDebuggerGlobals.watchBytes);
+		else
+			snprintf (buf, sizeof (buf), "OK watch disabled\n");
+		Send (buf);
+		return;
+	}
+
+	if (sub == "clear")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			gDebuggerGlobals.watchEnabled = false;
+			gDebuggerGlobals.watchAddr = 0;
+			gDebuggerGlobals.watchBytes = 0;
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "set")
+	{
+		if (args.size () < 4) { SendErr ("usage", "watch set <addr> <nbytes>"); return; }
+
+		std::string addrStr = args[2].toStdString ();
+		int nbytes = args[3].toInt ();
+		if (nbytes < 1 || nbytes > 65536) { SendErr ("usage", "nbytes must be 1-65536"); return; }
+
+		QueueWorkResult ([addrStr, nbytes]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			emuptr addr;
+			if (!ParseAddress (addrStr, addr))
+				return "ERR usage: invalid address '" + addrStr + "'\n";
+
+			gDebuggerGlobals.watchEnabled = true;
+			gDebuggerGlobals.watchAddr = addr;
+			gDebuggerGlobals.watchBytes = nbytes;
+			return "OK\n";
+		});
+		return;
+	}
+
+	SendErr ("usage", "watch <set|clear|status>");
+}
+
+// ============================================================================
+// CmdSpy — step spy (single-address value-change monitor)
+// ============================================================================
+
+void ReControlSession::CmdSpy (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "spy <set|clear|status>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "status")
+	{
+		char buf[128];
+		if (gDebuggerGlobals.stepSpy)
+			snprintf (buf, sizeof (buf), "OK spy enabled addr=%08X value=%08X\n",
+				(unsigned) gDebuggerGlobals.ssAddr,
+				(unsigned) gDebuggerGlobals.ssValue);
+		else
+			snprintf (buf, sizeof (buf), "OK spy disabled\n");
+		Send (buf);
+		return;
+	}
+
+	if (sub == "clear")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			gDebuggerGlobals.stepSpy = false;
+			gDebuggerGlobals.ssAddr = 0;
+			gDebuggerGlobals.ssValue = 0;
+			return "OK\n";
+		});
+		return;
+	}
+
+	if (sub == "set")
+	{
+		if (args.size () < 3) { SendErr ("usage", "spy set <addr>"); return; }
+		std::string addrStr = args[2].toStdString ();
+
+		QueueWorkResult ([addrStr]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			emuptr addr;
+			if (!ParseAddress (addrStr, addr))
+				return "ERR usage: invalid address '" + addrStr + "'\n";
+
+			CEnableFullAccess munge;
+			gDebuggerGlobals.stepSpy = true;
+			gDebuggerGlobals.ssAddr = addr;
+			gDebuggerGlobals.ssValue = EmMemGet32 (addr);
+			return "OK\n";
+		});
+		return;
+	}
+
+	SendErr ("usage", "spy <set|clear|status>");
+}
+
+// ============================================================================
+// CmdLog — logging category control
+// ============================================================================
+
+void ReControlSession::CmdLog (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "log <list|set|dump|clear>"); return; }
+
+	QString sub = args[1].toLower ();
+
+	// Table of category names and their preference keys
+	static const struct {
+		const char* name;
+		PrefKeyType key;
+	} kLogCategories[] = {
+		{ "ErrorMessages",     kPrefKeyLogErrorMessages     },
+		{ "WarningMessages",   kPrefKeyLogWarningMessages   },
+		{ "Gremlins",          kPrefKeyLogGremlins           },
+		{ "CPUOpcodes",        kPrefKeyLogCPUOpcodes         },
+		{ "EnqueuedEvents",    kPrefKeyLogEnqueuedEvents     },
+		{ "DequeuedEvents",    kPrefKeyLogDequeuedEvents     },
+		{ "SystemCalls",       kPrefKeyLogSystemCalls        },
+		{ "ApplicationCalls",  kPrefKeyLogApplicationCalls   },
+		{ "Serial",            kPrefKeyLogSerial             },
+		{ "SerialData",        kPrefKeyLogSerialData         },
+		{ "NetLib",            kPrefKeyLogNetLib             },
+		{ "NetLibData",        kPrefKeyLogNetLibData         },
+		{ "ExgMgr",            kPrefKeyLogExgMgr             },
+		{ "ExgMgrData",        kPrefKeyLogExgMgrData         },
+		{ "HLDebugger",        kPrefKeyLogHLDebugger         },
+		{ "HLDebuggerData",    kPrefKeyLogHLDebuggerData     },
+		{ "LLDebugger",        kPrefKeyLogLLDebugger         },
+		{ "LLDebuggerData",    kPrefKeyLogLLDebuggerData     },
+		{ "RPC",               kPrefKeyLogRPC                },
+		{ "RPCData",           kPrefKeyLogRPCData            },
+	};
+	const int kNumCategories = sizeof (kLogCategories) / sizeof (kLogCategories[0]);
+
+	if (sub == "list")
+	{
+		std::string result = "OK log list\n";
+		for (int i = 0; i < kNumCategories; i++)
+		{
+			Preference<uint8> pref (kLogCategories[i].key);
+			char buf[64];
+			snprintf (buf, sizeof (buf), " %s=%d\n", kLogCategories[i].name, (int) *pref);
+			result += buf;
+		}
+		result += ".\n";
+		Send (result);
+		return;
+	}
+
+	if (sub == "set")
+	{
+		if (args.size () < 4) { SendErr ("usage", "log set <category> <0|1|2>"); return; }
+
+		std::string catName = args[2].toStdString ();
+		int value = args[3].toInt ();
+		if (value < 0 || value > 2) { SendErr ("usage", "value must be 0, 1, or 2"); return; }
+
+		// Find category (case-insensitive)
+		bool found = false;
+		for (int i = 0; i < kNumCategories; i++)
+		{
+			if (strcasecmp (catName.c_str (), kLogCategories[i].name) == 0)
+			{
+				Preference<uint8> pref (kLogCategories[i].key);
+				pref = (uint8) value;
+				found = true;
+				break;
+			}
+		}
+
+		if (!found)
+		{
+			SendErr ("usage", "unknown category '" + catName + "'");
+			return;
+		}
+
+		Send ("OK\n");
+		return;
+	}
+
+	if (sub == "dump")
+	{
+		LogDump ();
+		Send ("OK\n");
+		return;
+	}
+
+	if (sub == "clear")
+	{
+		LogClear ();
+		Send ("OK\n");
+		return;
+	}
+
+	SendErr ("usage", "log <list|set|dump|clear>");
+}
+
+// ============================================================================
+// CmdGremlin — automated stress testing
+// ============================================================================
+
+void ReControlSession::CmdGremlin (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "gremlin <new|status|suspend|step|resume|stop>"); return; }
+	if (!gSession) { SendErr ("transient", "no session"); return; }
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "status")
+	{
+		if (!Hordes::IsOn ())
+		{
+			Send ("OK gremlin off\n");
+			return;
+		}
+
+		unsigned short number;
+		UInt32 step, until;
+		Hordes::Status (&number, &step, &until);
+
+		char buf[128];
+		snprintf (buf, sizeof (buf), "OK gremlin running number=%d step=%u until=%u\n",
+			(int) number, (unsigned) step, (unsigned) until);
+		Send (buf);
+		return;
+	}
+
+	if (sub == "new")
+	{
+		if (args.size () < 4) { SendErr ("usage", "gremlin new <seed> <events>"); return; }
+		if (Hordes::IsOn ()) { SendErr ("transient", "gremlin already running"); return; }
+
+		int seed = args[2].toInt ();
+		int events = args[3].toInt ();
+		if (events < 1) { SendErr ("usage", "events must be > 0"); return; }
+
+		QueueWorkResult ([seed, events]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnSysCall);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			GremlinInfo info;
+			info.fNumber = seed;
+			info.fSteps = events;
+			info.fFinal = events;
+			info.fSaveFrequency = 10000;
+			info.fAppList = gGremlinAppList;  // use current app list
+
+			Hordes::NewGremlin (info);
+
+			char buf[80];
+			snprintf (buf, sizeof (buf), "OK gremlin started seed=%d events=%d\n", seed, events);
+			return std::string (buf);
+		});
+		return;
+	}
+
+	if (sub == "suspend")
+	{
+		if (!Hordes::IsOn ()) { SendErr ("transient", "no gremlin running"); return; }
+		if (!Hordes::CanSuspend ()) { SendErr ("transient", "cannot suspend now"); return; }
+		QueueWork ([](){ Hordes::Suspend (); });
+		return;
+	}
+
+	if (sub == "step")
+	{
+		if (!Hordes::IsOn ()) { SendErr ("transient", "no gremlin running"); return; }
+		if (!Hordes::CanStep ()) { SendErr ("transient", "cannot step now"); return; }
+		QueueWork ([](){ Hordes::Step (); });
+		return;
+	}
+
+	if (sub == "resume")
+	{
+		if (!Hordes::IsOn ()) { SendErr ("transient", "no gremlin running"); return; }
+		if (!Hordes::CanResume ()) { SendErr ("transient", "cannot resume now"); return; }
+		QueueWork ([](){ Hordes::Resume (); });
+		return;
+	}
+
+	if (sub == "stop")
+	{
+		if (!Hordes::IsOn ()) { SendErr ("transient", "no gremlin running"); return; }
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopNow);
+			Hordes::Stop ();
+			return "OK\n";
+		});
+		return;
+	}
+
+	SendErr ("usage", "gremlin <new|status|suspend|step|resume|stop>");
+}
+
+// ============================================================================
+// CmdCheck — MetaMemory report flags
+// ============================================================================
+
+void ReControlSession::CmdCheck (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "check <list|set|set-all>"); return; }
+
+	static const struct {
+		const char* name;
+		PrefKeyType key;
+	} kReportFlags[] = {
+		{ "FreeChunkAccess",         kPrefKeyReportFreeChunkAccess         },
+		{ "HardwareRegisterAccess",  kPrefKeyReportHardwareRegisterAccess  },
+		{ "LowMemoryAccess",         kPrefKeyReportLowMemoryAccess         },
+		{ "LowStackAccess",          kPrefKeyReportLowStackAccess          },
+		{ "MemMgrDataAccess",        kPrefKeyReportMemMgrDataAccess        },
+		{ "MemMgrLeaks",             kPrefKeyReportMemMgrLeaks             },
+		{ "MemMgrSemaphore",         kPrefKeyReportMemMgrSemaphore         },
+		{ "OffscreenObject",         kPrefKeyReportOffscreenObject         },
+		{ "OverlayErrors",           kPrefKeyReportOverlayErrors           },
+		{ "ProscribedFunction",      kPrefKeyReportProscribedFunction      },
+		{ "ROMAccess",               kPrefKeyReportROMAccess               },
+		{ "ScreenAccess",            kPrefKeyReportScreenAccess            },
+		{ "SizelessObject",          kPrefKeyReportSizelessObject          },
+		{ "StackAlmostOverflow",     kPrefKeyReportStackAlmostOverflow     },
+		{ "StrictIntlChecks",        kPrefKeyReportStrictIntlChecks        },
+		{ "SystemGlobalAccess",      kPrefKeyReportSystemGlobalAccess      },
+		{ "UIMgrDataAccess",         kPrefKeyReportUIMgrDataAccess         },
+		{ "UnlockedChunkAccess",     kPrefKeyReportUnlockedChunkAccess     },
+	};
+	const int kNumFlags = sizeof (kReportFlags) / sizeof (kReportFlags[0]);
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "list")
+	{
+		std::string result = "OK check list\n";
+		for (int i = 0; i < kNumFlags; i++)
+		{
+			Preference<bool> pref (kReportFlags[i].key);
+			char buf[64];
+			snprintf (buf, sizeof (buf), " %s=%s\n",
+				kReportFlags[i].name, *pref ? "on" : "off");
+			result += buf;
+		}
+		result += ".\n";
+		Send (result);
+		return;
+	}
+
+	if (sub == "set-all")
+	{
+		if (args.size () < 3) { SendErr ("usage", "check set-all <on|off>"); return; }
+		QString val = args[2].toLower ();
+		if (val != "on" && val != "off") { SendErr ("usage", "check set-all <on|off>"); return; }
+
+		bool enable = (val == "on");
+		for (int i = 0; i < kNumFlags; i++)
+		{
+			Preference<bool> pref (kReportFlags[i].key);
+			pref = enable;
+		}
+		Send ("OK\n");
+		return;
+	}
+
+	if (sub == "set")
+	{
+		if (args.size () < 4) { SendErr ("usage", "check set <flag> <on|off>"); return; }
+
+		std::string flagName = args[2].toStdString ();
+		QString val = args[3].toLower ();
+		if (val != "on" && val != "off") { SendErr ("usage", "check set <flag> <on|off>"); return; }
+
+		bool enable = (val == "on");
+		bool found = false;
+		for (int i = 0; i < kNumFlags; i++)
+		{
+			if (strcasecmp (flagName.c_str (), kReportFlags[i].name) == 0)
+			{
+				Preference<bool> pref (kReportFlags[i].key);
+				pref = enable;
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) { SendErr ("usage", "unknown flag '" + flagName + "'"); return; }
+		Send ("OK\n");
+		return;
+	}
+
+	SendErr ("usage", "check <list|set|set-all>");
+}
+
+// ============================================================================
+// CmdErrorHandling — error/warning behavior configuration
+// ============================================================================
+
+void ReControlSession::CmdErrorHandling (const QStringList& args)
+{
+	if (args.size () < 2) { SendErr ("usage", "errorhandling <get|set>"); return; }
+
+	static const struct {
+		const char* name;
+		PrefKeyType key;
+	} kSettings[] = {
+		{ "WarningOff", kPrefKeyWarningOff },
+		{ "ErrorOff",   kPrefKeyErrorOff   },
+		{ "WarningOn",  kPrefKeyWarningOn  },
+		{ "ErrorOn",    kPrefKeyErrorOn    },
+	};
+	const int kNumSettings = sizeof (kSettings) / sizeof (kSettings[0]);
+
+	static const struct {
+		const char* name;
+		EmErrorHandlingOption value;
+	} kOptions[] = {
+		{ "show",     kShow     },
+		{ "continue", kContinue },
+		{ "quit",     kQuit     },
+		{ "switch",   kSwitch   },
+	};
+	const int kNumOptions = sizeof (kOptions) / sizeof (kOptions[0]);
+
+	auto optionName = [&](EmErrorHandlingOption opt) -> const char* {
+		for (int i = 0; i < kNumOptions; i++)
+			if (kOptions[i].value == opt) return kOptions[i].name;
+		return "unknown";
+	};
+
+	QString sub = args[1].toLower ();
+
+	if (sub == "get")
+	{
+		std::string result = "OK errorhandling\n";
+		for (int i = 0; i < kNumSettings; i++)
+		{
+			Preference<EmErrorHandlingOption> pref (kSettings[i].key);
+			char buf[64];
+			snprintf (buf, sizeof (buf), " %s=%s\n",
+				kSettings[i].name, optionName (*pref));
+			result += buf;
+		}
+		result += ".\n";
+		Send (result);
+		return;
+	}
+
+	if (sub == "set")
+	{
+		if (args.size () < 4) { SendErr ("usage", "errorhandling set <setting> <show|continue|quit|switch>"); return; }
+
+		std::string settingName = args[2].toStdString ();
+		std::string optName = args[3].toLower ().toStdString ();
+
+		// Find setting
+		bool foundSetting = false;
+		PrefKeyType key = kPrefKeyWarningOff;
+		for (int i = 0; i < kNumSettings; i++)
+		{
+			if (strcasecmp (settingName.c_str (), kSettings[i].name) == 0)
+			{
+				key = kSettings[i].key;
+				foundSetting = true;
+				break;
+			}
+		}
+		if (!foundSetting) { SendErr ("usage", "unknown setting '" + settingName + "'"); return; }
+
+		// Find option
+		bool foundOption = false;
+		EmErrorHandlingOption opt = kShow;
+		for (int i = 0; i < kNumOptions; i++)
+		{
+			if (optName == kOptions[i].name)
+			{
+				opt = kOptions[i].value;
+				foundOption = true;
+				break;
+			}
+		}
+		if (!foundOption)
+		{
+			SendErr ("usage", "unknown option '" + optName + "' (use show/continue/quit/switch)");
+			return;
+		}
+
+		Preference<EmErrorHandlingOption> pref (key);
+		pref = opt;
+		Send ("OK\n");
+		return;
+	}
+
+	SendErr ("usage", "errorhandling <get|set>");
+}
+
+// ============================================================================
 
 void ReControlSession::ProcessBufferedCommands ()
 {
@@ -2027,6 +2848,15 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 	else if (cmd == "regs")        CmdRegs (parts);
 	else if (cmd == "menu")        CmdMenu (parts);
 	else if (cmd == "delete")      CmdDelete (parts);
+	else if (cmd == "backtrace")   CmdBacktrace (parts);
+	else if (cmd == "bt")          CmdBacktrace (parts);
+	else if (cmd == "break")       CmdBreak (parts);
+	else if (cmd == "watch")       CmdWatch (parts);
+	else if (cmd == "spy")         CmdSpy (parts);
+	else if (cmd == "log")         CmdLog (parts);
+	else if (cmd == "gremlin")     CmdGremlin (parts);
+	else if (cmd == "check")       CmdCheck (parts);
+	else if (cmd == "errorhandling") CmdErrorHandling (parts);
 	else
 		SendErr ("usage", "unknown command '" + cmd.toStdString () + "'");
 }
