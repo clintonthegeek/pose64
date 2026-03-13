@@ -171,13 +171,52 @@ Use `palm_dialog` to inspect and dismiss these programmatically:
 
 ```
 palm_state              -> "blocked_on_ui" means a dialog is pending
-palm_dialog             -> returns message text + available buttons
+palm_dialog             -> returns message, buttons, AND CPU registers (crash diagnostics)
 palm_dialog respond=continue   -> dismisses the dialog, CPU resumes
 palm_state              -> should be "running" again
 ```
 
+The dialog query response includes a `regs` line with PC, SR, and all data/address
+registers when the CPU is blocked.  This gives crash diagnostics inline without
+needing a separate `palm_regs` call.
+
 Common button names: `ok`, `cancel`, `continue`, `debug`, `reset`, `yes`, `no`.
 Omit `respond` to just query. If no dialog is pending, returns `OK none`.
+
+### Error recovery with `palm_reset`
+
+`palm_reset` works unconditionally — even in `blocked_on_ui` state.  It
+dismisses any pending dialog, unblocks the CPU thread, and performs the reset.
+Use `palm_reset type=hard` after a crash to fully restore the device.
+
+```
+palm_state              -> "blocked_on_ui"
+palm_reset type=hard    -> "OK reset (was blocked_on_ui, dialog dismissed)"
+palm_state              -> "running"
+```
+
+### Crash debugging workflow
+
+When your app crashes (illegal instruction, bus error, etc.):
+
+1. `palm_dialog` — see the error message AND CPU registers (including PC)
+2. `palm_regs` — works in `blocked_on_ui`, returns full register dump
+3. `palm_peek addr="0x<PC>" nbytes=16` — read code at crash site
+4. `palm_dialog respond=reset` or `palm_reset type=hard` — recover
+
+`palm_regs` and `palm_peek` both work while the CPU is blocked because the
+CPU state is frozen and stable.
+
+### Loading sessions programmatically
+
+`palm_load` works even from a cold start (no existing session required):
+
+```
+palm_load path="/path/to/session.psf"   -> opens session, starts CPU
+```
+
+This is essential for automated workflows where the emulator is restarted
+without human intervention to open a session via the GUI.
 
 ## App-Specific Workflows
 
@@ -220,6 +259,85 @@ palm_regs                               # dump all CPU registers
 ```
 
 Max 256 bytes per peek/poke. Data is hex-encoded.
+
+## Debugging Commands
+
+### Stack Trace
+
+```
+palm_backtrace                        # or palm_bt — stack crawl
+```
+
+Works in `blocked_on_ui` for crash analysis. Returns PC and A6 per frame.
+
+### Breakpoints (6 slots, indices 0-5)
+
+```
+palm_break list                       # show all breakpoint slots
+palm_break set 0 0x12340              # set breakpoint at address
+palm_break set 0 0x12340 d5.w==0x1234 # with condition
+palm_break clear 0                    # remove breakpoint
+palm_break enable 0                   # enable
+palm_break disable 0                  # disable
+```
+
+### Data Watchpoints
+
+```
+palm_watch set 0x12340 16             # watch 16 bytes at address
+palm_watch clear                      # remove watchpoint
+palm_watch status                     # query state
+palm_spy set 0x12340                  # monitor single address for changes
+palm_spy clear
+palm_spy status
+```
+
+### Logging (20 categories)
+
+```
+palm_log list                         # show categories with levels
+palm_log set SystemCalls 2            # 0=off, 1=gremlin-only, 2=always
+palm_log dump                         # flush buffer to file
+palm_log clear                        # clear buffer
+```
+
+### Gremlins (Automated Stress Testing)
+
+```
+palm_gremlin new 42 10000            # seed=42, run 10000 events
+palm_gremlin status                  # query progress
+palm_gremlin suspend / step / resume / stop
+```
+
+### Memory Checks (18 flags)
+
+```
+palm_check list                      # show all flags
+palm_check set FreeChunkAccess on    # enable specific check
+palm_check set-all on                # enable all checks
+```
+
+### Error Handling
+
+```
+palm_errorhandling get               # show behavior settings
+palm_errorhandling set WarningOff continue  # auto-continue warnings
+```
+
+Settings: `WarningOff`, `ErrorOff`, `WarningOn`, `ErrorOn`.
+Options: `show`, `continue`, `quit`, `switch`.
+
+### Profiling
+
+```
+palm_profile init                    # initialize (optional: maxcalls maxdepth)
+palm_profile start                   # begin collecting
+palm_profile stop                    # pause collecting
+palm_profile dump /tmp/profile.mwp   # write Metrowerks profile
+palm_profile print /tmp/profile.txt  # write text report
+palm_profile cleanup                 # free profiler
+palm_profile cycles                  # read cycle counters
+```
 
 ## Triggering Menus by Name
 

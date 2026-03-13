@@ -21,6 +21,30 @@ All responses start with `OK` or `ERR`:
 Error categories: `usage` (bad syntax), `transient` (temporary state issue),
 `timeout` (CPU didn't reach safe point), `fatal` (recommend reset).
 
+Install errors include file path, size, and recovery suggestions.  Example:
+```
+ERR timeout: CPU did not reach syscall boundary within 6740ms. File: Shadow.prc (174KB). Recovery: palm_reset type=soft, then retry install.
+```
+
+## `blocked_on_ui` State
+
+When the CPU encounters an error (illegal instruction, bus error, etc.), it shows
+a modal dialog and enters `blocked_on_ui` state.  In this state:
+
+- **`dialog`** — returns dialog message, buttons, AND a full CPU register dump
+  (PC, SR, D0-D7, A0-A7) for crash diagnostics.
+- **`dialog respond <button>`** — dismisses the dialog; CPU resumes.
+- **`reset`** — works unconditionally.  Dismisses any pending dialog, sets the
+  reset flag, and unblocks the CPU thread.  Response indicates what happened:
+  `OK reset (was blocked_on_ui, dialog dismissed)`.
+- **`regs`** — works; registers are frozen and stable.
+- **`peek`** — works; memory is stable.
+- **`backtrace`** — works; stack crawl from frozen CPU state.
+- **`state`** — works; returns `OK blocked_on_ui`.
+
+Commands that require CPU execution (`install`, `launch`, `tap`, etc.) will
+fail in this state.  Dismiss the dialog or reset first.
+
 ## Commands
 
 ### State
@@ -54,11 +78,11 @@ Error categories: `usage` (bad syntax), `transient` (temporary state issue),
 
 | Command | Response | Description |
 |---------|----------|-------------|
-| `install <path>` | `OK\n` | Install .prc/.pdb file into emulated Palm OS (max 4MB) |
+| `install <path>` | `OK\n` | Install .prc/.pdb file (max 4MB, timeout scales with file size) |
 | `launch <dbname>` | `OK\n` | Launch app by database name (supports names with spaces) |
 | `save <path>` | `OK\n` | Save session state to .psf file |
-| `load <path>` | `OK\n` | Load session from .psf file (destroys current session) |
-| `reset [soft\|hard\|debug]` | `OK\n` | Reset emulator (default: soft) |
+| `load <path>` | `OK\n` | Load session from .psf file (works from cold start or replaces current) |
+| `reset [soft\|hard\|debug]` | `OK\n` | Reset emulator (works even in `blocked_on_ui` state) |
 | `sleep <ms>` | `OK\n` | Pause command processing for 1-30000 ms |
 | `quit` | `OK\n` | Exit emulator |
 
@@ -104,6 +128,108 @@ OK POSE64 0.9.0
  session=/path/to/session.psf
 .
 ```
+
+### Dialog
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `dialog` | Multi-line or `OK none\n` | Query pending dialog: message, buttons, CPU registers |
+| `dialog respond <button>` | `OK\n` | Dismiss dialog by button name (continue/debug/reset/ok/cancel/yes/no) |
+
+When a dialog is pending and the session is `blocked_on_ui`, the query response
+includes a `regs` line with all CPU registers for crash diagnostics:
+
+```
+OK
+ message=App just executed an illegal instruction at 0x000C.
+ button continue Continue
+ button debug Debug
+ button reset Reset
+ regs PC=00012340 SR=2700 D0=00000000 ... A7=000FFFF0
+.
+```
+
+### Memory & Registers
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `peek <addr> <nbytes>` | `OK <hex>\n` | Read 1-256 bytes from emulated memory |
+| `poke <addr> <nbytes> <hex>` | `OK\n` | Write 1-256 bytes to emulated memory |
+| `regs` | `OK D0=... PC=... SR=...\n` | Dump all m68k registers |
+| `menu <"title"> <"item">` | `OK\n` | Trigger menu item by name |
+| `delete <dbname>` | `OK\n` | Delete a database |
+
+Address formats: `0x<hex>` (absolute), `a5@<offset>` (A5-relative),
+`global.<name>` (named low-memory global).
+
+`regs` and `peek` work in `blocked_on_ui` state (CPU is frozen, state is stable).
+
+### Batch
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `run <script>` | `OK\n` | Execute multiple sub-commands separated by `;` |
+
+Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`.
+
+### Debugging
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `backtrace` (or `bt`) | Multi-line | Stack crawl with PC and A6 per frame |
+| `break list` | Multi-line | List all 6 breakpoint slots with status |
+| `break set <idx> <addr> [cond]` | `OK\n` | Set breakpoint at address with optional condition |
+| `break clear <idx>` | `OK\n` | Clear breakpoint and condition |
+| `break enable <idx>` | `OK\n` | Enable breakpoint |
+| `break disable <idx>` | `OK\n` | Disable breakpoint |
+| `watch set <addr> <nbytes>` | `OK\n` | Monitor address range for writes |
+| `watch clear` | `OK\n` | Remove watchpoint |
+| `watch status` | `OK ...\n` | Query watchpoint state |
+| `spy set <addr>` | `OK\n` | Monitor single address for value changes |
+| `spy clear` | `OK\n` | Remove step spy |
+| `spy status` | `OK ...\n` | Query step spy state |
+
+### Logging
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `log list` | Multi-line | List 20 logging categories with current values |
+| `log set <cat> <0\|1\|2>` | `OK\n` | Set logging level (0=off, 1=gremlin, 2=always) |
+| `log dump` | `OK\n` | Flush log buffer to file |
+| `log clear` | `OK\n` | Clear log buffer |
+
+### Gremlins
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `gremlin new <seed> <events>` | `OK ...\n` | Start automated stress test |
+| `gremlin status` | `OK ...\n` | Query gremlin progress |
+| `gremlin suspend` | `OK\n` | Pause gremlin |
+| `gremlin step` | `OK\n` | Single-step gremlin |
+| `gremlin resume` | `OK\n` | Resume gremlin |
+| `gremlin stop` | `OK\n` | Stop gremlin |
+
+### Configuration
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `check list` | Multi-line | List 18 memory-check flags with on/off status |
+| `check set <flag> <on\|off>` | `OK\n` | Toggle individual memory check |
+| `check set-all <on\|off>` | `OK\n` | Toggle all memory checks |
+| `errorhandling get` | Multi-line | Query error/warning behavior settings |
+| `errorhandling set <s> <opt>` | `OK\n` | Set behavior (show/continue/quit/switch) |
+
+### Profiling
+
+| Command | Response | Description |
+|---------|----------|-------------|
+| `profile init [max] [depth]` | `OK\n` | Initialize profiler |
+| `profile start` | `OK\n` | Begin profiling |
+| `profile stop` | `OK\n` | Pause profiling |
+| `profile dump <path>` | `OK\n` | Write Metrowerks .mwp profile |
+| `profile print <path>` | `OK\n` | Write text profile report |
+| `profile cleanup` | `OK\n` | Free profiler memory |
+| `profile cycles` | `OK ...\n` | Query cycle counters (clock, read, write) |
 
 ## Coordinate Systems
 
@@ -172,7 +298,7 @@ python3 test_recontrol_stress.py --no-launch --port 6416
 
 ## Implementation
 
-- **File:** `src/core/ReControl.cpp` (~980 lines)
+- **File:** `src/core/ReControl.cpp` (~3100 lines)
 - **Architecture:** `ReControlServer` (QTcpServer) creates `ReControlSession`
   (QObject per connection).  All I/O on the Qt main thread.  CPU-dependent
   commands dispatch to `CPUWorkerThread` via `QueueWork`/`QueueWorkResult`.

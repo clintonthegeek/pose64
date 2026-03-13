@@ -62,6 +62,7 @@ JSON and require no Bash calls for emulator interaction.
 **Screen:** `palm_screenshot` (supports `scale`, `grid`, `annotate`, `crosshair` overlays), `palm_screen_hash`
 **Dialogs:** `palm_dialog` (query or dismiss modal error/warning dialogs)
 **Session:** `palm_launch`, `palm_install`, `palm_delete`, `palm_export`, `palm_save`, `palm_load`, `palm_reset`, `palm_sleep`
+**Debugging:** `palm_backtrace` (or `palm_bt`), `palm_break`, `palm_watch`, `palm_spy`, `palm_log`, `palm_gremlin`, `palm_check`, `palm_errorhandling`, `palm_profile`
 
 Start by calling `palm_ping` to confirm the MCP connection is live.
 
@@ -75,6 +76,11 @@ Start by calling `palm_ping` to confirm the MCP connection is live.
 **Backspace:** `palm_key code=8`
 **Delete existing app:** `palm_delete db="AppName"` then `palm_install path="..."`
 **Batch actions:** `palm_run script="tap_id 1005; sleep 500; type Hello; sleep 300"`
+**Stack trace:** `palm_backtrace` (also `palm_bt`) -- works in `blocked_on_ui`
+**Set breakpoint:** `palm_break set 0 0x12340`
+**Enable logging:** `palm_log set SystemCalls 2`
+**Run gremlin:** `palm_gremlin new 42 10000`
+**Enable checks:** `palm_check set-all on`
 
 ## Workflow
 
@@ -89,7 +95,14 @@ Start by calling `palm_ping` to confirm the MCP connection is live.
    - Use `palm_screen_hash` to detect when the screen has settled
    - Use `palm_screenshot scale=4 annotate=true` when reporting visual findings (returns both annotated image and `palm_ui` text)
    - Use `palm_screenshot scale=4 grid=true crosshair="x,y"` to verify specific coordinates before tapping
-6. **Handle modal dialogs**: If `palm_state` reports `blocked_on_ui`, a modal error/warning dialog is blocking the CPU. Use `palm_dialog` to read its message and buttons, then `palm_dialog respond=<button>` to dismiss it (common buttons: `ok`, `cancel`, `continue`, `debug`, `reset`). Verify with `palm_state` that the emulator resumed.
+6. **Handle modal dialogs and crashes**: If `palm_state` reports `blocked_on_ui`, a modal error/warning dialog is blocking the CPU.
+   - Use `palm_dialog` to read its message, buttons, AND CPU registers (crash diagnostics including PC)
+   - Use `palm_dialog respond=<button>` to dismiss it (common buttons: `ok`, `cancel`, `continue`, `debug`, `reset`)
+   - If dismiss doesn't work, `palm_reset type=hard` always works — it force-dismisses the dialog and resets
+   - Use `palm_backtrace` for stack traces when the app crashes
+   - `palm_regs` and `palm_peek` also work in `blocked_on_ui` state for additional crash analysis
+   - Use `palm_break` to set breakpoints for targeted debugging
+   - Verify with `palm_state` that the emulator resumed to `running`
 7. **Report findings**: For each scenario, document steps taken, expected vs actual, and `palm_ui` output
 
 ## Rules
