@@ -15,19 +15,78 @@ ReControl.cpp is a 3200-line monolith containing all 36 command handlers, dispat
 
 Every command declares its threading requirement in a static dispatch table:
 
-| Category | CPU State Required | Runs On | Examples |
+| Category | CPU State Required | Runs On | Stopper |
 |----------|-------------------|---------|---------|
-| `kCmdImmediate` | None | Main thread, synchronous | `state`, `quit`, `sleep`, `log list` |
-| `kCmdWorkerDirect` | `kStopNow` | Worker thread, fire-and-forget (always OK) | `tap`, `pen`, `key`, `button`, `type` |
-| `kCmdWorkerCycle` | `kStopOnCycle` | Worker thread, returns result | `screenshot`, `screen-hash`, `save` |
-| `kCmdWorkerSysCall` | `kStopOnSysCall` with timeout | Worker thread, returns result | `launch`, `install`, `info`, `apps`, `delete` |
-| `kCmdAdaptive` | Direct if `blocked_on_ui`, else `kStopOnCycle` | Depends on CPU state | `peek`, `regs`, `backtrace` |
-| `kCmdCustom` | Handler manages its own threading | Varies | `sleep`, `run`, `dialog` |
+| `kCmdImmediate` | None | Main thread, synchronous | None |
+| `kCmdWorkerDirect` | `kStopNow` | Worker thread, fire-and-forget | `kStopNow` |
+| `kCmdWorkerCycle` | Stopped at cycle boundary | Worker thread, returns result | `kStopOnCycle` |
+| `kCmdWorkerSysCall` | Stopped at syscall boundary | Worker thread, returns result | `kStopOnSysCall` + timeout |
+| `kCmdAdaptive` | Direct if `blocked_on_ui`, else worker | Main or worker | `kStopOnCycle` (when not blocked) |
+| `kCmdCustom` | Handler manages own threading | Varies | Handler's responsibility |
 
-### Handler Signature
+### Complete Command-to-Category Table
+
+| # | Command | Category | Timeout | File | Notes |
+|---|---------|----------|---------|------|-------|
+| 1 | `state` | Immediate | — | Session | Reads session state only |
+| 2 | `quit` | Immediate | — | Session | Sets app quit flag |
+| 3 | `tap` | WorkerDirect | — | Input | Pen down + up |
+| 4 | `tap-id` | WorkerCycle | — | Input | Reads form memory, then injects pen |
+| 5 | `pen` | WorkerDirect | — | Input | Single pen event |
+| 6 | `key` | WorkerDirect | — | Input | Single key event |
+| 7 | `type` | WorkerDirect | — | Input | Multi-key sequence |
+| 8 | `button` | WorkerDirect | — | Input | Skin button press |
+| 9 | `reset` | Custom | — | Session | ForceReset + dialog dismiss; unique control flow |
+| 10 | `screenshot` | WorkerCycle | — | Query | kStopNow in current code; kStopOnCycle is equivalent here |
+| 11 | `screen-hash` | WorkerCycle | — | Query | CRC32 of screen buffer |
+| 12 | `sleep` | Custom | — | Session | Pauses processing via QTimer |
+| 13 | `install` | WorkerSysCall | scaled | Session | Timeout scales with file size |
+| 14 | `export` | WorkerSysCall | 5000 | Session | ROM calls for DB export |
+| 15 | `launch` | WorkerSysCall | 5000 | Session | SetSwitchApp + EvtWakeup |
+| 16 | `save` | WorkerCycle | — | Session | Session file write |
+| 17 | `load` | Custom | — | Session | Tears down/rebuilds session, deferred execution |
+| 18 | `info` | WorkerCycle | — | Session | kStopNow; null-session returns version only |
+| 19 | `ui` | WorkerCycle | — | Query | Reads form structure |
+| 20 | `apps` | WorkerSysCall | 5000 | Session | ROM calls (DmGetNextDatabaseByTypeCreator) |
+| 21 | `dialog` | Custom | — | Session | Reads Qt dialog state, optionally responds |
+| 22 | `run` | Custom | — | Input | Recursive dispatch, repeat/brace parsing |
+| 23 | `peek` | Adaptive | — | Query | Direct if blocked_on_ui |
+| 24 | `poke` | Adaptive | — | Query | Changed from WorkerCycle to match peek |
+| 25 | `regs` | Adaptive | — | Query | Direct if blocked_on_ui |
+| 26 | `menu` | Custom | — | Input | Two-phase async retry with QTimer |
+| 27 | `delete` | WorkerSysCall | 5000 | Session | ROM call to delete DB |
+| 28 | `backtrace` | Adaptive | — | Query | Direct if blocked_on_ui |
+| 29 | `bt` | (alias) | — | — | Alias for `backtrace` in dispatch table |
+| 30 | `break` | WorkerCycle | — | Debug | All sub-commands run under stopper (fixes race in `list`) |
+| 31 | `watch` | WorkerCycle | — | Debug | All sub-commands under stopper (fixes `status` race) |
+| 32 | `spy` | WorkerCycle | — | Debug | All sub-commands under stopper (fixes `status` race) |
+| 33 | `log` | Immediate | — | Debug | Preference reads/writes only |
+| 34 | `gremlin` | WorkerCycle | — | Debug | All sub-commands under stopper (fixes `status` race) |
+| 35 | `check` | Immediate | — | Debug | Preference reads/writes only |
+| 36 | `errorhandling` | Immediate | — | Debug | Preference reads/writes only |
+| 37 | `profile` | WorkerCycle | — | Profile | `#if HAS_PROFILING`; all sub-commands under stopper |
+
+**Summary**: 6 Immediate, 5 WorkerDirect, 10 WorkerCycle, 5 WorkerSysCall, 4 Adaptive, 6 Custom, 1 alias = 37 table entries.
+
+### Sub-command threading unification
+
+Several commands (`break`, `watch`, `spy`, `gremlin`) currently have sub-commands with different threading models (e.g., `break list` on main thread, `break set` on worker). The refactoring **unifies all sub-commands under the parent's strictest required category** (`kCmdWorkerCycle`). This:
+
+- Fixes race conditions where `status`/`list` sub-commands read shared globals without a stopper
+- Simplifies the handler: one function, one threading model, sub-command dispatch is just string matching inside the handler
+- Minor cost: `break list` now briefly stops the CPU. This is negligible since the stopper is near-instant for `kStopOnCycle`.
+
+### Handler Signatures
 
 ```cpp
+// Standard handler: receives args, returns result string.
+// Dispatch loop handles threading, stopper, Send().
 using CmdHandler = std::string (*)(const QStringList& args);
+
+// Custom handler: receives session context for direct I/O control.
+// Handler manages its own threading, Send/SendErr calls.
+class ReControlSession;  // forward
+using CustomCmdHandler = void (*)(ReControlSession* session, const QStringList& args);
 
 enum CommandCategory {
     kCmdImmediate,
@@ -41,87 +100,87 @@ enum CommandCategory {
 struct CommandEntry {
     const char*     name;
     CommandCategory category;
-    int             timeoutMs;   // for kCmdWorkerSysCall (0 = default 5000ms)
-    CmdHandler      handler;
+    int             timeoutMs;     // for kCmdWorkerSysCall (0 = default 5000ms)
+    CmdHandler      handler;       // for non-Custom categories
+    CustomCmdHandler customHandler; // for kCmdCustom (handler is null)
 };
 ```
 
-Handlers are **free functions** (not `ReControlSession` member methods). They receive args and return a result string (`"OK\n"`, `"OK data\n"`, `"ERR category: msg\n"`, or multi-line `"OK ...\n.\n"` blocks). They never call `Send()`, `SendErr()`, `QueueWork()`, or `QueueWorkResult()` themselves.
+Handlers are **free functions** in their respective `ReControlCmds_*.cpp` files. Standard handlers never call `Send()`, `SendErr()`, `QueueWork()`, or `QueueWorkResult()`.
+
+Custom handlers receive `ReControlSession*` and call `Send()`/`SendErr()` directly. The session class exposes these as public methods for custom handlers.
 
 ### Dispatch Loop
 
 The dispatch loop in `ReControl.cpp` owns all I/O and threading:
 
-1. Look up command name in the static table.
+1. Look up command name in the static table (linear scan or `std::unordered_map`).
 2. Switch on category:
    - `kCmdImmediate`: call handler inline, `Send()` the result.
-   - `kCmdWorkerDirect`: wrap in `QueueWork` with `kStopNow` stopper. Handler runs, always sends `"OK\n"`.
-   - `kCmdWorkerCycle`: wrap in `QueueWorkResult` with `kStopOnCycle` stopper. Send result.
-   - `kCmdWorkerSysCall`: wrap in `QueueWorkResult` with `kStopOnSysCall` + timeout stopper. Send result.
-   - `kCmdAdaptive`: check `gSession->GetState()`; if `kBlockedOnUI`, call handler directly; else use `kStopOnCycle` worker path.
-   - `kCmdCustom`: pass a session context object with `Send`/`SendErr` access. Handler manages its own control flow.
-
-The stopper creation, timeout handling, exception wrapping, and `Send()` call all live in the dispatch loop. This makes threading bugs structurally impossible for non-custom commands.
-
-### kCmdCustom Escape Hatch
-
-Three commands need special control flow that doesn't fit the table-driven model:
-
-- **`sleep`**: Pauses command processing with `QTimer::singleShot`, resumes later. Needs direct access to `fProcessingPaused`.
-- **`run`**: Recursive dispatch — parses sub-commands and calls `DispatchCommand` in a loop. Needs session context.
-- **`dialog`**: Reads pending dialog state and optionally calls `EmDlgQt_RespondToDialog`. The "respond" sub-command has a side effect that doesn't fit the return-a-string model.
-
-These handlers receive a `ReControlSession*` (or a context struct) instead of just returning a string. They are explicitly few and marked.
+   - `kCmdWorkerDirect`: wrap handler in `QueueWork`. Always sends `"OK\n"` on completion. Exceptions are swallowed (existing behavior, documented).
+   - `kCmdWorkerCycle`: wrap in `QueueWorkResult`. Lambda creates `EmSessionStopper(gSession, kStopOnCycle)`, checks `Stopped()`, calls handler, sends result.
+   - `kCmdWorkerSysCall`: wrap in `QueueWorkResult`. Lambda creates `EmSessionStopper(gSession, kStopOnSysCall, timeoutMs)`, checks `Stopped()` and `CanCall()`, calls handler, sends result.
+   - `kCmdAdaptive`: on main thread, check `gSession->GetSessionState()`. If `kBlockedOnUI`, call handler directly and send result. Otherwise, use `kCmdWorkerCycle` path.
+   - `kCmdCustom`: call `customHandler(this, parts)`. Handler does everything.
+3. Pre-handler validation (for non-Immediate, non-Custom):
+   - If `gSession` is null → `"ERR transient: no session\n"`
+   - If `gCPUWorker` is null → `"ERR transient: no CPU worker\n"`
+   - If stopper fails → `"ERR timeout: ..."` or `"ERR transient: could not stop session\n"`
+   - If handler throws → `"ERR internal: <what>\n"`
 
 ### File Split
 
 | File | Contents |
 |------|----------|
-| **ReControl.h** | Public API (`ReControl_Startup`, `ReControl_Shutdown`), `CommandCategory` enum, `CommandEntry` struct, `CmdHandler` typedef, `CustomCmdHandler` typedef |
+| **ReControl.h** | Public API (`ReControl_Startup`, `ReControl_Shutdown`), `CommandCategory` enum, `CommandEntry` struct, handler typedefs, `ReControlSession` public interface (Send/SendErr for custom handlers) |
 | **ReControl.cpp** | `ReControlServer`, `ReControlSession` class, dispatch table, dispatch loop, `OnReadyRead`, `Send`/`SendErr`, `QueueWork`/`QueueWorkResult`, `ProcessBufferedCommands` |
-| **ReControlCmds_Session.cpp** | `launch`, `install`, `export`, `save`, `load`, `reset`, `quit`, `sleep`*, `apps`, `info`, `state`, `dialog`* |
-| **ReControlCmds_Input.cpp** | `tap`, `tap-id`, `pen`, `key`, `type`, `button`, `menu`, `run`* |
+| **ReControlCmds_Session.cpp** | `state`, `quit`, `reset`*, `sleep`*, `install`, `export`, `launch`, `save`, `load`*, `info`, `apps`, `dialog`*, `delete` |
+| **ReControlCmds_Input.cpp** | `tap`, `tap-id`, `pen`, `key`, `type`, `button`, `menu`*, `run`* |
 | **ReControlCmds_Query.cpp** | `screenshot`, `screen-hash`, `ui`, `peek`, `poke`, `regs`, `backtrace` |
 | **ReControlCmds_Debug.cpp** | `break`, `watch`, `spy`, `log`, `gremlin`, `check`, `errorhandling` |
 | **ReControlCmds_Profile.cpp** | `profile` (all sub-commands), guarded by `#if HAS_PROFILING` |
 
-Commands marked with * are `kCmdCustom` and use the custom handler signature.
+Commands marked with * are `kCmdCustom`.
 
 ### Error Handling
 
-All non-custom handlers return error strings in the format `"ERR <category>: <message>\n"`. The dispatch loop sends them as-is. Categories:
+All standard handlers return error strings in the format `"ERR <category>: <message>\n"`. The dispatch loop sends them as-is. Categories:
 
 - `usage` — bad arguments, unknown sub-commands
 - `transient` — no session, CPU not available
 - `timeout` — `kStopOnSysCall` didn't reach boundary in time
 - `fatal` — exception during ROM call, unrecoverable
 
-The dispatch loop adds its own error wrapping:
-- If the handler throws, catch and return `"ERR internal: <what>\n"`.
-- If `gSession` is null for categories that need it, return `"ERR transient: no session\n"` before calling the handler.
-- If `gCPUWorker` is null for worker categories, return `"ERR transient: no CPU worker\n"`.
-- If `EmSessionStopper` fails, return the appropriate timeout/transient error.
+The dispatch loop adds its own wrapping:
+- If handler throws → `"ERR internal: <what>\n"`
+- Pre-handler null checks for `gSession` and `gCPUWorker`
+- Stopper failure → appropriate timeout/transient error
+
+`kCmdWorkerDirect` always sends `"OK\n"`. If the handler throws, the exception is swallowed to prevent worker thread death. This is existing behavior and is documented as a known limitation.
 
 ### Bugs Fixed by This Refactoring
 
-1. **`launch` main-thread deadlock**: Moves to `kCmdWorkerSysCall`, runs on worker thread like all other ROM-calling commands.
-2. **`watch`/`spy` status race**: Moves to `kCmdAdaptive` or `kCmdWorkerCycle`, reads under a stopper.
-3. **`dialog` register access without guard**: The register-dump portion moves to `kCmdAdaptive` so it runs under a stopper when the CPU isn't already blocked.
-4. **`gremlin status` race**: Moves to consistent category.
+1. **`launch` main-thread deadlock**: Moves to `kCmdWorkerSysCall`.
+2. **`watch`/`spy`/`gremlin` status race**: Sub-commands unified under `kCmdWorkerCycle`, all run under stopper.
+3. **`break list` race**: Now runs under stopper like `break set`.
+4. **`poke` unusable during dialog**: Changed to `kCmdAdaptive` (matches `peek`).
 5. **`CmdLoad` null check**: Handler validates `gDocument` before use.
-6. **Dual error format**: All handlers return strings; dispatch loop sends them uniformly.
+6. **Dual error format**: Standard handlers return strings; dispatch loop sends uniformly.
 
 ### What Does NOT Change
 
-- `CPUWorkerThread` class and its `Command` struct — unchanged.
-- `ReControlServer` single-connection policy — unchanged.
-- The TCP protocol (command names, response formats) — unchanged. Clients see no difference.
-- `OnReadyRead`, `OnDisconnected`, `OnSleepDone` slot mechanics — unchanged.
-- `ProcessBufferedCommands` — unchanged.
+- `CPUWorkerThread` class and its `Command` struct.
+- `ReControlServer` single-connection policy.
+- The TCP protocol (command names, response formats). Clients see no difference.
+- `OnReadyRead`, `OnDisconnected`, `OnSleepDone` slot mechanics.
+- `ProcessBufferedCommands`.
+- The `bt` alias for `backtrace` (preserved as a separate table entry).
 
 ## Testing
 
 - All 36 commands must produce identical output before and after the refactor.
 - The existing `test_recontrol_stress.py` script covers basic command execution.
-- Manual testing via `nc` for launch (the command that changed threading model).
+- Manual testing via `nc` for `launch` (changed threading model).
 - Verify no deadlocks under rapid command sequences.
+- Test `break list`, `watch status`, `spy status`, `gremlin status` under load to confirm race fixes.
+- Test `poke` while a dialog is pending (new `kCmdAdaptive` behavior).
