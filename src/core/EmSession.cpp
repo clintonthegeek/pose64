@@ -1060,6 +1060,32 @@ void EmSession::Sleep (unsigned long msecs)
 
 
 // ---------------------------------------------------------------------------
+//		� EmSession::SleepInterruptible
+// ---------------------------------------------------------------------------
+// Like Sleep, but takes microseconds and is designed for the CPU's
+// stopped-instruction loop.  SuspendThread broadcasts fSleepCondition,
+// so any kStopNow request wakes us instantly instead of blocking the
+// caller for up to 10 ms.
+
+#if HAS_OMNI_THREAD
+void EmSession::SleepInterruptible (unsigned long usecs)
+{
+	const unsigned long	kMicrosecondsPerSecond = 1000000;
+	const unsigned long	kNanosecondsPerMicrosecond = 1000;
+
+	unsigned long	secs = usecs / kMicrosecondsPerSecond;
+	unsigned long	nsecs = (usecs % kMicrosecondsPerSecond) * kNanosecondsPerMicrosecond;
+
+	fThread->get_time (&secs, &nsecs, secs, nsecs);
+
+	fSleepLock.lock ();
+	fSleepCondition.timedwait (secs, nsecs);
+	fSleepLock.unlock ();
+}
+#endif
+
+
+// ---------------------------------------------------------------------------
 //		� EmSession::InCPUThread
 // ---------------------------------------------------------------------------
 
@@ -1596,7 +1622,7 @@ EmDlgItemID EmSession::BlockOnDialog (EmDlgThreadFn fn, const void* parameters)
 
 		fSharedCondition.broadcast ();
 
-		while (result == kDlgItemNone && !fStop)
+		while (result == kDlgItemNone && !fStop && !fReset)
 		{
 //			LogAppendMsg ("EmSession::RunDialog (middle): fState = %ld", (long) fState);
 			EmAssert (fState == kBlockedOnUI);
@@ -1844,7 +1870,7 @@ void EmSession::PostKeyEvent (const EmKeyEvent& event)
 
 	fKeyQueue.Put (event);
 
-	// Events are picked up by the SysEvGroupWait tailpatch in
+	// Events are picked up by the SysEvGroupWait headpatch in
 	// EmPatchMgr.  No need to call PrvWakeUpCPU here — doing so
 	// blocks the main thread via EmSessionStopper, which deadlocks
 	// when the CPU is inside ExecuteSubroutine (e.g. after loading
@@ -1899,7 +1925,7 @@ void EmSession::PostPenEvent (const EmPenEvent& event)
 
 	fLastPenEvent = event;
 
-	// Events are picked up by the SysEvGroupWait tailpatch in
+	// Events are picked up by the SysEvGroupWait headpatch in
 	// EmPatchMgr.  No need to call PrvWakeUpCPU here — doing so
 	// blocks the main thread via EmSessionStopper, which deadlocks
 	// when the CPU is inside ExecuteSubroutine (e.g. after loading

@@ -378,7 +378,7 @@ void EmWindowQt::paintEvent (QPaintEvent*)
 	// + alpha surface format) produces correct transparency.
 	if (!fSkinImage.isNull ())
 	{
-		painter.drawImage (rect (), fSkinImage);
+		painter.drawImage (QPoint (0, 0), fSkinImage);
 	}
 
 	// Only draw LCD, button, and LED overlays when a session exists.
@@ -1015,17 +1015,11 @@ void EmWindowQt::HostWindowReset (void)
 	// can prevent the window from shrinking to a smaller scale.
 	clearMask ();
 
-	// Resize the window.  Skin dimensions are logical pixel sizes.
-	// paintEvent uses drawImage(rect(), ...) to scale the skin image
-	// to fill the widget, so Qt handles HiDPI device pixel mapping.
-	setMinimumSize (0, 0);
-	setMaximumSize (QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-	resize ((int)w, (int)h);
-	setFixedSize ((int)w, (int)h);
-
-	// Apply Frameless Window and Stay On Top preferences.
-	// setWindowFlags() hides the widget, so we must call show()
-	// after — but only if we were already visible.
+	// Apply Frameless Window and Stay On Top preferences FIRST.
+	// setWindowFlags() recreates the native window, so we do this
+	// before resize() to ensure we're sizing the final native window.
+	// Otherwise on Wayland the compositor may override geometry when
+	// the window is later recreated by setWindowFlags.
 	Qt::WindowFlags flags = Qt::Window;
 	if (*prefFrameless)
 		flags |= Qt::FramelessWindowHint;
@@ -1044,6 +1038,13 @@ void EmWindowQt::HostWindowReset (void)
 
 		if (wasVisible)
 			show ();
+
+		// Re-apply size after show() — some Wayland compositors
+		// reset geometry when the native window is recreated.
+		setMinimumSize (0, 0);
+		setMaximumSize (QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+		resize ((int)w, (int)h);
+		setFixedSize ((int)w, (int)h);
 	}
 	else
 	{
@@ -1051,6 +1052,14 @@ void EmWindowQt::HostWindowReset (void)
 		// (it may have been lost to a prior setWindowFlags call).
 		setAttribute (Qt::WA_TranslucentBackground, *prefFrameless);
 	}
+
+	// Resize the window.  Skin dimensions are logical pixel sizes.
+	// paintEvent draws the skin at (0,0) at its native size, so
+	// widget dimensions must match the skin image exactly.
+	setMinimumSize (0, 0);
+	setMaximumSize (QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+	resize ((int)w, (int)h);
+	setFixedSize ((int)w, (int)h);
 
 	// Apply window mask (clips input on all platforms, visual on X11).
 	if (*prefFrameless)

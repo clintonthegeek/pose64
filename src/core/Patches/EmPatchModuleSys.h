@@ -34,6 +34,7 @@ class SysHeadpatch
 	public:
 		static CallROMType		UnmarkUIObjects			(void); // CtlNewControl, FldNewField, FrmInitForm, FrmNewBitmap, FrmNewGadget, FrmNewGsi, FrmNewLabel, LstNewList, WinAddWindow, WinRemoveWindow
 		static CallROMType		RecordTrapNumber		(void); // EvtGetEvent & EvtGetPen
+	static CallROMType		EvtGetEvent				(void);
 
 		static CallROMType		ClipboardGetItem		(void);
 		static CallROMType		DbgMessage				(void);

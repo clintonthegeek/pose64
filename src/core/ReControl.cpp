@@ -871,29 +871,45 @@ void ReControlSession::CmdLaunch (const QStringList& args)
 	}
 	std::string name = nameQ.toStdString ();
 
-	QueueWorkResult ([name]() -> std::string {
-		if (!gSession) return "ERR transient: no session\n";
-		EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
-		if (!stopper.Stopped () || !stopper.CanCall ())
-			return "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+	// Stop CPU at syscall boundary to resolve database name,
+	// then use SetSwitchApp to schedule PuppetString-based switch.
+	// PuppetString fires on the next natural SysEvGroupWait headpatch
+	// where IsNested()==false and clearTimeout is available.
+	EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
+	if (!stopper.Stopped () || !stopper.CanCall ())
+	{
+		SendErr ("timeout", "CPU did not reach syscall boundary within 5000ms");
+		return;
+	}
 
-		try
+	try
+	{
+		LocalID dbID = DmFindDatabase (0, name.c_str ());
+		if (dbID == 0)
 		{
-			LocalID dbID = DmFindDatabase (0, name.c_str ());
-			if (dbID == 0)
-				return "ERR usage: database not found: " + name + "\n";
-
-			Err err = SysUIAppSwitch (0, dbID, sysAppLaunchCmdNormalLaunch, NULL);
-			if (err != errNone)
-				return "ERR fatal: SysUIAppSwitch failed\n";
-
-			return "OK\n";
+			SendErr ("usage", "database not found: " + name);
+			return;
 		}
-		catch (...)
-		{
-			return "ERR fatal: launch failed - emulator exception during ROM call (recommend reset)\n";
-		}
-	});
+
+		// Use PuppetString's own app-switch mechanism.
+		// SetSwitchApp schedules the switch; the EvtGetEvent headpatch
+		// or PuppetString (in SysEvGroupWait) will pick it up.
+		EmPatchState::SetSwitchApp (0, dbID);
+
+		// Call EvtWakeup to signal the event group and wake
+		// SysEvGroupWait.  Although we're in nested/subroutine context,
+		// the ROM's EvtWakeup signals the event group at the kernel
+		// level — this wakes SysEvGroupWait when the CPU resumes.
+		// PuppetString won't fire during this nested call (IsNested
+		// guard prevents it), but the signal persists.
+		EvtWakeup ();
+
+		Send ("OK\n");
+	}
+	catch (...)
+	{
+		SendErr ("fatal", "launch failed - emulator exception during ROM call (recommend reset)");
+	}
 }
 
 void ReControlSession::CmdSave (const QStringList& args)
@@ -1360,7 +1376,7 @@ void ReControlSession::CmdDialog (const QStringList& args)
 	std::string info = EmDlgQt_GetPendingDialog ();
 	if (info.empty ())
 	{
-		Send ("OK none\n");
+		Send ("OK none\n.\n");
 		return;
 	}
 
@@ -2150,7 +2166,7 @@ void ReControlSession::CmdBacktrace (const QStringList& args)
 
 void ReControlSession::CmdBreak (const QStringList& args)
 {
-	if (args.size () < 2) { SendErr ("usage", "break <list|set|clear|enable|disable> [args...]"); return; }
+	if (args.size () < 2) { SendErr ("usage", "break <list|set|clear|clearall|enable|disable> [args...]"); return; }
 	if (!gSession) { SendErr ("transient", "no session"); return; }
 
 	QString sub = args[1].toLower ();
@@ -2276,7 +2292,21 @@ void ReControlSession::CmdBreak (const QStringList& args)
 		return;
 	}
 
-	SendErr ("usage", "break <list|set|clear|enable|disable> [args...]");
+	if (sub == "clearall")
+	{
+		QueueWorkResult ([]() -> std::string {
+			if (!gSession) return "ERR transient: no session\n";
+			EmSessionStopper stopper (gSession, kStopOnCycle);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+
+			for (int i = 0; i < dbgTotalBreakpoints; i++)
+				Debug::ClearBreakpoint (i);
+			return "OK\n";
+		});
+		return;
+	}
+
+	SendErr ("usage", "break <list|set|clear|clearall|enable|disable> [args...]");
 }
 
 // ============================================================================
@@ -2553,8 +2583,8 @@ void ReControlSession::CmdGremlin (const QStringList& args)
 
 		QueueWorkResult ([seed, events]() -> std::string {
 			if (!gSession) return "ERR transient: no session\n";
-			EmSessionStopper stopper (gSession, kStopOnSysCall);
-			if (!stopper.Stopped ()) return "ERR transient: could not stop session\n";
+			EmSessionStopper stopper (gSession, kStopOnSysCall, 10000);
+			if (!stopper.Stopped ()) return "ERR transient: could not stop session for gremlin\n";
 
 			GremlinInfo info;
 			info.fNumber = seed;
@@ -2617,7 +2647,7 @@ void ReControlSession::CmdGremlin (const QStringList& args)
 
 void ReControlSession::CmdCheck (const QStringList& args)
 {
-	if (args.size () < 2) { SendErr ("usage", "check <list|set|set-all>"); return; }
+	if (args.size () < 2) { SendErr ("usage", "check <list|set|set-all|clearall>"); return; }
 
 	static const struct {
 		const char* name;
@@ -2704,7 +2734,18 @@ void ReControlSession::CmdCheck (const QStringList& args)
 		return;
 	}
 
-	SendErr ("usage", "check <list|set|set-all>");
+	if (sub == "clearall")
+	{
+		for (int i = 0; i < kNumFlags; i++)
+		{
+			Preference<bool> pref (kReportFlags[i].key);
+			pref = false;
+		}
+		Send ("OK\n");
+		return;
+	}
+
+	SendErr ("usage", "check <list|set|set-all|clearall>");
 }
 
 // ============================================================================
@@ -2713,7 +2754,7 @@ void ReControlSession::CmdCheck (const QStringList& args)
 
 void ReControlSession::CmdErrorHandling (const QStringList& args)
 {
-	if (args.size () < 2) { SendErr ("usage", "errorhandling <get|set>"); return; }
+	if (args.size () < 2) { SendErr ("usage", "errorhandling <get|list|set>"); return; }
 
 	static const struct {
 		const char* name;
@@ -2745,7 +2786,7 @@ void ReControlSession::CmdErrorHandling (const QStringList& args)
 
 	QString sub = args[1].toLower ();
 
-	if (sub == "get")
+	if (sub == "get" || sub == "list")
 	{
 		std::string result = "OK errorhandling\n";
 		for (int i = 0; i < kNumSettings; i++)
@@ -2806,7 +2847,7 @@ void ReControlSession::CmdErrorHandling (const QStringList& args)
 		return;
 	}
 
-	SendErr ("usage", "errorhandling <get|set>");
+	SendErr ("usage", "errorhandling <get|list|set>");
 }
 
 // ============================================================================
@@ -2868,6 +2909,12 @@ void ReControlSession::CmdProfile (const QStringList& args)
 
 		QueueWorkResult ([path]() -> std::string {
 			if (!gSession) return "ERR transient: no session\n";
+			if (!gProfilingEnabled)
+				return "ERR transient: profiling not enabled (call profile init + start first)\n";
+			if (gProfilingOn)
+				return "ERR transient: profiling still running (call profile stop first)\n";
+			if (gClockCycles == 0)
+				return "ERR transient: no profiling data collected (run CPU with profiling enabled first)\n";
 			EmSessionStopper stopper (gSession, kStopNow);
 			ProfileDump (path.c_str ());
 			return "OK\n";
@@ -2882,7 +2929,18 @@ void ReControlSession::CmdProfile (const QStringList& args)
 
 		QueueWorkResult ([path]() -> std::string {
 			if (!gSession) return "ERR transient: no session\n";
+			if (!gProfilingEnabled)
+				return "ERR transient: profiling not enabled (call profile init + start first)\n";
+			if (gProfilingOn)
+				return "ERR transient: profiling still running (call profile stop first)\n";
 			EmSessionStopper stopper (gSession, kStopNow);
+
+			// Guard against division by zero in RecursivePrintBlock:
+			// gCyclesCounted is the divisor for percentage calculations.
+			// If no cycles were counted, ProfilePrint will SIGFPE.
+			if (gClockCycles == 0)
+				return "ERR transient: no profiling data collected (run CPU with profiling enabled first)\n";
+
 			ProfilePrint (path.c_str ());
 			return "OK\n";
 		});

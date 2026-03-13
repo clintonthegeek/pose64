@@ -49,7 +49,7 @@ int main (int argc, char** argv)
 	qtApp.setDesktopFileName ("ca.vibekoder.pose64");
 	qtApp.setOrganizationDomain ("ca.vibekoder");
 	qtApp.setOrganizationName ("VibeKoder");
-	qtApp.setApplicationVersion ("0.9.0");
+	qtApp.setApplicationVersion ("0.9.1");
 
 	// Parse --port and --no-recontrol before passing argv to Qt/POSE
 	int recontrolPort = 6416;  // default

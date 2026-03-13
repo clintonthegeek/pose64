@@ -182,6 +182,7 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 | `break clear <idx>` | `OK\n` | Clear breakpoint and condition |
 | `break enable <idx>` | `OK\n` | Enable breakpoint |
 | `break disable <idx>` | `OK\n` | Disable breakpoint |
+| `break clearall` | `OK\n` | Clear all 6 breakpoint slots at once |
 | `watch set <addr> <nbytes>` | `OK\n` | Monitor address range for writes |
 | `watch clear` | `OK\n` | Remove watchpoint |
 | `watch status` | `OK ...\n` | Query watchpoint state |
@@ -216,7 +217,8 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 | `check list` | Multi-line | List 18 memory-check flags with on/off status |
 | `check set <flag> <on\|off>` | `OK\n` | Toggle individual memory check |
 | `check set-all <on\|off>` | `OK\n` | Toggle all memory checks |
-| `errorhandling get` | Multi-line | Query error/warning behavior settings |
+| `check clearall` | `OK\n` | Turn off all 18 MetaMemory check flags |
+| `errorhandling get` (or `list`) | Multi-line | Query error/warning behavior settings |
 | `errorhandling set <s> <opt>` | `OK\n` | Set behavior (show/continue/quit/switch) |
 
 ### Profiling
@@ -226,10 +228,18 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 | `profile init [max] [depth]` | `OK\n` | Initialize profiler |
 | `profile start` | `OK\n` | Begin profiling |
 | `profile stop` | `OK\n` | Pause profiling |
-| `profile dump <path>` | `OK\n` | Write Metrowerks .mwp profile |
+| `profile dump <path>` | `OK\n` | Write Metrowerks .mwp profile + auto-generated .txt sibling |
 | `profile print <path>` | `OK\n` | Write text profile report |
 | `profile cleanup` | `OK\n` | Free profiler memory |
 | `profile cycles` | `OK ...\n` | Query cycle counters (clock, read, write) |
+
+`profile dump` and `profile print` return errors if:
+- Profiling is not enabled (must call `profile init` + `profile start` first)
+- Profiling is still running (must call `profile stop` first)
+- No data was collected (gClockCycles == 0)
+
+`profile dump <path>` writes a Metrowerks `.mwp` file and also auto-generates
+a `.txt` sibling with the same base name (e.g., `foo.mwp` produces `foo.txt`).
 
 ## Coordinate Systems
 
@@ -298,7 +308,7 @@ python3 test_recontrol_stress.py --no-launch --port 6416
 
 ## Implementation
 
-- **File:** `src/core/ReControl.cpp` (~3100 lines)
+- **File:** `src/core/ReControl.cpp` (~3200 lines)
 - **Architecture:** `ReControlServer` (QTcpServer) creates `ReControlSession`
   (QObject per connection).  All I/O on the Qt main thread.  CPU-dependent
   commands dispatch to `CPUWorkerThread` via `QueueWork`/`QueueWorkResult`.

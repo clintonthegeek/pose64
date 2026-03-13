@@ -123,12 +123,35 @@ bool EmDlgQt_RespondToDialog (const std::string& buttonName)
 	{
 		if (gPendingDialog.buttons[i].id.toLower () == target)
 		{
-			gPendingDialog.buttons[i].button->click ();
+			// Defer the click to the next event loop iteration.
+			// We are inside the nested event loop of msgBox.exec()
+			// (called from OnReadyRead → DispatchCommand).
+			// A deferred click avoids re-entrancy issues and ensures
+			// the socket response is sent before the dialog closes.
+			QPushButton* btn = gPendingDialog.buttons[i].button;
+			QTimer::singleShot (0, btn, [btn]() { btn->click (); });
 			return true;
 		}
 	}
 
 	return false;
+}
+
+
+// ---------------------------------------------------------------------------
+//	EmDlgQt_DismissIfPending — force-close any open error dialog
+// ---------------------------------------------------------------------------
+// Called when ForceReset needs to unblock the CPU thread.  If a modal
+// QMessageBox is open, reject it so that exec() returns and
+// PrvCommonDialog can finish.  The CPU thread's BlockOnDialog loop
+// will exit because ForceReset also sets fReset.
+
+void EmDlgQt_DismissIfPending (void)
+{
+	if (gPendingDialog.active && gPendingDialog.msgBox)
+	{
+		gPendingDialog.msgBox->reject ();
+	}
 }
 
 

@@ -338,15 +338,6 @@ uint32 EmBankDRAM::GetLong (emuptr address)
 	if (address > gDynamicHeapSize)
 		return EmBankSRAM::GetLong (address);
 
-	if (address == 0x78) {
-		static int s78LongCount = 0;
-		if (s78LongCount < 20) {
-			fprintf (stderr, "READ32_0x78: PC=0x%08X accessOK=%d\n",
-				(unsigned) gCPU->GetPC (), CEnableFullAccess::AccessOK ());
-			s78LongCount++;
-		}
-	}
-
 #if (PROFILE_MEMORY)
 	gMemoryAccess[kDRAMLongRead]++;
 	if (address & 2)

@@ -113,7 +113,7 @@ ProtoPatchTableEntry	gProtoSysPatchTable[] =
 	{sysTrapEvtAddUniqueEventToQueue,SysHeadpatch::EvtAddUniqueEventToQueue,NULL},
 	{sysTrapEvtEnqueueKey,			SysHeadpatch::EvtEnqueueKey,			NULL},
 	{sysTrapEvtEnqueuePenPoint, 	SysHeadpatch::EvtEnqueuePenPoint,		NULL},
-	{sysTrapEvtGetEvent,			SysHeadpatch::RecordTrapNumber, 		SysTailpatch::EvtGetEvent},
+	{sysTrapEvtGetEvent,			SysHeadpatch::EvtGetEvent, 				SysTailpatch::EvtGetEvent},
 	{sysTrapEvtGetPen,				SysHeadpatch::RecordTrapNumber, 		SysTailpatch::EvtGetPen},
 	{sysTrapEvtGetSysEvent, 		NULL,									SysTailpatch::EvtGetSysEvent},
 	{sysTrapEvtSysEventAvail,		NULL,									SysTailpatch::EvtSysEventAvail},
@@ -249,6 +249,48 @@ CallROMType SysHeadpatch::RecordTrapNumber (void)
 	EmAssert (EmMemDoGet16 (realMem - 2) == (m68kTrapInstr + sysDispatchTrapNum));
 
 	EmPatchState::SetLastEvtTrap (EmMemDoGet16 (realMem));
+
+	return kExecuteROM;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	SysHeadpatch::EvtGetEvent
+ *
+ * DESCRIPTION:	Headpatch for EvtGetEvent.  Records the trap number
+ *				(like RecordTrapNumber) and also checks for a pending
+ *				app switch scheduled via EmPatchState::SetSwitchApp.
+ *				PuppetString normally handles this in SysEvGroupWait,
+ *				but EvtGetEvent may return events without ever calling
+ *				SysEvGroupWait, leaving the switch pending forever.
+ *
+ ***********************************************************************/
+
+CallROMType SysHeadpatch::EvtGetEvent (void)
+{
+	// Record the trap number (same as RecordTrapNumber).
+	EmAssert (gCPU);
+	uint8* realMem = EmMemGetRealAddress (gCPU->GetPC ());
+	EmAssert (EmMemDoGet16 (realMem - 2) == (m68kTrapInstr + sysDispatchTrapNum));
+	EmPatchState::SetLastEvtTrap (EmMemDoGet16 (realMem));
+
+	// If an app switch is pending and we're not nested, trigger it now.
+	// PuppetString handles this in SysEvGroupWait, but EvtGetEvent may
+	// return events without calling SysEvGroupWait.  We don't require
+	// GetEvtMgrIdle() here — that flag isn't set until inside EvtGetEvent,
+	// and app switches via SysUIAppSwitch are safe from any non-nested
+	// EvtGetEvent context.
+	if (!gSession->IsNested () &&
+		EmPatchState::GetNextAppDbID () != 0)
+	{
+		EmPatchMgr::SwitchToApp (
+			EmPatchState::GetNextAppCardNo (),
+			EmPatchState::GetNextAppDbID ());
+
+		EmPatchState::SetNextAppCardNo (0);
+		EmPatchState::SetNextAppDbID (0);
+	}
 
 	return kExecuteROM;
 }

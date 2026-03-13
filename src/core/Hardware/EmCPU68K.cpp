@@ -646,7 +646,7 @@ Bool EmCPU68K::ExecuteSpecial (void)
 				if (this->CheckForBreak ())
 					return true;
 
-				usleep (100);
+				fSession->SleepInterruptible (100);
 			}
 
 			return false;	// STOP cleared, continue execution
@@ -937,7 +937,7 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 						targetUs = 10000;
 
 					if (targetUs > 200)
-						usleep ((useconds_t) targetUs);
+						fSession->SleepInterruptible ((unsigned long) targetUs);
 				}
 			}
 		}
@@ -1063,11 +1063,24 @@ void EmCPU68K::CycleSlowly (Bool sleeping)
 					// Yield the CPU instead of busy-waiting.
 					usleep (500);
 				}
-				else if (sleepUs < -100000)
+				else
 				{
-					// More than 100ms behind — reset to prevent catch-up burst
-					fThrottleBaseCycles = fCycleCount;
-					fThrottleBaseTimeUs = nowUs;
+					// Behind schedule — host can't keep up with target
+					// clock rate (common with ASAN/debug builds).
+					if (sleepUs < -100000)
+					{
+						// Far behind — reset baseline to prevent
+						// catch-up burst when host speeds up again.
+						fThrottleBaseCycles = fCycleCount;
+						fThrottleBaseTimeUs = nowUs;
+					}
+					// Yield proportional to the deficit to avoid 100%
+					// CPU.  On fast hosts this branch is rarely reached;
+					// on slow/instrumented builds it caps usage at ~65%.
+					int64_t yieldUs = (-sleepUs) / 2;
+					if (yieldUs < 500) yieldUs = 500;
+					if (yieldUs > 10000) yieldUs = 10000;
+					usleep ((useconds_t) yieldUs);
 				}
 			}
 		}

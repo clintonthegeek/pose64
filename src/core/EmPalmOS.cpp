@@ -1492,6 +1492,12 @@ Bool EmPalmOS::HandleSystemCall (Bool fromTrap)
 			// that's OK, but if we're in a background task, an attempted
 			// switch to the UI task will fail, due to Poser turning off
 			// interrupts when it makes OS calls.
+			//
+			// We also allow breaking in the AMX root task (the kernel
+			// scheduler).  When the device is idle, the CPU spends most
+			// of its time in AMX context — waiting for psys would time
+			// out.  The memory semaphore check above ensures data manager
+			// calls are safe from AMX context.
 
 			SysKernelInfoType	taskInfo;
 			taskInfo.selector	= sysKernelInfoSelCurTaskInfo;
@@ -1499,7 +1505,8 @@ Bool EmPalmOS::HandleSystemCall (Bool fromTrap)
 			Err	err = ::SysKernelInfo (&taskInfo);
 			if (err == errNone)
 			{
-				if (taskInfo.param.task.tag == 'psys')
+				if (taskInfo.param.task.tag == 'psys' ||
+					taskInfo.param.task.tag == 0x414d5800 /* AMX\0 */)
 				{
 					gCPU->SetPC (gCPU->GetPC () - pcAdjust);
 					gSession->ScheduleSuspendSysCall ();

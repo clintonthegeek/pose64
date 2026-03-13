@@ -349,6 +349,13 @@ class EmSession
 
 		void					Sleep				(unsigned long msecs);
 
+		// Sleep for up to the given number of microseconds, but wake
+		// immediately if SuspendThread broadcasts fSleepCondition.
+		// Used by ExecuteStoppedLoop so that kStopNow can interrupt
+		// the wait without blocking the caller for the full duration.
+
+		void					SleepInterruptible	(unsigned long usecs);
+
 		// Return whether or not the calling function is executing in the context of
 		// the CPU thread or not.  If not, it's most likely executing in the UI
 		// thread -- much of Poser assumes this is the case.

@@ -1080,7 +1080,7 @@ void EmPatchMgr::PuppetString (CallROMType& callROM, Bool& clearTimeout)
 
 			EmPatchState::SetNextAppCardNo (0);
 			EmPatchState::SetNextAppDbID (0);
-			
+
 			clearTimeout = true;
 		}
 	}
