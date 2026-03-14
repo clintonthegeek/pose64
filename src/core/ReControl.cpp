@@ -440,9 +440,9 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 		{
 			if (!gSession) { SendErr ("transient", "no session"); return; }
 			auto handler = entry->handler;
-			QueueWorkResult ([handler, parts]() -> std::string {
-				if (!gSession) return "ERR transient: no session\n";
-				return handler (parts);
+			QueueWork ([handler, parts]() {
+				if (!gSession) return;
+				handler (parts);
 			});
 			break;
 		}
