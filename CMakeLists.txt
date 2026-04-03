@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.19)
-project(POSE64 VERSION 0.9.0 LANGUAGES CXX C)
+project(POSE64 VERSION 0.9.1 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Debug build: cmake .. -DPOSE_DEBUG=ON
 # Enables: debug symbols, ASAN (leak detection), UBSAN, exception/register history
