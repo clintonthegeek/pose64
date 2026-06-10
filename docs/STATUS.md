@@ -81,41 +81,33 @@ host.
 8. **SLP debugger sockets listen by default** (6414/2000) and connecting
    triggers an untimed main-thread `kStopOnSysCall` stop
    (`Debug::EventCallback`) — a UI hang waiting to happen.
-9. **`reset` during a deferred-error dialog crashes the process (2026-06-10,
-   corrected same day).** Any spy/watch/memory-access error raises a dialog via
-   `EmSession::BlockOnDialog`, which posts an `EmActionDialog` referencing the
-   CPU thread's **stack-local** dialog data, then waits. `reset` (`ForceReset`)
-   sets `fReset`, breaking the wait (`EmSession.cpp:1625`) and destroying that
-   stack while the action can still touch it. Two verified lethal
-   interleavings: reset while the action is still *queued* (≤100 ms window) →
-   UAF read of `fMessage` in `PrvHostCommonDialog` → SIGSEGV; reset while the
-   dialog is *showing* → `EmActionDialog::Do` writes the dangling `fDlgResult`
-   after `msgBox.exec()` returns → stack corruption, process dies after
-   replying `OK reset`. Repro: `tests/phase1/repro_dialog_subsystem.py`.
-   Analysis + verification addendum:
-   `docs/superpowers/findings/2026-06-10-dialog-subsystem.md`. Fix plan:
-   `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` (Phase 1
-   task **1.0d**, before 1.1/1.2).
-   *Correction (verified live 2026-06-10):* the originally-reported companion
-   hang ("the dialog never shows; `dialog` returns `none` for many seconds")
-   did **not** reproduce — the dialog shows one idle tick (~100 ms) after
-   `blocked_on_ui`, and `dialog`/`dialog respond continue` work. 1.1/1.2 were
-   deferred on that false premise; they are sequenced after 1.0d only so that
-   `reset` is a safe recovery while their repros hammer dialogs.
+9. ~~**`reset` during a deferred-error dialog crashes the process.**~~ **FIXED
+   (task 1.0d, 2026-06-10).** A scheduled `EmActionDialog` referenced the CPU
+   thread's stack-local dialog data (`RunDialogParameters` + `EditCommonDialogData`).
+   `reset` broke the `BlockOnDialog` wait early, letting the stack die while the
+   action was still queued or running. Two interleavings: reset while *queued*
+   (≤100 ms idle-tick window) → UAF read of `fMessage` → SIGSEGV; reset while
+   *showing* → `Do` writes the dangling `fDlgResult` → stack corruption.
+   **Fix:** `BlockOnDialog` now tracks dialog-action lifetime via a
+   queued/running/done/cancelled state machine (`fDialogActionState`, guarded by
+   `fSharedLock`). A still-queued action is flagged cancelled (it then no-ops in
+   `BeginDialogAction`); a running action is waited out before the stack unwinds.
+   `UnblockDialog` replaced (R2) by `BeginDialogAction`/`EndDialogAction`.
+   Repro (3× PASS, ASAN-clean): `tests/phase1/repro_dialog_subsystem.py`.
+   *Dialog-show latency confirmed:* the dialog shows one idle tick (~100 ms)
+   after `blocked_on_ui`; the earlier "never shows" report was a mis-observation.
 
 ## Recovery progress (read `docs/recovery-plan-2026-06.md` for the roadmap)
 
 - **Phase 0 — complete 2026-06-10** (GATE 0 passed; details below).
 - **Phase 1 — in progress.** Done & verified: **1.8** (WorkerDirect arg
   validation, `5f5c443`), **1.3** (proxy read timeout + no double-execute,
-  `08d8690`). **Next task: 1.0d** (landmine #9 — the `reset`-during-dialog
-  UAF); a complete step-by-step plan exists at
-  `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` — follow
-  it, do not improvise. Then 1.1 → 1.2 per
+  `08d8690`), **1.0d** (`BlockOnDialog` action-lifetime handshake / UAF fix,
+  this commit). **Next task: 1.1** — follow
   `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (its
   revision banner records the verified 1.1 repro plumbing). Repros live in
   `tests/phase1/` (self-launching, offscreen). `repro_dialog_subsystem.py`
-  currently FAILS by design — it reproduces landmine #9 and is 1.0d's gate.
+  PASSES 3× after 1.0d.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -158,8 +150,8 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `claude/agents/pose64-tester.md` | Autonomous tester agent |
 | `docs/debugging-guide.md` | Host-side debugging (ASAN/GDB/perf) |
 | `docs/recovery-plan-2026-06.md` | The active roadmap + current-position banner |
-| `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | ACTIVE — next task's full plan |
-| `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | ACTIVE — Phase 1 detailed plan |
+| `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | historical — 1.0d complete |
+| `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | ACTIVE — Phase 1 detailed plan (next: 1.1) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),

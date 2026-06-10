@@ -7,15 +7,12 @@
 > the gates exist because this project previously died of skipped gates.
 
 > **CURRENT POSITION (updated 2026-06-10 — keep this banner current, R5):**
-> Phase 0 **complete** (GATE 0 passed). Phase 1 **in progress**: 1.8 and 1.3
-> done & verified (commits `5f5c443`, `08d8690`); **NEXT TASK: 1.0d** — follow
-> `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` step by step
-> (R6: strongest model, single sitting). After 1.0d: 1.1, then 1.2, per the
-> detailed phase plan
+> Phase 0 **complete** (GATE 0 passed). Phase 1 **in progress**: 1.8, 1.3,
+> and 1.0d done & verified (commits `5f5c443`, `08d8690`, plus this commit);
+> **NEXT TASK: 1.1** — follow
 > `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (its
 > revision banner has verified repro plumbing for 1.1). The sanitizer build
-> dirs (`build-asan/`, `build-tsan/`) do not exist yet — configure at first
-> need (1.0d Step 10 / tasks 1.5-1.7).
+> dir (`build-asan/`) exists; `build-tsan/` not yet configured.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -143,7 +140,7 @@ else proceeds until GATE 1 passes.
 
 Ranked tasks (each = failing repro → fix → test → commit):
 
-- [ ] **1.0d Dialog-action lifetime fix** *(added 2026-06-10 — landmine #9,
+- [x] **1.0d Dialog-action lifetime fix** *(added 2026-06-10 — landmine #9,
       discovered building the 1.1 repro)* — `EmSession::BlockOnDialog` posts an
       `EmActionDialog` referencing its own stack frame; `fReset`/`fStop` break
       the wait and let the frame die while the action is still queued (UAF

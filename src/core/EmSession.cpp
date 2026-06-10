@@ -113,6 +113,8 @@ EmSession::EmSession (void) :
 	fSleepLock (),
 	fSleepCondition (&fSleepLock),
 	fStop (false),
+	fDialogActionState (kDlgActionNone),
+	fDialogAction (NULL),
 #endif
 	fSuspendState (),
 	fState (kStopped),
@@ -1611,9 +1613,8 @@ EmDlgItemID EmSession::BlockOnDialog (EmDlgThreadFn fn, const void* parameters)
 
 	EmDlgItemID	result = kDlgItemNone;
 
-	gDocument->ScheduleDialog (fn, parameters, result);
-
-//	LogAppendMsg ("EmSession::RunDialog (enter): fState = %ld", (long) fState);
+	fDialogActionState	= kDlgActionQueued;
+	fDialogAction		= gDocument->ScheduleDialog (fn, parameters, result);
 
 	{
 		EmValueChanger<EmSessionState>	oldState (fState, kBlockedOnUI);
@@ -1624,19 +1625,39 @@ EmDlgItemID EmSession::BlockOnDialog (EmDlgThreadFn fn, const void* parameters)
 
 		while (result == kDlgItemNone && !fStop && !fReset)
 		{
-//			LogAppendMsg ("EmSession::RunDialog (middle): fState = %ld", (long) fState);
 			EmAssert (fState == kBlockedOnUI);
 			fSharedCondition.wait ();
+		}
+
+		// LIFETIME CONTRACT: the scheduled EmActionDialog references
+		// `result` and `parameters`, which live on THIS thread's stack.
+		// We must not return -- destroying that stack -- while the action
+		// could still touch them.  Three cases:
+		//   queued   -> flag it cancelled; BeginDialogAction will skip it
+		//               and the action will never touch the dead data.
+		//   running  -> the UI thread is inside RunDialog (msgBox.exec);
+		//               wait here (stack stays alive) until EndDialogAction.
+		//   done     -> nothing outstanding.
+
+		if (fDialogActionState == kDlgActionQueued)
+		{
+			// fDialogAction stays set so the stale action can identify
+			// itself in BeginDialogAction.  It is never dereferenced.
+			fDialogActionState = kDlgActionCancelled;
+		}
+		else
+		{
+			while (fDialogActionState == kDlgActionRunning)
+				fSharedCondition.wait ();
+
+			fDialogActionState	= kDlgActionNone;
+			fDialogAction		= NULL;
 		}
 	}
 
 	// Broadcast the change in fState.
 
 	fSharedCondition.broadcast ();
-
-//	LogAppendMsg ("EmSession::RunDialog (exit): fState = %ld", (long) fState);
-
-	// !!! Throw an exception if fDialogResult == -1.
 
 	return result;
 
@@ -1669,15 +1690,54 @@ EmDlgItemID EmSession::BlockOnDialog (EmDlgThreadFn fn, const void* parameters)
 
 
 // ---------------------------------------------------------------------------
-//		� EmSession::UnblockDialog
+//		� EmSession::BeginDialogAction
 // ---------------------------------------------------------------------------
-// Called by the UI thread after displaying a CPU thread-requested dialog,
-// reporting the button the user used to dismiss the dialog.
+// Called by EmActionDialog::Do (UI thread) before touching its parameters.
+// Returns false if the dialog request was cancelled or superseded: the CPU
+// stack frame the parameters point into no longer exists, so the action
+// must return without touching them.
 
 #if HAS_OMNI_THREAD
-void EmSession::UnblockDialog (void)
+Bool EmSession::BeginDialogAction (EmAction* self)
 {
 	omni_mutex_lock	lock (fSharedLock);
+
+	if (fDialogActionState != kDlgActionQueued || fDialogAction != self)
+	{
+		// Either BlockOnDialog gave up while we were queued (cancelled),
+		// or we are a stale action from an earlier, cancelled request and
+		// a NEWER request is now queued.  Only clear the state if it is
+		// still ours to clear.
+
+		if (fDialogAction == self)
+		{
+			fDialogActionState	= kDlgActionNone;
+			fDialogAction		= NULL;
+		}
+
+		fSharedCondition.broadcast ();
+		return false;
+	}
+
+	fDialogActionState = kDlgActionRunning;
+	return true;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmSession::EndDialogAction
+// ---------------------------------------------------------------------------
+// Called by EmActionDialog::Do (UI thread) after RunDialog returns and the
+// result has been written.  Wakes BlockOnDialog, which may be waiting for
+// the action to finish before letting its stack frame die.
+
+void EmSession::EndDialogAction (void)
+{
+	omni_mutex_lock	lock (fSharedLock);
+
+	fDialogActionState	= kDlgActionDone;
+	fDialogAction		= NULL;
+
 	fSharedCondition.broadcast ();
 }
 #endif

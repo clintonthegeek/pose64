@@ -123,7 +123,7 @@ class EmDocument : public EmActionHandler
 		// to take the next chance it gets (at idle time).
 
 		void					ScheduleNewHorde	(const HordeInfo&);
-		void					ScheduleDialog		(EmDlgThreadFn fn,
+		EmAction*				ScheduleDialog		(EmDlgThreadFn fn,
 													 const void* parms,
 													 EmDlgItemID& result);
 

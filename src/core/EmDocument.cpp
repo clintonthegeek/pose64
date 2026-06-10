@@ -133,11 +133,22 @@ void EmActionDialog::Do (void)
 {
 	// Show any error messages from the CPU thread.
 
-	fDlgResult = EmDlg::RunDialog (fDlgFn, fDlgParms);
-
 #if HAS_OMNI_THREAD
 	EmAssert (gSession);
-	gSession->UnblockDialog ();
+
+	// The parameters and the result reference point into the CPU thread's
+	// BlockOnDialog stack frame.  BeginDialogAction returns false if that
+	// frame is gone (the request was cancelled by fStop/fReset) -- in that
+	// case touching fDlgParms or fDlgResult is a use-after-free.
+
+	if (!gSession || !gSession->BeginDialogAction (this))
+		return;
+
+	fDlgResult = EmDlg::RunDialog (fDlgFn, fDlgParms);
+
+	gSession->EndDialogAction ();
+#else
+	fDlgResult = EmDlg::RunDialog (fDlgFn, fDlgParms);
 #endif
 }
 
@@ -705,11 +716,13 @@ void EmDocument::ScheduleNewHorde (const HordeInfo& info)
 //		� EmDocument::ScheduleDialog
 // ---------------------------------------------------------------------------
 
-void EmDocument::ScheduleDialog (EmDlgThreadFn fn,
-								 const void* parms,
-								 EmDlgItemID& result)
+EmAction* EmDocument::ScheduleDialog (EmDlgThreadFn fn,
+									  const void* parms,
+									  EmDlgItemID& result)
 {
-	this->PostAction (new EmActionDialog (fn, parms, result));
+	EmAction*	action = new EmActionDialog (fn, parms, result);
+	this->PostAction (action);
+	return action;
 }
 
 

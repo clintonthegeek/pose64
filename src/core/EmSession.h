@@ -25,6 +25,8 @@
 #include "omnithread.h" 		// omni_thread, omni_mutex, omni_condition
 #endif
 
+class EmAction;					// forward-declared; pointer used for identity only
+
 /*
 **	EmSession is the class used to manage an emulation session.  Its
 **	responsibilities are:
@@ -430,13 +432,12 @@ class EmSession
 													 const void* parameters);
 
 #if HAS_OMNI_THREAD
-		// Called by the UI thread when the dialog has been dismissed, or
-		// if a thread blocked on the UI needs to be stopped.  In the
-		// former case, dialogResult should be set to the button that
-		// dismissed the dialog.  In the latter case, dialogResult should
-		// be set to -1.
-
-		void					UnblockDialog		(void);
+		// Dialog-action lifetime handshake (see BlockOnDialog).  Called by
+		// EmActionDialog::Do on the UI thread.  BeginDialogAction returns
+		// false if the request was cancelled (the CPU stack the action's
+		// parameters point into is gone) -- the action must then do nothing.
+		Bool					BeginDialogAction	(EmAction* self);
+		void					EndDialogAction		(void);
 #endif
 
 		// Methods for interacting with the UI:
@@ -627,6 +628,18 @@ class EmSession
 		// regs.spcflags in order for it to get noticed.
 
 		Bool					fStop;
+
+		enum EmDialogActionState
+		{
+			kDlgActionNone,			// no dialog action outstanding
+			kDlgActionQueued,		// posted, not yet picked up by the UI thread
+			kDlgActionRunning,		// UI thread is inside RunDialog
+			kDlgActionDone,			// UI thread finished; result written
+			kDlgActionCancelled		// CPU thread gave up while still queued
+		};
+
+		EmDialogActionState		fDialogActionState;	// guarded by fSharedLock
+		EmAction*				fDialogAction;		// identity only -- never dereferenced
 #endif
 
 		// Set to non-zero if the thread should pause.  If set by an external

@@ -324,8 +324,13 @@ on top. Button press feedback via HostRectFrame overlay.
 - `EmApplicationQt` sets up a QTimer that fires `HandleIdle()` at ~10Hz.
 - `HandleIdle()` drives screen updates and dialog processing.
 - `EmWindowQt` is a QWidget subclass handling paint, mouse, and key events.
-- Dialogs use `BlockOnDialog()` (CPU thread) / `UnblockDialog()` (UI thread)
-  with condition variable signaling.
+- Dialogs use `BlockOnDialog()` (CPU thread) with a state-machine lifetime
+  contract: `BlockOnDialog` never returns until the scheduled `EmActionDialog`
+  is either cancelled-while-queued or has finished running. UI-side entry/exit
+  is `BeginDialogAction`/`EndDialogAction` (guarded by `fSharedLock`).
+  `fDialogActionState` tracks the lifecycle: None → Queued → Running → Done
+  (or Cancelled if reset fires while still Queued). This prevents UAF when
+  `reset` is issued while a deferred-error dialog is queued or showing.
 
 ---
 
@@ -428,6 +433,15 @@ was actually shipped or a fix attempt that failed.
     are generally not reentrant. Calling a ROM stub while the CPU is
     already inside the same function (or one that shares global state)
     will corrupt Palm OS internal state.
+
+16. **DO NOT post actions that reference CPU-thread stack data without a
+    lifetime handshake.** `ScheduleDialog` posts an `EmActionDialog` holding
+    references into `BlockOnDialog`'s stack frame. Without the
+    `BeginDialogAction`/`EndDialogAction` handshake, `reset` can unwind the
+    stack while the UI thread still holds those references → UAF. Any future
+    action that captures a pointer to stack-allocated data must use the same
+    pattern: state machine under `fSharedLock`, CPU waits until action is
+    done or cancelled.
 
 ### Hardware Emulation
 
