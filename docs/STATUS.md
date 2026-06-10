@@ -74,6 +74,19 @@ host.
 8. **SLP debugger sockets listen by default** (6414/2000) and connecting
    triggers an untimed main-thread `kStopOnSysCall` stop
    (`Debug::EventCallback`) — a UI hang waiting to happen.
+9. **Deferred-error dialogs hang, then crash on reset (NEW, 2026-06-10).** Any
+   spy/watch/memory-access error raises a deferred-error dialog via
+   `EmSession::BlockOnDialog`; in this build the main thread never *shows* it
+   during idle (`dialog` returns `none`, CPU stuck `blocked_on_ui`), and
+   dismissing via `reset` breaks `BlockOnDialog` out on `fReset`
+   (`EmSession.cpp:1637`) while the queued `EmActionDialog` still points at the
+   now-freed CPU-stack dialog data → use-after-free SIGSEGV in
+   `PrvHostCommonDialog`. Verified offscreen and on xcb. Repro:
+   `tests/phase1/repro_dialog_subsystem.py`. Full analysis:
+   `docs/superpowers/findings/2026-06-10-dialog-subsystem.md`. **This blocks the
+   runtime verification of landmine #2 (a `blocked_on_ui` dialog is required to
+   trigger the suspend-counter leak), so it must be fixed before Phase 1 tasks
+   1.1/1.2.**
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
