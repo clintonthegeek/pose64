@@ -52,3 +52,27 @@ CMakeListsEXAMPLE.txt
 docs/history/
 docs/ReControlPostMortem/
 docs/plans/
+
+# Abandoned experiments / reference trees (kept locally)
+abandoned/
+pose32bit/
+src/fltk-1.1.10/
+src/fltk-install/
+src/core/UAE/gen/
+src/Emulator_Src_3.5/
+
+# Release artifacts (belong in Releases, not the repo)
+*.AppImage
+*.deb
+*.ddeb
+*.exe
+
+# Scratch
+__pycache__/
+.cache/
+Screenshot_*.jpg
+
+# Scratch Python clients (Phase 3.4 will consolidate onto ReControlClient or remove)
+datebook_interaction.py
+garak_intrigue.py
+test_cpu_worker_tap.py
