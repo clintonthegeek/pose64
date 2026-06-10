@@ -314,6 +314,13 @@ CPUWorkerThread runs blocking handlers off the main thread. Responses are
 delivered back to the main thread via `QMetaObject::invokeMethod(...,
 Qt::QueuedConnection)`.
 
+**Bounded shutdown (task 1.4):** `CPUWorkerThread::shutdown()` now sets
+`fShouldStop = true`, queues `CMD_SHUTDOWN`, and calls `wait(8000)` with a
+`terminate()` + `wait(2000)` fallback. This prevents the main thread from
+blocking forever when `load`, `reset`, or `quit` triggers a shutdown while a
+handler is in flight. After 1.2, handlers self-release within 5000ms so the
+8s limit is never hit in normal operation.
+
 ---
 
 ## Screen and Painting

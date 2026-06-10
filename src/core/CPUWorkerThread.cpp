@@ -28,13 +28,27 @@ void CPUWorkerThread::queueCommand(const Command& cmd)
 
 void CPUWorkerThread::shutdown()
 {
+    {
+        QMutexLocker locker(&fMutex);
+        fShouldStop = true;
+    }
+
     Command stopCmd;
     stopCmd.type = CMD_SHUTDOWN;
     stopCmd.handler = nullptr;
     stopCmd.response = nullptr;
-
     queueCommand(stopCmd);
-    wait();  // Wait for thread to exit
+
+    // Bounded wait: a stuck in-flight handler must not block the main thread
+    // forever.  After 1.2, any EmSessionStopper inside a handler self-releases
+    // within its own deadline (5000ms), so 8s comfortably exceeds all
+    // legitimate cases.
+    if (!wait(8000))
+    {
+        fprintf(stderr, "[CPUWorker] handler did not exit in 8s; terminating\n");
+        terminate();
+        wait(2000);
+    }
 }
 
 CPUWorkerThread::Command CPUWorkerThread::dequeueCommand()
