@@ -546,3 +546,129 @@ Evidence artifacts (this session): `tests/phase2/test_speed_cmd.py` (committed),
 `tests/phase2/measure_idle_cpu.py` (the idle-CPU harness, committed with this
 correction). The interactive probes were throwaway `/tmp` scripts; their
 findings are captured above.
+
+## 12. APPROACH-B EXPERIMENT RESULTS + SECOND BASELINE CORRECTION (2026-06-10, branch `phase2-experiment-B`)
+
+### 12.1 Verdict: the hook works — make-or-break PASSED
+
+The STOP-exit `EvtWakeup` hook (Q-B3 design, 21 lines in
+`EmCPU68K.cpp::ExecuteStoppedLoop`, commit `a09598d` on
+`phase2-experiment-B`) delivers input to a guest idle in STOP:
+
+- Idle launcher → `tap` Date Book icon → Datebook day view appears.
+  Verified on the fresh-boot path, the loaded-session path, and the key
+  path (`key 264` wakes an idle Datebook back to the launcher).
+- Delivery matrix (`tests/phase2/test_delivery.py`, 100 taps per run,
+  healthy psf — see 12.2):
+
+  | mode  | speed | delivered | p50/p95/max latency |
+  |-------|-------|-----------|---------------------|
+  | idle  | 1x    | **100/100** | 220/238/300 ms |
+  | idle  | max   | 100/100   | 53/53/53 ms |
+  | rapid | max   | 100/100   | 52/54/54 ms |
+  | rapid | 1x    | 90/100 — run truncated at iter 90 by landmine #10 (pre-existing, see 12.4) | 219/294/317 ms |
+
+- Phase-1 repros: 7/7 PASS on the branch; `test_speed_cmd.py` PASS.
+- TSAN stress (13 scenarios, GATE-1 form, `TSAN_OPTIONS=log_path=…`):
+  runs of 13/13, 13/13, and one 11/13 (see 12.5). **Zero TSAN reports
+  implicate `EvtWakeup`, the hook, or the delivery queues** — every
+  report is the documented #5/#6 family (`CEnableFullAccess`/
+  `PaintScreen`/`EmBankRegs`), and master's own TSAN runs produce the
+  same reports (49–67 per run) **including an `ExecuteStoppedLoop`-frame
+  report with no hook in the binary**. (GATE 1 never captured TSAN
+  output — the stress harness sends emulator stderr to DEVNULL — so
+  these reports were invisibly present then too.)
+- Idle CPU at 1x (3 runs, settle 8 s / window 30 s, offscreen):
+  **B median 80.57% vs master 80.50%** — the hook's idle cost is zero
+  within noise.
+
+### 12.2 SECOND baseline correction: §11's mechanism story was wrong
+
+§11's measurements were real but mis-attributed. Root-caused this
+session (PC/SR sampling + ExecuteStoppedLoop entry instrumentation):
+
+- **The old `m515.psf` was saved in a WEDGED state**: the guest spinning
+  in a supervisor-mode ROM busy-loop (delay loop near `HwrIRQ5Handler`)
+  with **SR interrupt mask = 6**, which blocks the DragonBall timer
+  interrupt itself. No ticks, no scheduler, no STOP opcode —
+  `ExecuteStoppedLoop` was **never entered at all** (0 entries over 10 s;
+  4/4 PC samples in the busy-loop; clock title frozen). In that state NO
+  wake mechanism can function (B's hook never executes; A's headpatch
+  never fires; hardware buttons are polled but their effects never reach
+  the event loop). §11's "0% idle delivery / no input path wakes it" was
+  **entirely this wedge**, not `evtWaitForever`.
+- A **soft reset un-wedges it**: afterwards the guest idles in STOP
+  normally (~700+ STOP-exits/s) and behaves like a real m515.
+- The local `m515.psf` was **re-saved healthy** (launcher, All category,
+  digitizer calibrated, 2026-06-10). The wedged file is preserved
+  machine-locally as `m515-wedged-artifact.psf` (psf files are
+  gitignored). WHY it was saved wedged (and whether the wedge is
+  re-creatable) is an **open question** — possibly saved mid-sleep-entry
+  or a timer-emulation edge; nothing this session re-created it.
+- **True baseline (master binary, healthy psf):** idle taps DELIVER —
+  9/9 idle/1x (p50 297 ms), 10/10 rapid/1x (p50 221 ms), runs truncated
+  only by landmine #10. The launcher (and Datebook) poll `EvtGetEvent`
+  with finite timeouts, so PuppetString delivers on the next trap
+  re-entry. **This resolves Q-B4**: built-in idle apps poll; the asleep
+  gap is real only for apps that genuinely use `evtWaitForever`.
+
+### 12.3 Consequence for the Q-MECH checkpoint (decision still open)
+
+The §11 framing "robust B is mandatory" is dead along with the wedge
+story. The live decision is now **"B + C" vs "natural-delivery + C"**:
+
+- For B: guaranteed ≤1-tick delivery bound independent of app
+  politeness (true-`evtWaitForever` apps exist in the wild and the
+  matrix cannot exhibit them with built-ins); measured latency
+  improvement (idle p50 220 vs 297 ms, p95 238 vs 365 ms); zero
+  measured idle-CPU cost; TSAN-clean.
+- For natural+C: zero new mechanism; baseline polling already delivers
+  built-ins within ~300 ms.
+- A remains demoted/dead as a delivery mechanism (§11.3 stands).
+
+The checkpoint should weigh "guaranteed bound + faster" against "no new
+mechanism", ideally with a true-`evtWaitForever` test app as evidence.
+
+### 12.4 NEW pre-existing landmine: app-switch churn → MemoryMgr fatal alert (STATUS #10)
+
+Sustained app switching kills the guest into `blocked_on_ui`:
+`SysFatalAlert "MemoryMgr.c, Line:4384, Free handle"` (or `:4415,
+Invalid handle`) raised **while the emulator was calling
+`MemHandleLock`** — a host-initiated ROM call in the app-switch
+tailpatch path (`CollectCurrentAppInfo` family locks `tAIN`/`tver`
+resources on every switch).
+
+Attribution evidence (all 2026-06-10):
+- Reproduced via rapid tap-driven launcher↔Datebook cycling on the B
+  branch (iterations 3–90, intermittent).
+- Reproduced via **hardware-button-only churn** (app1→app4) at switch
+  230 — button events are not pen/key events, so **the hook was fully
+  dormant**. Checked-in repro: `tests/phase2/repro_appswitch_memmgr.py`.
+- Reproduced on a **pure master binary** (no hook in the build) during
+  the baseline idle run (iteration 9).
+- Refuted: nested `ExecuteStoppedLoop` entry (instrumented — zero nested
+  entries, including during a crash run).
+
+Unreachable before Phase 2 only because the wedged psf delivered
+nothing. Caps rapid-mode GATE-2 runs until fixed; within-app rapid
+testing (the original Datebook Go-To/Cancel toggle) avoids the churn.
+
+### 12.5 Two more observed-once teardown/lifecycle crashes (recorded, not chased)
+
+- **Quit-path segfault** (non-TSAN build, once): CPU thread in
+  `EmRegsVZ::CycleSlowly → EmUARTDragonball::GetTransport →
+  EmulatorPreferences::GetTransportForDevice` while the main thread was
+  in libexpat saving XML preferences — prefs torn down/used while the
+  CPU thread still runs. Core: coredumpctl PID 1369462. Hook absent
+  from stack; thread-lifecycle family.
+- **`load_during_queue` SEGV under TSAN** (1 of 3 B-branch runs; 0 of 3
+  master TSAN runs — low-frequency, unattributed): CPU thread
+  scheduling a deferred err-watchpoint dialog
+  (`EmDeferredErrWatchpoint::Do → EmDocument::ScheduleDialog →
+  EmActionHandler::PostAction`) hit a null QMutex while `load` was
+  swapping the document. Dialog/load lifecycle family (1.0d-adjacent,
+  different hole). Hook absent from stack.
+
+Evidence artifacts: `/tmp/tsan-B*.{pid}` and `/tmp/tsan-M-run*.{pid}`
+logs (machine-local), `tests/phase2/repro_appswitch_memmgr.py`
+(committed), delivery matrices in `docs/STATUS.md` Phase 2 bullet.

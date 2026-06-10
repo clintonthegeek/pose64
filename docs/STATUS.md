@@ -64,17 +64,20 @@ host.
    are no longer swallowed — WorkerDirect args are validated on the main
    thread, so `tap banana` returns `ERR usage…`, not `OK`. Verified:
    `tests/phase1/repro_1_8_argval.py`.
-   **Quantified 2026-06-10 (Phase 2 execution session, HEAD `5cd5c62`):**
-   delivery to an **idle** guest is **0%** — a fresh m515 boots to the
-   Launcher in `SysEvGroupWait(evtWaitForever)` and **no** posted input
-   (`tap`/`key`/`button`/`launch`) ever wakes it (clock title, `screen-hash`,
-   and `ui` all frozen for 90 s; a tap watched 65 s never delivered). The
-   "hardware-ISR button path is reliable" assumption is **false at idle**
-   (`button app1`/`power` produce no effect). Idle CPU ≈ **46% of one core at
-   1x** (offscreen). The cold-asleep case is reachable **only** by a CPU-thread
-   STOP-exit `EvtWakeup` wake (Phase-2 approach B); approach A (poll-always)
-   cannot wake an already-asleep guest. Detail + revised plan: handoff §11
-   (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`).
+   ~~**Quantified 2026-06-10 (Phase 2 execution session, HEAD `5cd5c62`):**
+   delivery to an idle guest is 0%…~~ **CORRECTED later the same day
+   (approach-B experiment, handoff §12):** the 0%-idle measurement was an
+   artifact of a **wedged session file** — the old `m515.psf` was saved with
+   the guest spinning in a supervisor ROM busy-loop, SR interrupt mask 6
+   (timer blocked), never executing STOP — a state NO wake mechanism can
+   reach (see "Session-file baseline" below). **True baseline (master,
+   healthy psf): idle taps DELIVER** (~300 ms p50) because built-in apps
+   poll `EvtGetEvent` with finite timeouts. The honest residual gap: apps
+   that genuinely use `evtWaitForever` get input only when something wakes
+   them — the Phase-2 approach-B hook (experiment passed, branch
+   `phase2-experiment-B`) provides a guaranteed ≤1-tick wake; the 2.2
+   checkpoint decision ("B + C" vs "natural + C") is open. Detail: handoff
+   §11 (measurements) + **§12 (corrections + experiment results)**.
 4. ~~**Untimed stops can wedge the whole control plane.**~~ **FIXED (task 1.2,
    2026-06-10).** `kStopNow`/`kStopOnCycle` stoppers previously had no timeout
    (`EmSession.cpp` — `useTimeout` was gated on `how == kStopOnSysCall`). A CPU
@@ -120,6 +123,29 @@ host.
    Repro (3× PASS, ASAN-clean): `tests/phase1/repro_dialog_subsystem.py`.
    *Dialog-show latency confirmed:* the dialog shows one idle tick (~100 ms)
    after `blocked_on_ui`; the earlier "never shows" report was a mis-observation.
+10. **App-switch churn kills the guest (pre-existing, found 2026-06-10).**
+   Sustained app switching (every ~100–800 switches, intermittent) raises
+   `SysFatalAlert "MemoryMgr.c, Line:4384, Free handle"` (or `:4415, Invalid
+   handle`) **while the emulator calls `MemHandleLock`** — the app-switch
+   tailpatch path (`CollectCurrentAppInfo` family, `EmPatchState.cpp`) locks
+   `tAIN`/`tver` resource handles on every switch and intermittently uses a
+   stale one. Guest lands in `blocked_on_ui`; only recovery is
+   `dialog respond=reset`. **Hook-independent** (reproduced via
+   hardware-button-only churn with the Phase-2 hook dormant AND on a pure
+   master binary); unreachable before Phase 2 only because the wedged psf
+   delivered nothing. Repro: `tests/phase2/repro_appswitch_memmgr.py`.
+   Caps rapid-mode GATE-2 runs until fixed. Detail: handoff §12.4.
+11. **Teardown/lifecycle crashes, observed-once each (2026-06-10, recorded
+   not chased).** (a) Quit-path SIGSEGV: CPU thread in
+   `EmRegsVZ::CycleSlowly → EmUARTDragonball::GetTransport →
+   EmulatorPreferences::GetTransportForDevice` while the main thread saved
+   XML prefs in libexpat — prefs used during teardown while the CPU thread
+   still runs (core: coredumpctl PID 1369462). (b) `load_during_queue` SEGV
+   under TSAN (1 of 3 B-branch runs, 0 of 3 master runs): deferred
+   err-watchpoint dialog scheduling (`EmDocument::ScheduleDialog →
+   EmActionHandler::PostAction`) hit a null QMutex while `load` swapped the
+   document — dialog/load lifecycle family, 1.0d-adjacent. Phase-2 hook
+   absent from both stacks. Detail: handoff §12.5.
 
 ## Recovery progress (read `docs/recovery-plan-2026-06.md` for the roadmap)
 
@@ -164,6 +190,34 @@ host.
   `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`; corrected
   ground-truth: handoff §11
   (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`).
+  - **Approach-B experiment PASSED (2026-06-10, branch `phase2-experiment-B`
+    @ `ad9d029`) — with a second baseline correction (handoff §12).**
+    The make-or-break gate (idle launcher → tap Date Book icon → Datebook
+    opens) passed on boot, loaded-session, and key paths. Delivery matrix
+    (100 taps/run, healthy psf): **idle/1x 100/100 (p50 220 ms)**, idle/max
+    100/100 (53 ms), rapid/max 100/100 (52 ms), rapid/1x 90/100 — truncated
+    by pre-existing landmine **#10**, zero soft failures. Phase-1 repros
+    7/7 PASS; speed cmd PASS. TSAN stress: 13/13 ×2 + one 11/13 (landmine
+    #11b); **no report implicates the hook/delivery queues** — all reports
+    are #5/#6 family, equally present on master (49–67/run, incl. an
+    `ExecuteStoppedLoop`-frame report with no hook in the binary). Idle CPU
+    1x: B 80.57% vs master 80.50% (3-run medians) — hook cost ≈ 0.
+    En route, §11's mechanism story was **overturned**: the old psf was
+    wedged (see "Session-file baseline" below); true master baseline on a
+    healthy psf DELIVERS at idle via app polling (~300 ms p50, resolves
+    Q-B4). **NEXT: the 2.2 checkpoint decision is "B + C" vs
+    "natural-delivery + C"** (A stays dead): B = guaranteed ≤1-tick bound +
+    measured latency win + zero measured cost; natural = no new mechanism,
+    relies on apps polling. Session break here (R6).
+  - **Session-file baseline (2026-06-10):** the old machine-local `m515.psf`
+    (Feb 20) was saved WEDGED — guest in a supervisor ROM busy-loop near
+    `HwrIRQ5Handler`, SR intmask=6 (timer interrupt masked), STOP never
+    executed; no input mechanism can ever reach that state, and it produced
+    §11's 0% numbers and the meaningless 46% idle-CPU figure. Preserved as
+    `m515-wedged-artifact.psf` (psf files are gitignored/machine-local);
+    `m515.psf` re-saved healthy (launcher, All category, calibrated). Cause
+    of the wedge = open question. **Other machines must re-create a healthy
+    psf** (boot ROM → calibrate → save) — psf files do not travel via git.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 

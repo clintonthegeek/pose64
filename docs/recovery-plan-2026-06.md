@@ -22,13 +22,21 @@
 > guest is **0%** and that approach A cannot wake an already-asleep guest, so the
 > A-vs-B choice collapses toward **mandatory robust B**; the plan was revised in
 > place (user choice "re-plan before coding").
-> **NEXT: execute the implementation plan** —
-> `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`. Task 1
-> (`speed`) is done (`5cd5c62`); **next is the approach-B experiment FIRST**
-> (revised order, old Task 4): implement the STOP-exit `EvtWakeup` hook on
-> `phase2-experiment-B` and verify it delivers to the idle launcher, then build
-> the redesigned delivery test on that branch. **If B fails, STOP and escalate**
-> (no A-shaped fallback). Session break after the checkpoint (R6).
+> **Approach-B experiment PASSED (2026-06-10, `phase2-experiment-B` @
+> `ad9d029`):** idle delivery 0%→100/100 at 1x (p50 220 ms), repros 7/7,
+> TSAN clean of hook-implicating reports, idle-CPU cost ≈ 0. **Second
+> baseline correction en route (handoff §12):** the old `m515.psf` was
+> WEDGED (supervisor busy-loop, timer masked — §11's 0% was this, not
+> `evtWaitForever`); the healthy-psf master baseline DELIVERS at idle via
+> app polling (~300 ms p50, Q-B4 resolved). Re-saved healthy psf locally;
+> two NEW pre-existing landmines recorded (STATUS #10 app-switch
+> MemHandleLock crash w/ repro, #11 teardown races).
+> **NEXT: the 2.2 CHECKPOINT (plan Task 5), decision now "B + C" vs
+> "natural-delivery + C"** (A stays dead; the old decision table's rows
+> conflict under the corrected data — bring the §12 numbers). Then Tasks
+> 6–9 (honesty plumbing → honest ACK → land winner + delete losers →
+> GATE 2; GATE 2 rapid runs need landmine #10 fixed or a within-app rapid
+> test). **Session break NOW (R6) — checkpoint opens the next session.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
