@@ -14,13 +14,14 @@
 > converted to raw pthreads; `DestroyThread` joins before delete; `RcCmd_Load`
 > two-timer split avoids deadlock when dialog is mid-close. 1.5/1.6 deferred
 > (TSAN verify requires real display). `phase-1-complete` **tag exists** (HEAD
-> `460449e`). **Phase 2 planning STARTED, then PAUSED** (2026-06-10) pending
-> hardware-emulation research needed to settle the 2.2 mechanism choice. Strategy
-> locked: **measure-first** (build the 2.1 delivery test + idle-CPU harness,
-> then decide A vs B at a data-backed checkpoint). **NEXT: resume from the
-> handoff** —
-> `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` — which records
-> the verified current delivery behavior and every open question gating Phase 2.
+> `460449e`). **Phase 2 planning COMPLETE (2026-06-10).** The hardware-emulation
+> research is done (robust B = STOP-exit `EvtWakeup` hook, verified feasible)
+> and every decidable open question is settled — see handoff §10
+> (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`). The 2.2
+> mechanism choice itself stays at the measure-first checkpoint (plan Task 5).
+> **NEXT: execute the implementation plan** —
+> `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`, Task 1
+> (`speed` command). Session break after plan Task 5 (R6).
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one

@@ -177,6 +177,16 @@ for events.
    > 2026-03-13 patch (Phase 2 approach **A**), NOT current behavior. See
    > `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`.
 
+   > **Phase 2 decisions (2026-06-10, handoff §10):** the input-response
+   > contract is decided — `tap`/`pen`/`key`/`type` will block ≤2 s on a
+   > delivery counter and return `OK delivered` / `ERR pending` / `ERR busy`
+   > truthfully (Q-ACK option a; `button` keeps its hardware-ISR contract).
+   > The wake mechanism (A poll-always vs B targeted-wake) is still at the
+   > measure-first checkpoint, but robust B now has a verified-feasible
+   > design: a STOP-exit `EvtWakeup` hook on the CPU thread inside
+   > `ExecuteStoppedLoop` — see handoff §10 Q-B3. Decision rule: B+C if its
+   > focused experiment passes; A+C fallback.
+
 **`clearTimeout`:** When true, changes SysEvGroupWait's timeout from 0
 (infinite/wait forever) to -1 (no wait/return immediately). This prevents
 the CPU from entering STOP and ensures PuppetString fires on every

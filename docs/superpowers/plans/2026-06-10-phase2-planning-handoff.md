@@ -4,6 +4,12 @@
 `phase-1-complete`, tree clean · **Author:** planning session (paused for
 hardware-emulation research).
 
+> **RESOLVED 2026-06-10 (same day, resuming session):** the hardware-emulation
+> research (Q-B1–Q-B3) and all decidable open questions in §6 are settled —
+> see **§10 Decisions** at the bottom. Q-MECH itself remains at the
+> measure-first checkpoint by design. Implementation plan:
+> `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`.
+
 > **Why this doc exists.** Phase 2 planning *started* but is *paused*: choosing
 > the delivery mechanism (recovery-plan task 2.2) depends on hardware-emulation
 > minutiae (how `SysEvGroupWait`/STOP/`EvtWakeup` actually behave) that need
@@ -282,3 +288,157 @@ that idle runtime behavior is **unmeasured pending Phase 2**. This is exactly th
 "trust the code, not the doc" failure class the project died of — if you find any
 other doc asserting interactive delivery is already poll-always, treat it as
 aspirational until re-verified.
+
+---
+
+## 10. DECISIONS (2026-06-10, resuming session)
+
+All §6 questions resolved except Q-MECH, which stays at the measure-first
+checkpoint per the settled strategy. Research was done by reading the live
+code at HEAD `460449e`; file:line refs verified.
+
+### Q-B1 — answered: NO, a one-shot clear-timeout cannot reach an asleep guest
+
+The headpatch (`EmPatchModuleSys.cpp:1883`) reads and rewrites the guest's
+`timeout` parameter **only at trap entry** (`:1910-1913`). Once the kernel has
+consumed the timeout and blocked the task, there is no later point to apply
+it. The recovery plan's literal wording of B ("clear timeout on next
+SysEvGroupWait") is confirmed insufficient for an already-asleep guest.
+
+### Q-B2 — answered: NO, breaking STOP alone does not deliver
+
+`ExecuteStoppedLoop` (`EmCPU68K.cpp:761-998`) exits STOP only via
+`ProcessInterrupt` (`:983-988`) or a host-side session break. Clearing
+`SPCFLAG_STOP` without signaling the event group resumes the kernel idle
+loop, which finds no ready task and re-enters STOP — timer ticks already do
+this every ~10 ms without delivering. The event group must be signaled by
+running ROM code (`EvtWakeup`); direct memory writes are Do-Not-Do #14.
+
+### Q-B3 — answered: YES — the STOP-exit `EvtWakeup` hook (robust B exists)
+
+The one legal wake point is **inside `ExecuteStoppedLoop`, immediately after
+`ProcessInterrupt` clears `regs.stopped`** on a natural timer-tick wake:
+
+- CPU thread (Do-Not-Do #1 ✓); never nested there (`EmCPU68K.cpp:766` ✓).
+- `regs.stopped == 0` → `EmSubroutine.cpp:2503` / `ATraps.cpp:102` asserts
+  hold (Do-Not-Do #11 ✓).
+- `ExecuteSubroutine`'s CPU-thread assert (`fState == kRunning`,
+  `EmSession.cpp:1280`) holds — the *session* runs while the guest CPU stops.
+- Calling `EvtWakeup` at interrupt entry (exception frame pushed, ISR not yet
+  run) is equivalent to the ISR calling it first — the documented Palm OS
+  pattern; the stub's own comment (`ROMStubs.cpp:1166-1175`) names exactly
+  this use case. Reentrancy (#13) ✓: a guest in STOP is in the kernel idle
+  loop, not inside `EvtWakeup`.
+
+**Design (~30–50 lines):** on STOP-exit via real interrupt, if
+`HasPenEvent() || HasKeyEvent()` and not `EmHAL::GetAsleep()`, call
+`EvtWakeup` once via `ExecuteSubroutine`. `EvtWakeup` sets `sendNullEvent` +
+signals the event group → `SysEvGroupWait` returns → nilEvent → app calls
+`EvtGetEvent` again → trap re-entry → existing PuppetString fall-through
+delivers. Added latency ≤ 1 timer tick (~10 ms at 1x). Tick rate naturally
+debounces repeat wakes. This is the safe reincarnation of `PrvWakeUpCPU` —
+right thread, no blocking stopper.
+
+### Q-B4 — deferred to data (by design)
+
+Answered empirically by the 2.1 test's idle-first mode + idle-CPU harness.
+Note the tension to resolve: taps demonstrably work today, so either idle
+apps poll with finite timeouts (asleep gap rare) or something else re-enters
+the trap.
+
+### Q-MECH — still at the checkpoint, with one added criterion
+
+Research adds a **guest-visible-behavior criterion** beyond idle CPU%: A
+floods apps with nilEvents (`SysEvGroupWait` never blocks), distorting
+nilEvent-cadence timing, auto-off, battery sim. B preserves guest timing at
+the cost of ≤1 tick latency. **Decision rule:** if B's focused experiment
+passes (tap delivered to a verified-asleep guest, TSAN-clean), pick **B+C**
+even if A's idle cost measures small; **A+C** is the fallback if the
+experiment surfaces kernel-state surprises.
+
+### Q-ACK — DECIDED: (a) change the default contract
+
+`tap`/`pen`/`key`/`type` block ≤2 s on delivery and return truthfully:
+**`OK delivered`** (keeps `startswith("OK")` callers passing — every checked
+caller except `repro_1_8_argval.py:54-60` exact-match dict, a 7-line update)
+/ `ERR pending: queued, not delivered within 2000ms` (event remains queued —
+a retry can double-deliver; document it). Mechanically this is a **dispatch
+category change**: `kCmdWorkerDirect` → `QueueWork` discards the handler's
+return and hardcodes `OK\n` (`ReControl.cpp:202-223`); move these commands to
+a result-bearing category (`QueueWorkResult` pattern) and the handlers'
+existing return strings become the response. MCP proxy relays text verbatim —
+no proxy change. **Scope:** PuppetString-delivered input only; `button` keeps
+its contract (hardware-ISR path, genuinely reliable); `tap-id` returns
+`OK delivered <x> <y>`.
+
+### Q-DROP — DECIDED: status-returning post functions
+
+`EmSession::PostPenEvent`/`PostKeyEvent` (`EmSession.cpp:1954, 1995`) change
+from `void` to a status enum: `kPosted` / `kDroppedGremlins` /
+`kDroppedReplay` / `kDroppedMinimize` / `kDroppedDuplicate`. Check stays at
+post time (only place Hordes/Replay/Minimize state is known); the Q-ACK
+category change is the return channel; GUI callers ignore the return. The
+pen-down dedup at `EmSession.cpp:2005` is a second silent drop — gets
+`kDroppedDuplicate` → `ERR duplicate: pen already down`.
+
+### Q-SYNC — DECIDED: delivery = OS-queue handoff; seq counters + dedicated lock
+
+"Delivered" = PuppetString's enqueue stub returned (event entered the Palm OS
+event queue — the same guarantee real hardware gives). Primitive: two
+monotonic `uint64` counters in `EmSession` (`fInputPostedSeq` on successful
+post, `fInputDeliveredSeq` incremented by PuppetString after
+`StubAppEnqueueKey`/`Pt` returns) + a **dedicated** `omni_mutex`/
+`omni_condition` (NOT `fSharedLock` — lock-ordering risk). Worker computes
+its target seq from its own posts and waits with an absolute deadline
+computed once before the loop (Do-Not-Do #3). A `tap` waits for both pen-down
+and pen-up.
+
+### Q-TEST — DECIDED: Find-dialog toggle, two modes, effect-based
+
+`tests/phase2/test_delivery.py`, importing `tests/phase1/_harness.py` (don't
+fork). Referee = `screen-hash` (R3): hash → raw **`tap`** (the WorkerDirect
+path under test — NOT `tap-id`, whose stopper changes timing) → poll hash
+every 50–100 ms ≤2 s → effect = changed. Target: **Find** silk icon opens the
+Find dialog (hash change); tap **Cancel** (coordinate via `ui` once) closes
+it. Two required modes: **rapid-fire** (awake path) and **idle-first** (~1 s
+pre-tap idle so the guest can reach STOP — exercises failure mode #1, answers
+Q-B4). Record per-tap delivery latency, not just pass/fail. Run at 1x and Max
+(via `speed` command); GATE 2 ≥99% / 200 taps per speed. Build FIRST, run
+against baseline, record today's failure rate per mode in STATUS.md.
+
+### Q-IDLE — DECIDED: pidstat over self-launched offscreen instance
+
+`tests/phase2/measure_idle_cpu.py`: boot `m515.psf` to launcher, no input,
+10 s settle, `pidstat -p <pid> 1 60` → 60-sample mean; run 3×, record median;
+at 1x and Max. Then baseline at HEAD → apply the 2026-03-13 patch (minus
+`fprintf`s) on a scratch branch → measure → **revert**. Caveats to record:
+offscreen platform (no real paint cost); **Max idle already pegs a core at
+baseline** (STOP-loop sleep is `speed > 0`-gated, `EmCPU68K.cpp:926-942`) —
+A's idle cost is only meaningful at 1x.
+
+### Q-SPEED — DECIDED: add a `speed` ReControl command
+
+No speed surface exists today — `fEmulationSpeed` is GUI-menu-only
+(`EmApplication.cpp:1055`, percent: `100`=1x, `0`=Max). GATE 2 cannot run
+without one. Add `speed [<pct>|max]`, `kCmdImmediate` (one atomic store +
+preference write mirroring `DoSetSpeed`); bare `speed` queries. Document in
+`recontrol-protocol.md` same commit (R5). **Not** a new MCP tool (28-tool
+surface frozen until Phase 3; tests use TCP). Rejected alternative:
+pre-writing the preferences file (brittle; can't switch mid-gate).
+
+### Q-DEV — DECIDED: m515
+
+Harness default (`_harness.py:41`); calibration exists only for m500, so m515
+ticks are wall-true at 1x — what idle-CPU numbers need. Record that numbers
+are m515-specific. One device for the whole gate.
+
+### Q-CLEAN — CONFIRMED, plus one addition
+
+Re-verified at HEAD: `PrvWakeUpCPU` has zero live callers (declaration
+`EmSession.cpp:61`, definition `:2092`, its own recursive bounce `:2123`,
+comments only). Delete in the same commit as the winning mechanism, plus
+stale "bridge thread" comments (`EmSession.cpp:1325`, `EmWindow.cpp:489`)
+**and** the stale `PrvWakeUpCPU` reference in `CPUWorkerThread.h:19` (not on
+the original list). Reword Do-Not-Do #8 to past tense, keep the lesson.
+Either winner satisfies GATE 2's grep test (B: the hook is the one wake
+mechanism; A: zero artificial wake mechanisms).

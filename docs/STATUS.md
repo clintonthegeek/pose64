@@ -127,11 +127,18 @@ host.
   `msgBox.exec()`). 1.5/1.6 deferred (TSAN verify requires real display).
   `phase-1-complete` tag now exists (HEAD `460449e`). Repros live in
   `tests/phase1/` (self-launching, offscreen).
-- **Phase 2 — planning started, paused (2026-06-10).** Mechanism choice (2.2)
-  pends hardware-emulation research; strategy locked to **measure-first**. The
-  verified current input-delivery behavior and every open question gating Phase 2
-  are captured in
-  `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` — resume there.
+- **Phase 2 — planning COMPLETE (2026-06-10); ready to execute.** Research
+  answered the hardware questions (robust B = STOP-exit `EvtWakeup` hook on the
+  CPU thread, verified feasible against the Do-Not-Do constraints) and all
+  decidable questions are settled: ACK contract = `OK delivered`/truthful
+  errors (Q-ACK a), status-returning post functions (Q-DROP), per-queue
+  delivery counters (Q-SYNC), Datebook Go-to/Cancel effect test (Q-TEST),
+  /proc-based idle harness (Q-IDLE), new `speed` command (Q-SPEED), m515
+  (Q-DEV). Decisions: handoff §10
+  (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`).
+  Implementation plan:
+  `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` (mechanism
+  choice A-vs-B stays at the plan's data-backed checkpoint, Task 5).
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -176,7 +183,8 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/recovery-plan-2026-06.md` | The active roadmap + current-position banner |
 | `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | historical — 1.0d complete |
 | `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | historical — Phase 1 detailed plan (GATE 1 passed) |
-| `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | ACTIVE — Phase 2 planning handoff + open questions |
+| `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | ACTIVE — Phase 2 handoff; §10 = decisions record |
+| `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` | ACTIVE — Phase 2 implementation plan (next to execute) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),
