@@ -168,7 +168,6 @@ class EmWindow
 		Bool					fOldBacklightOn;
 		uint16					fOldLEDState;
 
-		Bool					fWiggled;
 		Bool					fActive;
 		Bool					fDebugMode;
 		Bool					fGremlinMode;

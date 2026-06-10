@@ -46,7 +46,6 @@ EmWindow::EmWindow (void) :
 	fOldLCDOn (false),
 	fOldBacklightOn (false),
 	fOldLEDState (0),
-	fWiggled (false),
 	fActive (true),
 	fDebugMode (false),
 	fGremlinMode (false)
@@ -445,41 +444,6 @@ void EmWindow::HandleIdle (void)
 	fNeedWindowInvalidate	= false;
 
 	this->HostDrawingEnd ();
-
-
-	// Wiggle Walk — disabled for now. Investigating deadlock with bridge thread.
-	if (0)
-	{
-		const int	kWiggleOffset = 2;
-
-		EmSessionStopper	stopper (gSession, kStopNow);
-
-		if (stopper.Stopped ())
-		{
-			if (EmHAL::GetVibrateOn ())
-			{
-				if (!fWiggled)
-				{
-					fWiggled = true;
-					this->HostWindowMoveBy (EmPoint (kWiggleOffset, 0));
-				}
-				else
-				{
-					fWiggled = false;
-					this->HostWindowMoveBy (EmPoint (-kWiggleOffset, 0));
-				}
-			}
-
-			// If the vibrator just went off, then put the window
-			// back to where it was.
-
-			else if (fWiggled)
-			{
-				fWiggled = false;
-				this->HostWindowMoveBy (EmPoint (-kWiggleOffset, 0));
-			}
-		}
-	}
 }
 
 
