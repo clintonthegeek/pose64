@@ -30,6 +30,13 @@
   </provides>
 
   <releases>
+    <release version="0.9.1" date="2026-03-13">
+      <description>
+        <p>Debugging infrastructure overhaul: backtrace, breakpoints, watchpoints,
+        logging, gremlins, memory checks, error handling, profiling. Fixed
+        kStopOnSysCall hang, dialog protocol, and tap/key deadlock.</p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-02-18">
       <description>
         <p>Initial public release. Native 64-bit Qt6 port of POSE 3.5.</p>

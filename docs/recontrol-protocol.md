@@ -70,7 +70,7 @@ fail in this state.  Dismiss the dialog or reset first.
 
 | Command | Response | Description |
 |---------|----------|-------------|
-| `screenshot <path>` | `OK <crc32> <w> <h>\n` | Save PNG to path, returns CRC32 hash + dimensions |
+| `screenshot [path] [scale=N] [grid] [annotate] [crosshair=X,Y]` | `OK <crc32> <w> <h>\n` | Save PNG (or return base64 if no path); overlay options upscale (max 16), draw coordinate rulers, draw labeled bounding boxes from form data, or mark a point. CRC is always of raw pre-overlay pixels |
 | `screen-hash` | `OK <crc32> <w> <h>\n` | CRC32 of screen pixels without saving (fast change detection) |
 | `ui` | Multi-line | Active form structure: object types, IDs, labels, bounds, text content |
 
@@ -120,7 +120,7 @@ OK
 ### `info` response
 
 ```
-OK POSE64 0.9.0
+OK POSE64 0.9.1
  device=PalmM515
  ram=16MB
  rom=Palm-m515-4.1-en.rom
@@ -174,6 +174,21 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 
 ### Debugging
 
+> **Not MCP tools.** None of the commands in this section (or Logging,
+> Gremlins, Configuration, Profiling below) are exposed by `pose64-mcp-proxy`
+> — the proxy implements exactly 28 `palm_*` tools, none of them debugging.
+> Drive these over raw TCP (`printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`).
+>
+> **`break` does not stop execution on its own.** Setting/listing breakpoints
+> works, but when one hits, `Debug::EnterDebugger` only suspends the CPU if an
+> external Palm-Debugger-protocol (SLP) client is connected on port 6414/2000.
+> With no debugger attached the hit is **silently ignored** and execution
+> continues (DebugMgr.cpp, `ConditionalBreak`). There is no hit notification
+> and no `continue`/`resume` command in this protocol. For "stop when X
+> happens" use `watch`/`spy` instead — they raise an error dialog
+> (`blocked_on_ui`) that you can inspect with `dialog` and dismiss with
+> `dialog respond`.
+
 | Command | Response | Description |
 |---------|----------|-------------|
 | `backtrace` (or `bt`) | Multi-line | Stack crawl with PC and A6 per frame |
@@ -214,6 +229,13 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 
 | Command | Response | Description |
 |---------|----------|-------------|
+> **Performance warning:** enabling any DRAM-region check flag
+> (LowMemoryAccess, SystemGlobalAccess, ScreenAccess, MemMgrDataAccess,
+> FreeChunkAccess, UnlockedChunkAccess) re-enables an O(n) heap scan on every
+> DRAM access — known to reach 100% CPU within ~10 minutes (the default-off
+> bypass was added by commit 0bc2a41; the scan itself was never optimized).
+> Enable briefly for a targeted test, then `check clearall`.
+
 | `check list` | Multi-line | List 18 memory-check flags with on/off status |
 | `check set <flag> <on\|off>` | `OK\n` | Toggle individual memory check |
 | `check set-all <on\|off>` | `OK\n` | Toggle all memory checks |
@@ -271,19 +293,16 @@ input and converts to Latin-1.  The `ui` command returns Latin-1 text.  Use
 
 ## Tools
 
-### CLI helper (`scripts/rc.py`)
-
-One-shot command execution from the shell:
+### One-shot commands from the shell
 
 ```bash
-python3 scripts/rc.py --port 6416 state
-python3 scripts/rc.py --port 6416 ui
-python3 scripts/rc.py --port 6416 tap-id 1005
-python3 scripts/rc.py --port 6416 type Hello World
-python3 scripts/rc.py --port 6416 apps
+echo "state" | socat -t5 - TCP:localhost:6416
+printf 'ui\n' | socat -t10 - TCP:localhost:6416
+printf 'tap-id 1005\n' | socat -t5 - TCP:localhost:6416
 ```
 
-Exit code 0 on OK, 1 on ERR.
+(There is no bundled CLI helper script: `scripts/rc.py` was deleted on
+2026-02-22 when the MCP proxy obsoleted it, but this doc kept referencing it.)
 
 ### Python client (`test_recontrol.py`)
 
@@ -308,9 +327,19 @@ python3 test_recontrol_stress.py --no-launch --port 6416
 
 ## Implementation
 
-- **File:** `src/core/ReControl.cpp` (~3200 lines)
+- **Files:** `src/core/ReControl.cpp` (TCP server + table-driven dispatch,
+  ~680 lines) plus handler files `ReControlCmds_Session.cpp`, `_Input.cpp`,
+  `_Query.cpp`, `_Debug.cpp`, `_Profile.cpp` (split 2026-03-13, commit
+  9ec9fff).
+- **Dispatch:** every command is a table entry (`ReControl.cpp:101`) with an
+  explicit threading category — `kCmdImmediate`, `kCmdWorkerDirect`,
+  `kCmdWorkerCycle`, `kCmdWorkerSysCall`, `kCmdWorkerRaw`, `kCmdAdaptive`,
+  `kCmdCustom`. See `ReControl.h` and `docs/architecture.md` § ReControl.
 - **Architecture:** `ReControlServer` (QTcpServer) creates `ReControlSession`
   (QObject per connection).  All I/O on the Qt main thread.  CPU-dependent
   commands dispatch to `CPUWorkerThread` via `QueueWork`/`QueueWorkResult`.
 - **Thread safety:** QPointer guards all response lambdas against
   session-destroyed races.  See `docs/stability-findings.md` for full analysis.
+- **Known limitation:** `kCmdWorkerDirect` commands (`tap`, `pen`, `key`,
+  `type`, `button`) are fire-and-forget — the `OK` confirms queueing, not
+  delivery to the emulated app, and argument errors are currently swallowed.

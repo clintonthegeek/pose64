@@ -1,0 +1,300 @@
+# POSE64 Recovery Plan
+
+> **For agentic workers:** This is the strategic roadmap. Each phase below
+> MUST get its own detailed implementation plan (via superpowers:writing-plans,
+> saved to `docs/superpowers/plans/`) at execution time, when the executing
+> session has the live code in context. Do not execute phases out of order;
+> the gates exist because this project previously died of skipped gates.
+
+**Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
+to "stable, honest, useful for AI-driven Palm reverse engineering, with one
+demonstrated HotSync" — the project's definition of *done* (v1.0).
+
+**Architecture:** Stabilization-first. Fix the four verified freeze/lying
+mechanisms in the control plane before adding ANY new feature. Every fix
+lands with a failing reproduction first. One event-delivery mechanism survives;
+all superseded mechanisms are deleted, not stranded.
+
+**Tech stack:** Qt6/C++17, CMake, ASAN/TSAN, Python test harness
+(`test_recontrol_stress.py`), pilot-link for the HotSync milestone.
+
+**Source of truth for findings:** `docs/STATUS.md` (audited 2026-06-09).
+
+---
+
+## Why the project derailed (so we don't repeat it)
+
+From the seven-agent audit of code, git history, and docs:
+
+1. **One bug, six fixes, six places.** Cross-thread CPU wakeup was patched
+   where it *manifested*, never where it originated (7fe4e1b → c07a464 →
+   0fad58d → 7981631 → 7b51f89 → 948aa09; median fix-to-fix ~70 minutes).
+2. **Mechanisms stacked, never replaced.** 18 `EmSessionStopper` call sites
+   coexist with the worker queue meant to replace them; the 7-category
+   dispatch table codified the layering.
+3. **Docs declared victory before verification.** "100% complete" obsolete in
+   34 minutes; "all real, all tested" disproven the same afternoon; "proxy
+   auto-discovers tools" was never true and seeded phantom `palm_*` tools
+   that sent later agents chasing ghosts.
+4. **Tests asserted protocol responses, not effects.** `launch` was broken by
+   design for 22 days under a green "comprehensive integration test suite";
+   `test_cpu_worker_tap.py` never checked the tap landed.
+5. **Giant unverified sessions.** 28 commits in 3h40m overnight (mostly
+   Haiku-authored, Opus-repaired); a 19-hour final day ending in an
+   uncommitted instrumentation dump.
+
+## Process rules (binding for every session below)
+
+- **R1 — Reproduce first.** No fix commit without a failing test or scripted
+  reproduction committed alongside (or immediately before) it.
+- **R2 — Replace, don't stack.** A commit that introduces mechanism B for a
+  job mechanism A did must delete or explicitly quarantine A in the same
+  commit.
+- **R3 — Effects, not responses.** Input/launch/install tests must assert on
+  emulator effects (screen-hash change, `ui` content, `apps` list), never
+  only on `OK`.
+- **R4 — Clean tree per session.** End every session with commit-or-revert.
+  Debug instrumentation never survives a session. (`git stash` is not an
+  archive.)
+- **R5 — Docs in the same commit.** A behavior change to ReControl/MCP lands
+  with `docs/recontrol-protocol.md` + `SKILL.md` updates in the same commit.
+  `docs/STATUS.md` is updated only with *verified* statements.
+- **R6 — No overnight mega-sessions; strongest model for threading work.**
+  One phase-task per sitting, with the gate run before stopping.
+
+---
+
+## Phase 0 — Freeze a trustworthy baseline (half a day)
+
+**Outcome:** a clean, buildable-from-fresh-clone repo; the March-13 working
+tree resolved deliberately instead of by accident.
+
+### Task 0.1 — Triage the uncommitted working tree
+**Files:** the 12 modified files (`git diff --stat`); see STATUS.md.
+- [ ] Strip ALL `fprintf` instrumentation from: `CPUWorkerThread.cpp`,
+      `EmSession.cpp`, `EmApplication.cpp`, `EmWindow.cpp`, `ReControl.cpp`,
+      `EmApplicationQt.cpp`, `Patches/EmPatchMgr.cpp` (keep behavior changes,
+      remove prints; the `[PuppetString]`/`[PenEvent]`/`[CPUWorker]`/SLOW
+      probes all go).
+- [ ] Keep, as a candidate, the PuppetString change in `EmPatchMgr.cpp`
+      (nil-event + `kSkipROM` after enqueue; unconditional `clearTimeout`).
+      Build and run the Phase-2 delivery test (Task 2.1) once WITH and once
+      WITHOUT it (`git stash`). Record results in the commit message.
+- [ ] If it passes: commit as `fix: deliver queued pen/key events via
+      PuppetString poll (replaces PrvWakeUpCPU wakeup)`. If unverifiable in
+      one sitting: `git checkout -p` it away — it is reproducible from
+      STATUS.md, and an unverified hack must not be the baseline.
+- [ ] Commit the unambiguous keepers separately: `claude/` doc updates,
+      `data/...metainfo.xml` 0.9.1 notes, `EmSPISlaveADS784x.cpp` comment.
+- [ ] Delete the `if (0)` Wiggle Walk block in `EmWindow.cpp:474-506` and the
+      `fWiggled` machinery, or file it as a tracked issue — no zombie code.
+
+### Task 0.2 — Make a fresh clone work
+- [ ] `git add src/cpp-mcp/` (the proxy build depends on it — currently
+      untracked!), `docs/architecture.md`, `docs/STATUS.md`, this plan,
+      `docs/history/` additions… verify with:
+      `git clone . /tmp/pose64-clone && cmake -S /tmp/pose64-clone -B /tmp/pose64-clone/build && cmake --build /tmp/pose64-clone/build -j` → must succeed.
+- [ ] Decide `src/Emulator_Src_3.5/` (33 MB reference): recommend gitignore +
+      a `docs/` note pointing to the canonical tarball. Do NOT commit.
+
+### Task 0.3 — Repo hygiene
+- [ ] Append to `.gitignore`: `__pycache__/`, `.cache/`, `*.AppImage`,
+      `*.deb`, `*.ddeb`, `*.exe`, `abandoned/`, `pose32bit/`,
+      `src/fltk-1.1.10/`, `src/fltk-install/`, `src/core/UAE/gen/`,
+      `src/Emulator_Src_3.5/`, `Screenshot_*.jpg`.
+- [ ] Archive elsewhere (or delete): `abandoned/` (158 MB), `pose32bit/`
+      (88 MB), `src/fltk-*` (50 MB), `src/core/UAE/gen/`, `docs/thing.pdf`,
+      `'c:\palm\bigclock\log.txt'`, `Screenshot_20260218_182122.jpg`.
+- [ ] SAFE-DELETE dead source (audit-verified unreferenced):
+      `src/platform/EmWindowUnix.cpp`,
+      `src/core/omnithread/{mach,nt,null_thread,posix,solaris}.*`,
+      `src/core/UAE/cpuemu1.c`–`cpuemu8.c`, `src/core/UAE/missing.c`,
+      `src/core/jpeg_disabled.h`.
+
+**GATE 0:** fresh-clone build passes; `git status` is empty; `pose64` boots a
+ROM and `state` answers on 6416.
+
+---
+
+## Phase 1 — Kill the freeze classes (2–4 sessions)
+
+**Outcome:** an AI agent can hammer the emulator for 30 minutes — including
+crash dialogs, concurrent GUI use, and client disconnects — without a freeze,
+a lie, or a process restart. This phase is the project's core debt; nothing
+else proceeds until GATE 1 passes.
+
+Ranked tasks (each = failing repro → fix → test → commit):
+
+- [ ] **1.1 Suspend-counter leak** — `EmSession.cpp` `SuspendThread`: the
+      `kStopNow`/`kStopOnCycle` failure paths return `false` without
+      decrementing `fSuspendByUIThread` (increment at :788-793, returns at
+      :961-1001). Make failure side-effect-free. Repro: raise an error dialog
+      (watchpoint or `errorhandling set ErrorOn show` + illegal write), then
+      issue `ui` → dismiss dialog → `state` must return `running`. Also make
+      `ForceReset` clear the counter as a belt-and-suspenders (document why).
+- [ ] **1.2 Universal stop timeouts** — give `kStopNow`/`kStopOnCycle` the
+      same deadline treatment `kStopOnSysCall` got (`EmSession.cpp:830`);
+      every `kCmdWorkerCycle`/`kCmdWorkerRaw` handler returns
+      `ERR timeout: …` instead of blocking forever.
+- [ ] **1.3 Proxy honesty** — `pose64-mcp-proxy.cpp`: add `SO_RCVTIMEO`
+      (per-command deadline + margin); never auto-retry non-idempotent
+      commands after reconnect (`install`, `key`, `type`, `poke`, `delete`);
+      surface timeouts as structured tool errors with recovery hints.
+- [ ] **1.4 Worker shutdown** — `CPUWorkerThread::shutdown()` must not be
+      called unbounded from the main thread (`ReControlCmds_Session.cpp:342`,
+      `main.cpp:134-139`): set a stop flag under the mutex, wake, bounded
+      `wait(5s)`, then escalate. Repro: `palm_load` while a slow command is
+      queued.
+- [ ] **1.5 Single ROM-call owner** — close the two-stoppers window
+      (`EmSession.cpp:979-986`): a global ROM-call mutex (or owner token)
+      around `ExecuteSubroutine`/`CallCPU` so a GUI menu action and a worker
+      command can never both run the UAE core. Repro is probabilistic — add a
+      TSAN job and an adversarial stress scenario (GUI-equivalent calls
+      interleaved with worker commands).
+- [ ] **1.6 PaintScreen stopper** — restore CPU-stop (original POSE behavior)
+      around `EmWindow::PaintScreen`'s `EmScreen::GetBits`, or make
+      `gMemAccessFlags`/`CEnableFullAccess` thread-safe. The "torn read is
+      acceptable" comment is wrong about what's being torn.
+- [ ] **1.7 `fLastPenEvent` race** — two writer threads
+      (`EmSession.cpp:1909-1935`); protect with the queue's mutex or an
+      atomic.
+- [ ] **1.8 WorkerDirect error reporting** — validate args on the main thread
+      before queueing so `tap banana` returns `ERR usage…`, not `OK`
+      (`ReControl.cpp:212-218, 444-456`).
+
+**GATE 1:** extended `test_recontrol_stress.py` (add scenarios: commands
+while dialog pending; load-during-queue; disconnect storms; 2-client `ERR
+busy` cycling; concurrent screenshot+menu) runs 30 minutes clean under ASAN,
+and the suite passes under TSAN with the new lock discipline. All assertions
+are effect-based (R3).
+
+---
+
+## Phase 2 — Make input delivery honest (1–2 sessions)
+
+**Outcome:** `OK` from `tap`/`key`/`type` means *delivered* (or you get a
+truthful error), with ONE delivery mechanism in the tree.
+
+- [ ] **2.1 Delivery test first** — script: `screen-hash` → `tap` on a known
+      button (e.g. Launcher icon via `tap-id`) → poll `screen-hash`/`ui` ≤2 s
+      → assert change. Run against baseline to characterize today's failure
+      rate. This test is the referee for every option below.
+- [ ] **2.2 Decide the mechanism** (single decision, recorded in
+      architecture.md):
+      - **A. Poll-always** (the uncommitted PuppetString approach):
+        guest never sleeps on infinite timeout; simplest; costs idle CPU —
+        measure it (the sleep-until-interrupt work was a headline feature;
+        don't silently destroy it).
+      - **B. Targeted wake**: on enqueue, schedule a one-shot "clear timeout
+        on next SysEvGroupWait" via the existing patch state, letting the
+        guest sleep otherwise. More surgical; needs care vs. EvtMgrIdle.
+      - **C. Delivered-ACK**: keep either A or B, and additionally have the
+        worker block (≤2 s) on a delivery counter PuppetString increments, so
+        the protocol response reflects truth (`OK delivered` / `ERR pending`).
+      Recommendation: **B + C**. A is acceptable as an interim if measured
+      idle cost is negligible at 1x.
+- [ ] **2.3 Delete the losers** (R2): remove dead `PrvWakeUpCPU`, stale
+      "bridge thread" comments (`EmSession.cpp:1297`, `EmWindow.cpp:553`),
+      and whichever delivery variant lost.
+- [ ] **2.4 Report drops** — when `PrvCanBotherCPU` rejects an event
+      (Gremlins/minimize active), return `ERR busy: gremlin running`, not
+      `OK`.
+
+**GATE 2:** delivery test ≥ 99% over 200 taps at 1x and at Max speed; idle
+CPU% recorded in STATUS.md; exactly one wake mechanism greppable in src/.
+
+---
+
+## Phase 3 — Close the tool/doc gap (1 session)
+
+**Outcome:** what agents see is what exists. (Docs were already corrected on
+2026-06-09 to describe reality; this phase upgrades reality where it's worth
+it.)
+
+- [ ] **3.1 Expose debug commands as MCP tools** — add the 9 groups
+      (`palm_backtrace`, `palm_break`, `palm_watch`, `palm_spy`, `palm_log`,
+      `palm_gremlin`, `palm_check`, `palm_errorhandling`, `palm_profile`) to
+      the proxy. Prereq: refactor the proxy's duplicated schema/dispatch
+      tables into ONE `{name, schema, command-template}` table
+      (`pose64-mcp-proxy.cpp:336-452` vs `:479-645`) so tool lists can't
+      drift again. Then update SKILL.md/tester/protocol docs in the same
+      commit (R5).
+- [ ] **3.2 Make `break` real** — in `Debug::EnterDebugger`'s no-debugger
+      fallback, raise the same deferred-error dialog path `watch`/`spy` use
+      (→ `blocked_on_ui`, inspectable via `dialog`, register dump included)
+      instead of silently continuing. Add `continue` semantics via the
+      existing `dialog respond continue`. Alternative if too invasive:
+      remove `break` from the protocol surface entirely (R2 — no decoys).
+- [ ] **3.3 Defuse the SLP trap** — debugger listening sockets (6414/2000)
+      off by default behind a pref; bound the `Debug::EventCallback`
+      stopper with a timeout.
+- [ ] **3.4 Consolidate Python clients** — `datebook_interaction.py`,
+      `garak_intrigue.py`, `test_cpu_worker_tap.py` all hand-roll TCP
+      clients; move them onto `ReControlClient` (or delete the scratch ones)
+      and move test scripts into `tests/`.
+
+**GATE 3:** a fresh agent given only SKILL.md completes install → launch →
+crash → inspect (backtrace via MCP) → recover, with zero "Unknown tool" and
+zero raw-TCP fallbacks.
+
+---
+
+## Phase 4 — The HotSync milestone (1 session + contingency)
+
+**Outcome:** one documented end-to-end HotSync against pilot-link — the
+project's reason to exist beyond parity. All mechanisms already shipped;
+nobody ever ran the test.
+
+- [ ] **4.1 Smoke test** (do this FIRST; it may just work):
+      1. Session on an **uncalibrated** device (Palm V/Vx ROM — wall-true
+         ticks; avoids the m500's 2.66× busy-tick skew).
+      2. Preferences → Serial Port = `pty:HotSync`; note stderr line
+         `connect HotSync tools to: /dev/pts/N`.
+      3. `pilot-xfer -p /dev/pts/N -l` on the host.
+      4. `palm_button name=cradle action=tap` (or tap HotSync app → Local).
+      5. Record outcome (works / CMP handshake seen / nothing) with serial
+         logging on (`log set Serial 2`... check exact category via
+         `log list`).
+- [ ] **4.2 If handshake stalls** — debug the UART/transport under load
+      (FIFO overrun, RTS, `CycleSlowly` RX pump cadence,
+      `EmUARTDragonball.cpp:630-647`); this is the only expected weak spot.
+- [ ] **4.3 If timeouts trip on m500** — wall-pace the timer accumulator
+      (raw clock) independently of the calibrated throttle clock — keeps
+      ticks true during busy stretches.
+- [ ] **4.4 Productize** — ReControl `info` (or new `serial`) reports the
+      PTY slave path so WildPalms can script sync end-to-end; write
+      `docs/hotsync.md` with the verified procedure.
+
+**GATE 4:** `pilot-xfer -l` lists the device's databases; procedure
+reproducible from docs/hotsync.md by a fresh session.
+
+---
+
+## Phase 5 — Declutter and ship 0.9.1
+
+- [ ] Apply the remaining PROBABLY-SAFE deletions from the dead-code audit
+      (`src/core/jpeg/` + the `DISABLE_JPEG_SUPPORT` fiction, `src/core/Gzip/`,
+      UAE generator tools) — one commit each, build between.
+- [ ] Small dedup: shared `ParseAddress` declaration in `ReControl.h`; the
+      10-file `#undef daysInYear` preamble into one shim header; hoist
+      `ReControlCmds_Profile.cpp`'s 7 duplicate stoppers.
+- [ ] Fix `main.cpp:145` returning before `theApp.Shutdown()` (prefs not
+      saved on normal exit).
+- [ ] Update STATUS.md (only verified facts), release notes, tag 0.9.1,
+      rebuild deb/AppImage/exe via existing packaging.
+
+**GATE 5 (= v1.0 definition of done):** 30-minute autonomous agent session
+(install/launch/crash/inspect/recover ×20) with zero restarts; HotSync
+demonstrated; docs audit-clean (every CURRENT-STATE doc claim verifiable);
+fresh clone builds and runs.
+
+---
+
+## What we are explicitly NOT doing
+
+- No UAE core upgrade/replacement (two postmortems say why).
+- No per-instruction cycle exactness beyond the calibration table — HotSync
+  doesn't need it and the benchmark analysis showed the cost.
+- No multi-client ReControl, no Windows-specific automation work until
+  GATE 4.
+- No new MCP features beyond Phase 3 until v1.0.

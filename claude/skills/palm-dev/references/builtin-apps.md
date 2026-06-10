@@ -204,6 +204,239 @@ palm_sleep ms=300
 
 ---
 
+## ShadowPlan 4.31 (patched, creator=Coog)
+
+**Database name:** `Shadow`
+**PRC file:** `shadow431hhonly/Shadow431_patched.prc`
+**Install:** `palm_install path=".../Shadow431_patched.prc"`
+**Launch:** `palm_launch app="Shadow"`
+
+ShadowPlan is a hierarchical outliner / task manager. It organises data as
+"lists" (files) containing tree nodes. Each node has a body text (multi-line
+FIELD), metadata (priority, dates, percent complete, link), and can have
+child nodes. The main tree view is a custom-draw GADGET -- `palm_ui` shows
+the GADGET bounds but does not enumerate tree items.
+
+### Form Map
+
+| Form ID | Title | Description |
+|---------|-------|-------------|
+| 1300 | "ShadowPlan" | HomeForm -- list of .pdb files |
+| 1400 | "List Preferences" | New/edit list (file) properties |
+| 1000 | (list title) | List view -- tree of nodes |
+| 1200 | "Details" | Node detail editor (body text + metadata) |
+| 12000 | "Broken Links" | Warning when links point to deleted items |
+
+### HomeForm (1300) -- Key Objects
+
+| ID | Type | Label | Notes |
+|----|------|-------|-------|
+| 1301 | BUTTON | "New" | Create new list (goes to form 1400) |
+| 1302 | BUTTON | "Open" | Open selected list (goes to form 1000) |
+| 1304 | BUTTON | "Unfiled" | Category filter popup |
+| 1305 | LIST | (custom-draw) | File list; sel=-1 means no selection |
+| 1307 | BUTTON | "" | Delete/trash button (icon) |
+| 1308 | BUTTON | "Recent" | Recently opened lists |
+
+**Opening a list from HomeForm:**
+The file list (1305) is custom-draw. To select and open a list:
+1. Use `palm_pen x=80 y=26 action=tap` to tap the first item row (y~25)
+   -- this selects it but does NOT open it (sel changes from -1 to 0)
+2. Tap Open: `palm_tap_id id=1302`
+3. A "Broken Links" dialog (form 12000) may appear if the list contains
+   links to deleted items -- dismiss with `palm_tap_id id=12004` (OK)
+4. Form 1000 opens with the list title
+
+Alternatively, double-tap on the list item (two rapid pen down/up at
+the same y) also opens the list, but may trigger the Broken Links dialog.
+
+### List Preferences Form (1400) -- Creating a New List
+
+Reached via: HomeForm > New (1301)
+
+| ID | Type | Label | Notes |
+|----|------|-------|-------|
+| 1401 | FIELD | (focused) | List filename/title -- auto-focused on open |
+| 1402 | BUTTON | "OK" | Save and open the new list |
+| 1403 | BUTTON | "Cancel" | Cancel |
+| 1404 | FIELD | | (secondary field, read-only looking) |
+| 1405 | BUTTON | "Checklist" | List type selector popup |
+| 1406 | LABEL | "Filename:" | |
+| 1409 | GADGET | | Tab bar: "List" / "Auto" / "Options" tabs |
+| 1419 | BUTTON | "Unfiled" | Category popup |
+| 1421 | LABEL | "List Type:" | |
+| 1422 | LABEL | "Category:" | |
+| 1423 | BUTTON | "Custom" | (custom settings button) |
+| 1424 | BUTTON | "Synchronize" | Checkbox-style |
+| 1426 | BUTTON | "Color theme" | Checkbox-style |
+| 1427 | BUTTON | "Mini editor" | Checkbox-style |
+| 1428 | BUTTON | "Show headings" | Checkbox-style (checked by default) |
+
+**Workflow -- create a named list:**
+
+```
+palm_tap_id id=1301       # New on HomeForm
+palm_sleep ms=800
+# Field 1401 is auto-focused (marked with * in palm_ui)
+palm_type text="My List"  # type the list name
+palm_sleep ms=300
+palm_tap_id id=1402       # OK -- creates list and opens form 1000
+palm_sleep ms=1500
+# Now on form 1000 with title = "My List"
+```
+
+**Key facts:**
+- Field 1401 is auto-focused -- no need to tap it first
+- OK creates the list file and immediately opens form 1000 (list view)
+- The list is empty when first opened
+
+### List View Form (1000) -- Tree/Node View
+
+This is the main outliner view. The title is the list name.
+The central content is `GADGET id=1001 (0,18,160,125)` -- a custom-drawn
+tree widget. `palm_ui` shows the gadget bounds but not its contents.
+Screenshots are required to see the node tree visually.
+
+| ID | Type | Label | Notes |
+|----|------|-------|-------|
+| 1001 | GADGET | | Tree view (custom-draw, 160x125 starting at y=18) |
+| 1002 | BUTTON | "New" | New sibling node (opens form 1200) |
+| 1003 | BUTTON | "Done" | Return to HomeForm (1300) |
+| 1004 | BUTTON | "Details" | Edit selected node (opens form 1200) |
+| 1005 | BUTTON | "Child" | New child node |
+| 1006 | BUTTON | "?" | Scroll up (small, at y=144) |
+| 1007 | BUTTON | "?" | Scroll down (small, at y=152) |
+| 1008 | LIST | | (column header popup?) |
+| 1009 | LIST | | (indent/level popup?) |
+| 1010 | BUTTON | "" | Toolbar popup (top-right) |
+| 1015 | BUTTON | "" | Search icon |
+| 1017 | BUTTON | "" | Delete/trash icon |
+| 1027-1035 | BUTTON | "" | Toolbar icon buttons (row at y=146) |
+| 1036 | SCROLLBAR | | Vertical scrollbar (right edge) |
+| 1037 | BUTTON | "Popup" | Mini popup at bottom-left |
+
+**Workflow -- add a new node:**
+
+```
+palm_tap_id id=1002       # New: opens form 1200 (Details)
+palm_sleep ms=800
+# Field 1201 is auto-focused
+palm_type text="My item"  # type node body text
+palm_sleep ms=300
+palm_tap_id id=1202       # OK: saves node, returns to form 1000
+palm_sleep ms=800
+# Node now visible in tree view
+```
+
+**Key facts on item creation:**
+- "New" (1002) opens form 1200 as a blank node
+- `palm_key code=10` (Enter) adds a newline WITHIN the body text field --
+  it does NOT save the node or create another one
+- Each newline-separated line in the body FIELD appears as a separate visual
+  row in the tree, so `palm_type text="A\nB\nC"` creates three visible rows
+  under one node
+- "Child" (1005) works similarly but creates a child of the currently selected node
+- "Done" (1003) returns to HomeForm and updates the file list
+
+### Node Details Form (1200) -- Editing a Node
+
+Reached via: List View > New (1002) or > Details (1004)
+
+| ID | Type | Label | Notes |
+|----|------|-------|-------|
+| 1201 | FIELD | (auto-focused) | Node body text (multi-line, 149px wide, ~7 rows) |
+| 1202 | BUTTON | "OK" | Save and return to form 1000 |
+| 1203 | BUTTON | "Cancel" | Discard and return |
+| 1205 | BUTTON | "Note" | Open/edit associated note |
+| 1206 | BUTTON | "Link" | Manage links to other nodes |
+| 1207 | LABEL | "Start:" | |
+| 1208 | LABEL | "Finish:" | |
+| 1209 | BUTTON | "No pref." | Priority popup |
+| 1210 | LIST | | Priority values: "No pref.", "None (#)", "1-2-3-4-5", etc. |
+| 1211 | LABEL | "Targ:" | Target date label |
+| 1212 | BUTTON | "Not Set" | Target date popup |
+| 1213 | BUTTON | "-" | Start date popup |
+| 1214 | BUTTON | "0%" | Completion % popup |
+| 1215 | LIST | | Priority 1-5 or "-" |
+| 1216 | LIST | | Completion % (0-100%) |
+| 1217 | SCROLLBAR | | Vertical scroll for body text |
+| 1218 | BUTTON | "Not Set" | Start date popup |
+| 1219 | BUTTON | "Not Set" | Finish date popup |
+| 1220 | FIELD | "3/13/26" | Creation date (read-only) |
+| 1221 | LIST | | (view selector) |
+| 1222 | BUTTON | "B" | Bold toggle |
+| 1223 | GADGET | | (formatting gadget) |
+| 1224 | BUTTON | "Checklist" | Node type popup |
+| 1225 | LABEL | "cr:" | Creation date label |
+| 1226 | BUTTON | "" | (icon button, top toolbar) |
+| 1230 | BUTTON | "" | Targ: date clear/set |
+| 1231 | BUTTON | "" | Start: date clear/set |
+| 1232 | BUTTON | "" | Finish: date clear/set |
+| 1233 | BUTTON | "" | (small icon) |
+| 1235 | BUTTON | "" | (icon button, top toolbar) |
+
+### Broken Links Form (12000)
+
+Appears when opening a list that contains links to deleted items.
+
+| ID | Type | Label | Notes |
+|----|------|-------|-------|
+| 12003 | FIELD | (read-only) | Warning message text |
+| 12004 | BUTTON | "OK" | Keep broken links (shows again next open) |
+| 12005 | BUTTON | "Sever All Broken Links" | Permanently remove all broken link references |
+
+**Workflow -- dismiss Broken Links:**
+
+```
+palm_tap_id id=12004      # OK: dismiss, links remain (warning repeats on reopen)
+# or:
+palm_tap_id id=12005      # Sever All: permanently cleans up broken links
+```
+
+### Complete Workflow -- Create List and Add Items
+
+```
+# Install (first time only):
+palm_install path="/path/to/Shadow431_patched.prc"
+palm_sleep ms=1000
+
+# Launch:
+palm_launch app="Shadow"
+palm_sleep ms=1500
+
+# Create new list:
+palm_tap_id id=1301       # New
+palm_sleep ms=800
+palm_type text="Test List"
+palm_sleep ms=300
+palm_tap_id id=1402       # OK
+palm_sleep ms=1500
+# Now on form 1000 "Test List"
+
+# Add first node (3 lines appear as 3 rows):
+palm_tap_id id=1002       # New
+palm_sleep ms=800
+palm_type text="Buy groceries"
+palm_sleep ms=300
+palm_tap_id id=1202       # OK
+palm_sleep ms=800
+
+# Add second node:
+palm_tap_id id=1002
+palm_sleep ms=800
+palm_type text="Call doctor"
+palm_sleep ms=300
+palm_tap_id id=1202
+palm_sleep ms=800
+
+# Return to home:
+palm_tap_id id=1003       # Done
+palm_sleep ms=500
+# HomeForm shows "Test List (0/N)" where N = total item count
+```
+
+---
+
 ## General Palm OS Patterns
 
 These apply across all built-in apps:

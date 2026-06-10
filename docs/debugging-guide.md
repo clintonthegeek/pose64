@@ -324,7 +324,7 @@ where an uninitialized value came from.
 
 ## Built-In Logging System
 
-The emulator has a full logging system (`Logging.h`) with 19 log categories and 18
+The emulator has a full logging system (`Logging.h`) with 20 log categories and 18
 memory-access report categories. These are controlled by the emulator's preference
 system and work in both release and debug builds.
 

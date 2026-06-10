@@ -6,6 +6,13 @@
 > sections. Those sections are preserved below as a record of what was wrong
 > and why the rewrite was necessary. The "Current Architecture" section at the
 > end describes the system as it stands today.
+>
+> **Update (2026-06-09):** The "Current Architecture" tail is itself now
+> historical. Since Feb 20 the system has **three** threads (a CPUWorkerThread
+> was added for ReControl command handling), and the claim that "ReControl is
+> not ported" stopped being true on Feb 19. The authoritative architecture
+> reference is `docs/architecture.md`. The timer/throttle/window-system
+> sections here remain uniquely detailed and accurate.
 
 ---
 

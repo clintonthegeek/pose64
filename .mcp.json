@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pose64": {
+      "type": "stdio",
+      "command": "./build/pose64-mcp-proxy"
+    }
+  }
+}

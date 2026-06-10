@@ -27,6 +27,13 @@ I hope my humble artwork is satisfactory for the occasion of this quarter-centur
 
 These are all features of the original 25 year old emulator. Added is a **new speed control**: 0.25x to 8x of “realtime” (or any custom fraction), with cycle-accurate timer mode. I put “realtime” in scare quotes because I made a 16-variable benchmark application and wasted a whole day trying to get the emulator to address different areas at realistic speeds. That was far too challenging; read the `docs/` for more.
 
+Also added: **ReControl**, a TCP automation protocol (36 commands — input
+injection, screenshots, install/launch, session save/load, memory peek/poke,
+watchpoints, logging, gremlins, profiling), and an **MCP proxy**
+(`pose64-mcp-proxy`) so AI coding agents can drive the emulator directly.
+See `docs/recontrol-protocol.md` for the protocol, `docs/STATUS.md` for what
+currently works, and `claude/skills/palm-dev/SKILL.md` for agent usage.
+
 Supported devices might include: Palm Pilot, Palm III/IIIc/IIIe/IIIx, Palm V/Vx,
 Palm m100/m130/m500/m515, Handspring Visor, and others! Most aren't tested—give them a shot!
 

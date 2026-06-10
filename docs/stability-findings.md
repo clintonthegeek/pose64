@@ -2,6 +2,15 @@
 
 Date: 2026-02-22
 
+> **Note (2026-06-09):** Historical record — all six bugs below are verified
+> fixed in current code. Function names (`CmdTap` etc.) predate the
+> 2026-03-13 split of ReControl.cpp into `ReControlCmds_*.cpp`. The "Bug 2"
+> fix described here (main-thread-only ExecuteSubroutine in PrvWakeUpCPU) was
+> itself superseded: PrvWakeUpCPU was removed from PostPenEvent/PostKeyEvent
+> entirely on 2026-02-25 (commit 7b51f89), which traded the crash for a
+> delivery-latency problem that was still being investigated when development
+> paused. See `docs/STATUS.md`.
+
 ## Background
 
 The ReControl feature introduced a **CPUWorkerThread** (QThread) alongside the
