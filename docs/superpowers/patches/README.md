@@ -1,7 +1,7 @@
-# Deferred patches
+# Deferred / preserved patches
 
-Working-tree changes intentionally removed from the baseline during Phase 0
-because they were unverified, preserved here for the phase that will verify them.
+Working-tree changes intentionally removed from the baseline during Phase 0,
+preserved here so they are not lost.
 
 ## 2026-03-13-puppetstring-poll-delivery.patch
 
@@ -20,3 +20,18 @@ stripped in Phase 0. Phase 2 should extract only the `kSkipROM`/`clearTimeout`
 behavior hunks (the ones without `fprintf`), apply against the live
 `EvtGetEvent`/`EvtGetPen` patch path, and gate it on the new delivery test
 (Task 2.1) run WITH and WITHOUT the change.
+
+## cpp-mcp-accept-mcp-2025-06-18.patch
+
+A local modification that was sitting uncommitted in the `src/cpp-mcp` working
+tree (against upstream `hkr04/cpp-mcp` @ `dc86c91`). It teaches cpp-mcp's
+**HTTP/SSE** server to accept MCP protocol version `2025-06-18` and adds an
+OAuth-discovery error handler.
+
+**Status:** UNUSED by POSE64. `pose64-mcp-proxy` is built from
+`src/pose64-mcp-proxy.cpp` alone and only uses `cpp-mcp/common` as an include
+path — it never compiles `cpp-mcp/src/mcp_server.cpp`, and the proxy speaks
+**stdio**, not HTTP. The change was preserved here and discarded from the
+submodule so it can be pinned at a clean upstream commit. Apply it (or upstream
+it to hkr04/cpp-mcp) only if the proxy is ever rearchitected onto cpp-mcp's HTTP
+server.
