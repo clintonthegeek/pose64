@@ -4,6 +4,49 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠ PLAN REVISION — 2026-06-10 (execution session, HEAD `5cd5c62`). READ FIRST.**
+> Task 1 is **done** (commit `5cd5c62`: `speed` command + a stale-comment fix).
+> Then the R1 measurements overturned this plan's central test assumption — see
+> the planning handoff **§11** for the full corrected ground-truth. Summary:
+>
+> 1. **Baseline delivery to an idle guest is 0%**, not a measurable nonzero
+>    rate. The launcher sleeps in `evtWaitForever`; **no** posted input
+>    (`tap`/`key`/`button`/`launch`) ever wakes it. The §11 probes ARE the R1
+>    reproduction — **skip Task 2's separate "baseline characterisation" run**;
+>    there is nothing to characterise but 0%.
+> 2. **Task 2's setup is unworkable as written.** `button app1 tap` does NOT
+>    enter Datebook on an idle guest (the "reliable hardware-ISR path" claim is
+>    false at idle). There is no bootstrap-into-an-app on the baseline.
+> 3. **Approach A cannot wake an already-asleep guest** (it lives only in the
+>    `PuppetString` trap headpatch). So A is NOT a standalone mechanism and NOT
+>    a fallback; **robust B (the STOP-exit `EvtWakeup` hook) is effectively
+>    mandatory** and is *also* the only way to bootstrap any in-app test.
+>
+> **Revised execution order (replaces Tasks 2–5 sequencing):**
+> - **R1 — Approach-B experiment FIRST** (was Task 4): implement the STOP-exit
+>   hook on `phase2-experiment-B`; verify it makes the idle launcher deliverable
+>   (idle launcher → `tap` Date Book icon → Datebook form appears). This is the
+>   make-or-break gate AND the test bootstrap. **If B fails here, STOP and
+>   escalate — there is no A-shaped rescue.**
+> - **R2 — Delivery test** (revised Task 2): build/shake-out **on the B branch**,
+>   targeting the idle→deliver effect (idle launcher → tap app icon → form
+>   appears; restore via `key 264`/`launch Launcher`). Effect-based (R3).
+>   Record baseline = 0% (from §11), and the B-branch delivery matrix.
+> - **R3 — Approach-A idle cost** (revised Task 3): still measure A's 1x idle
+>   cost, but only to answer the *demoted* question "is the awake-path
+>   optimisation worth ~46%→~100% idle CPU?" A is no longer a delivery
+>   candidate for the cold-asleep case.
+> - **R4 — Checkpoint** (revised Task 5): the decision is **"B + C" vs "B + C +
+>   A-style-no-sleep"**, not "A vs B". Cold-start data already argues for plain
+>   **B + C**.
+> - Tasks 6–9 (honesty plumbing, honest ACK contract, land-winner+delete-losers,
+>   GATE 2) are **largely unchanged** — they assume B is the winner, which the
+>   revision makes near-certain. GATE 2's delivery matrix runs the revised test.
+>
+> The task bodies below are kept for their detailed, still-valid steps (handler
+> code, enum/counter design, deletion list). Where a task body conflicts with
+> this banner, **the banner wins.**
+
 **Goal:** `OK` from `tap`/`pen`/`key`/`type` means *delivered to the Palm OS
 event queue* (or you get a truthful error), with exactly one wake mechanism in
 the tree, passing GATE 2 (≥99% delivery over 200 taps at 1x and Max speed).
@@ -215,6 +258,16 @@ git commit -m "feat(recontrol): speed command (set/query emulation speed)"
 ---
 
 ### Task 2: Delivery test (recovery-plan 2.1) + baseline characterization
+
+> **⚠ REVISED — see top banner + handoff §11.** The setup below
+> (`button app1 tap` → Datebook) does **not** work on the baseline (an idle
+> guest never wakes). Build/shake-out this test **on the B branch** (after the
+> approach-B experiment), and **retarget** it at the idle→deliver effect: idle
+> launcher → `tap` an app icon (e.g. Date Book at ~`(20,48)`) → the app's form
+> appears (`screen-hash`/`ui` change); restore via `key 264` (Home) or
+> `launch Launcher`. The `find_button`/`wait_hash_change` helpers below are
+> reusable as-is. Baseline = **0%** (recorded from §11) — skip Step 4's
+> baseline matrix on the baseline binary; run the matrix on the B branch.
 
 The referee for every later decision (R1/R3: effect-based — asserts on
 `screen-hash` changes, never on response strings; it must stay valid across
@@ -613,6 +666,14 @@ git commit -m "test(phase2): idle-CPU harness + baseline and approach-A idle cos
 ---
 
 ### Task 4: Approach-B experiment (STOP-exit `EvtWakeup` hook)
+
+> **⚠ REVISED — this runs FIRST (it is the bootstrap + make-or-break), and its
+> primary pass criterion is the §11 cold-asleep case:** on `phase2-experiment-B`,
+> from a fresh idle launcher, `tap`-ing the Date Book icon must actually open
+> Datebook (`ui`/`screen-hash` change) within the timeout — i.e. B delivers to a
+> guest that was asleep in `evtWaitForever`. Only after that passes is the
+> revised delivery test (Task 2) built on this branch. **If this fails, STOP and
+> escalate** — approach A cannot rescue the cold-asleep case (handoff §11.3).
 
 The handoff §10 Q-B3 design, on a scratch branch. Pass criteria: (a) all four
 delivery-test runs ≥ baseline, with idle-mode failures eliminated if baseline

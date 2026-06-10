@@ -14,14 +14,21 @@
 > converted to raw pthreads; `DestroyThread` joins before delete; `RcCmd_Load`
 > two-timer split avoids deadlock when dialog is mid-close. 1.5/1.6 deferred
 > (TSAN verify requires real display). `phase-1-complete` **tag exists** (HEAD
-> `460449e`). **Phase 2 planning COMPLETE (2026-06-10).** The hardware-emulation
+> `460449e`). **Phase 2 IN PROGRESS (2026-06-10 execution session); plan revised in place.** The hardware-emulation
 > research is done (robust B = STOP-exit `EvtWakeup` hook, verified feasible)
 > and every decidable open question is settled — see handoff §10
-> (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`). The 2.2
-> mechanism choice itself stays at the measure-first checkpoint (plan Task 5).
+> (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`). The R1
+> measurements (handoff section 11) then found baseline delivery to an idle
+> guest is **0%** and that approach A cannot wake an already-asleep guest, so the
+> A-vs-B choice collapses toward **mandatory robust B**; the plan was revised in
+> place (user choice "re-plan before coding").
 > **NEXT: execute the implementation plan** —
-> `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`, Task 1
-> (`speed` command). Session break after plan Task 5 (R6).
+> `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`. Task 1
+> (`speed`) is done (`5cd5c62`); **next is the approach-B experiment FIRST**
+> (revised order, old Task 4): implement the STOP-exit `EvtWakeup` hook on
+> `phase2-experiment-B` and verify it delivers to the idle launcher, then build
+> the redesigned delivery test on that branch. **If B fails, STOP and escalate**
+> (no A-shaped fallback). Session break after the checkpoint (R6).
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one

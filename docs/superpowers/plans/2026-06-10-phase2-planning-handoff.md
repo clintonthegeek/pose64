@@ -10,6 +10,21 @@ hardware-emulation research).
 > measure-first checkpoint by design. Implementation plan:
 > `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`.
 
+> **⚠ BASELINE CORRECTION — 2026-06-10 (execution session, HEAD `5cd5c62`).**
+> First execution session ran the R1 measurements and found the baseline is
+> **worse and differently-shaped than this doc assumed**: delivery to an *idle*
+> guest is **0%** (the guest sleeps in `evtWaitForever` and *no* posted input —
+> tap / key / button / even `launch` — ever wakes it), and the plan's
+> "bootstrap into Datebook via `button app1`" is unworkable because the
+> hardware-button path does **not** wake an idle guest either. The cold-asleep
+> case is solved **only** by the CPU-thread STOP-exit `EvtWakeup` hook (robust
+> B); approach **A cannot wake an already-asleep guest** (its own patch comment
+> admits it). This demotes A from "alternative mechanism" to "optional
+> awake-path optimization" and makes robust B effectively mandatory. **Full
+> corrected ground-truth + revised decision logic: §11 at the bottom.** Where
+> §3/§4/§10 below conflict with §11, **§11 wins** (it is code-read **and**
+> experiment-verified; §3/§4 were code-read only).
+
 > **Why this doc exists.** Phase 2 planning *started* but is *paused*: choosing
 > the delivery mechanism (recovery-plan task 2.2) depends on hardware-emulation
 > minutiae (how `SysEvGroupWait`/STOP/`EvtWakeup` actually behave) that need
@@ -442,3 +457,92 @@ stale "bridge thread" comments (`EmSession.cpp:1325`, `EmWindow.cpp:489`)
 the original list). Reword Do-Not-Do #8 to past tense, keep the lesson.
 Either winner satisfies GATE 2's grep test (B: the hook is the one wake
 mechanism; A: zero artificial wake mechanisms).
+
+---
+
+## 11. EXECUTION-SESSION BASELINE CORRECTION (2026-06-10, HEAD `5cd5c62`)
+
+The first execution session implemented Task 1 (`speed`) and then ran the
+Task-2/Task-3 R1 measurements **before** building the delivery test. Those
+measurements contradict load-bearing assumptions in §3, §4, and §10. This
+section is the corrected ground-truth; it is **experiment-verified**, so it
+supersedes the code-read-only claims above. The user's decision at this point
+was **"re-plan before coding"** — hence this record and the matching revision
+banner in the implementation plan.
+
+### 11.1 The verified baseline (what actually happens)
+
+Setup: `m515.psf`, `QT_QPA_PLATFORM=offscreen`, self-launched on a test port,
+default speed (1x). The device boots to the **Applications Launcher**, which
+sits in `SysEvGroupWait(evtWaitForever)`.
+
+- **Delivery to an idle guest = 0%.** Over 90 s of observation the launcher's
+  clock title (`12:09 am`), `screen-hash` (`6c98f808`), and `ui` form are all
+  **frozen** — the guest never naturally wakes (the clock never even ticks to
+  the next minute). A `tap` watched for 65 s **never** delivered.
+- **No input path wakes it:** `tap`, `key`, `button app1`, `button power`, and
+  even `launch "Date Book"` all return `OK` (queued) but produce **zero**
+  effect. The app never switches; the form never changes.
+- **Mechanism (confirmed in code):** `PrvCanBotherCPU()` returns true here
+  (Hordes/Replay/Minimize all off), so events **are** queued — they simply
+  never deliver, because the wake function that used to deliver them
+  (`PrvWakeUpCPU`) is dead. Timer ticks wake the CPU each tick but return into
+  the same `evtWaitForever` wait without signalling the event group. This is
+  landmine #3 / failure-mode #1 in its purest form.
+- **Idle CPU ≈ 46% of one core at 1x** (offscreen; `tests/phase2/measure_idle_cpu.py`,
+  settle 8 s / window 20 s). Not a fully-sleeping guest (≈0%), not pegged
+  (≈100%): the STOP-loop's timer simulation + periodic `CycleSlowly` cost.
+  This is the headline-feature number approach A would destroy (A makes the
+  guest never STOP → expect ≈100% at 1x).
+
+### 11.2 Assumptions this corrects
+
+| §  | Claimed | Verified reality |
+|----|---------|------------------|
+| §3, plan Task 2 | "`button app1 tap` reliably enters Datebook — the hardware-ISR path is reliable today and is NOT the path under test." | **FALSE for an idle guest.** The hardware button is polled by `CycleSlowly` during STOP, but the resulting state never reaches the launcher's `evtWaitForever` event loop — `button app1`/`power` produce no effect at idle. There is **no** reliable bootstrap-into-an-app on the baseline. |
+| §4 #1 / Q-B4 | "taps demonstrably work today" | **Unverified and false for a cold idle guest.** No Phase-1 repro ever asserted a tap *effect* (`repro_1_8` says so explicitly). Taps work only against an *awake / finite-timeout-polling* app — never against `evtWaitForever`. |
+| Q-MECH / §5 | A and B are two interchangeable ways to beat failure-mode #1; "A+C is the fallback if B surfaces surprises." | **A is NOT a fallback for the cold-asleep case.** A (the 2026-03-13 patch) lives entirely inside `PuppetString`, which fires only on trap *entry*; it sets `clearTimeout` to stop *future* sleeps but cannot reach a guest **already** asleep past the headpatch. The patch's own comment admits "events posted while already sleeping in STOP would never be delivered." |
+
+### 11.3 Corrected mechanism logic (supersedes Q-MECH framing)
+
+The cold-asleep first-contact case — boot → launcher (`evtWaitForever`) →
+agent's *first* tap — is the **real, common** scenario for AI-driven use, and
+it is solved **only** by a wake that runs **on the CPU thread from inside the
+STOP loop** (robust B, the STOP-exit `EvtWakeup` hook of §10 Q-B3): timer ticks
+give it a CPU-thread execution point every ~10 ms even while the guest is in
+`evtWaitForever`. Therefore:
+
+- **Robust B is effectively mandatory**, not one of two options. It is both the
+  delivery mechanism *and* the only way to bootstrap any in-app test.
+- **A is demoted** to an optional awake-path optimisation (lower delivery
+  latency on an already-awake guest, at the cost of ~46%→~100% idle CPU at 1x
+  and distorted guest-visible nilEvent timing). It is **not** a standalone
+  solution and **not** a fallback.
+- **If B fails its experiment, the phase is blocked** — there is no A-shaped
+  rescue. Escalate rather than ship A.
+
+So the revised Q-MECH decision is no longer "A vs B" but **"B + C" vs "B + C +
+A-style-no-sleep"**, and the cold-start data already argues for plain **B + C**
+unless the awake-path latency proves unacceptable.
+
+### 11.4 Consequences for the test design (drives the plan revision)
+
+- The baseline number is **established here as 0% / idle-unreachable** — no
+  elaborate Datebook test is needed to "characterise" it. The probes in this
+  section ARE the R1 reproduction.
+- The delivery test cannot bootstrap into Datebook on the baseline, so it must
+  be **built and shaken out on the B branch** (where wake works), and must
+  target the **idle→deliver effect directly**: idle launcher → `tap` an app
+  icon → the app's form appears (`ui`/`screen-hash` change) → restore Home
+  (`key 264` / `launch Launcher`, deliverable once B is in). This exercises
+  failure-mode #1 head-on, which Datebook Go-to/Cancel (an awake-path toggle)
+  does not.
+- Task order changes: the **approach-B experiment moves first** (it is the
+  bootstrap and the make-or-break); the delivery test and GATE 2 run on top of
+  it; approach-A's idle cost is still measured, but only to answer the demoted
+  "is the awake-path optimisation worth it?" question.
+
+Evidence artifacts (this session): `tests/phase2/test_speed_cmd.py` (committed),
+`tests/phase2/measure_idle_cpu.py` (the idle-CPU harness, committed with this
+correction). The interactive probes were throwaway `/tmp` scripts; their
+findings are captured above.

@@ -64,6 +64,17 @@ host.
    are no longer swallowed — WorkerDirect args are validated on the main
    thread, so `tap banana` returns `ERR usage…`, not `OK`. Verified:
    `tests/phase1/repro_1_8_argval.py`.
+   **Quantified 2026-06-10 (Phase 2 execution session, HEAD `5cd5c62`):**
+   delivery to an **idle** guest is **0%** — a fresh m515 boots to the
+   Launcher in `SysEvGroupWait(evtWaitForever)` and **no** posted input
+   (`tap`/`key`/`button`/`launch`) ever wakes it (clock title, `screen-hash`,
+   and `ui` all frozen for 90 s; a tap watched 65 s never delivered). The
+   "hardware-ISR button path is reliable" assumption is **false at idle**
+   (`button app1`/`power` produce no effect). Idle CPU ≈ **46% of one core at
+   1x** (offscreen). The cold-asleep case is reachable **only** by a CPU-thread
+   STOP-exit `EvtWakeup` wake (Phase-2 approach B); approach A (poll-always)
+   cannot wake an already-asleep guest. Detail + revised plan: handoff §11
+   (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`).
 4. ~~**Untimed stops can wedge the whole control plane.**~~ **FIXED (task 1.2,
    2026-06-10).** `kStopNow`/`kStopOnCycle` stoppers previously had no timeout
    (`EmSession.cpp` — `useTimeout` was gated on `how == kStopOnSysCall`). A CPU
@@ -127,18 +138,32 @@ host.
   `msgBox.exec()`). 1.5/1.6 deferred (TSAN verify requires real display).
   `phase-1-complete` tag now exists (HEAD `460449e`). Repros live in
   `tests/phase1/` (self-launching, offscreen).
-- **Phase 2 — planning COMPLETE (2026-06-10); ready to execute.** Research
-  answered the hardware questions (robust B = STOP-exit `EvtWakeup` hook on the
-  CPU thread, verified feasible against the Do-Not-Do constraints) and all
-  decidable questions are settled: ACK contract = `OK delivered`/truthful
-  errors (Q-ACK a), status-returning post functions (Q-DROP), per-queue
-  delivery counters (Q-SYNC), Datebook Go-to/Cancel effect test (Q-TEST),
-  /proc-based idle harness (Q-IDLE), new `speed` command (Q-SPEED), m515
-  (Q-DEV). Decisions: handoff §10
+- **Phase 2 — IN PROGRESS (2026-06-10 execution session).** Task 1 done
+  (commit `5cd5c62`: `speed [<percent>|max]` ReControl command + a stale
+  `fEmulationSpeed` comment fix). Then the R1 measurements **overturned the
+  plan's central assumption** and the plan was **revised in place** (user
+  choice: "re-plan before coding"):
+  - **Verified baseline:** delivery to an idle guest = **0%** (guest sleeps in
+    `evtWaitForever`; tap/key/button/`launch` all fail to wake it; idle CPU
+    ≈46% at 1x). The plan's `button app1 tap`→Datebook bootstrap is unworkable
+    at idle. See landmine #3 above and handoff **§11**.
+  - **Corrected mechanism logic:** robust B (STOP-exit `EvtWakeup` hook) is
+    **effectively mandatory** — it is the only path that wakes a cold-asleep
+    guest *and* the only way to bootstrap any in-app test. Approach **A cannot
+    wake an already-asleep guest** (it lives only in the `PuppetString`
+    headpatch), so A is demoted to an optional awake-path optimisation, not a
+    delivery candidate or fallback.
+  - **Revised order:** approach-B experiment FIRST (bootstrap + make-or-break)
+    → delivery test built on the B branch, retargeted at the idle→deliver
+    effect → A idle-cost measurement (demoted question) → checkpoint
+    ("B+C" vs "B+C+A-no-sleep") → honesty plumbing/contract/land+delete/GATE 2.
+  - Still-valid decisions (handoff §10): Q-ACK `OK delivered`, Q-DROP
+    status-returning posts, Q-SYNC delivery counters, Q-IDLE /proc harness,
+    Q-SPEED `speed` (done), Q-DEV m515, Q-CLEAN delete `PrvWakeUpCPU`.
+  Plan + revision banner:
+  `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`; corrected
+  ground-truth: handoff §11
   (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`).
-  Implementation plan:
-  `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` (mechanism
-  choice A-vs-B stays at the plan's data-backed checkpoint, Task 5).
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
