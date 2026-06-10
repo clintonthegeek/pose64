@@ -21,10 +21,12 @@
 #include "EmHAL.h"				// EmHAL::GetInterruptLevel
 #include "EmMemory.h"			// CEnableFullAccess
 #include "EmMinimize.h"			// IsOn
+#include "EmPatchState.h"		// EmPatchState::UIInitialized
 #include "EmSession.h"			// HandleInstructionBreak
 #include "Logging.h"			// LogAppendMsg
 #include "MetaMemory.h"			// IsCPUBreak
 #include "Platform.h"			// GetMilliseconds
+#include "ROMStubs.h"			// EvtWakeup
 #include "SessionFile.h"		// WriteDBallRegs, etc.
 #include "StringData.h"			// kExceptionNames
 #include "EmDeviceBenchmark.h"	// EmDeviceBenchmark_GetEffectiveClockFreq
@@ -993,6 +995,25 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 			return true;
 		}
 	} while (regs.spcflags & SPCFLAG_STOP);
+
+	// Phase 2 wake (approach B): a pen/key event posted while the guest
+	// slept in STOP never signals the ROM's event group, so once the
+	// pending interrupt is serviced the kernel idle loop would re-enter
+	// STOP without SysEvGroupWait ever returning.  Here we are on the CPU
+	// thread, ProcessInterrupt has just cleared regs.stopped, and we sit
+	// at interrupt entry — the documented-legal point for EvtWakeup
+	// (Palm OS permits it from interrupt handlers; see ROMStubs.cpp's
+	// comment block on EvtWakeup).  Signal the event group so the UI task
+	// wakes and PuppetString delivers on the next EvtGetEvent trap.
+	// Worst-case added latency: one timer tick.  The tick rate naturally
+	// debounces repeated wakes if the guest re-sleeps with events pending.
+
+	if ((session->HasPenEvent () || session->HasKeyEvent ())
+		&& !EmHAL::GetAsleep ()
+		&& EmPatchState::UIInitialized ())
+	{
+		::EvtWakeup ();
+	}
 
 	return false;
 }
