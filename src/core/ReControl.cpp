@@ -468,9 +468,10 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 			auto handler = entry->handler;
 			QueueWorkResult ([handler, parts]() -> std::string {
 				if (!gSession) return "ERR transient: no session\n";
-				EmSessionStopper stopper (gSession, kStopOnCycle);
+				EmSessionStopper stopper (gSession, kStopOnCycle, 5000);
 				if (!stopper.Stopped ())
-					return "ERR transient: could not stop session\n";
+					return "ERR timeout: CPU did not reach a cycle boundary within 5000ms. "
+					       "Recovery: dismiss any dialog (dialog respond) or palm_reset.\n";
 				return handler (parts);
 			});
 			break;
@@ -522,9 +523,10 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 			{
 				QueueWorkResult ([handler, parts]() -> std::string {
 					if (!gSession) return "ERR transient: no session\n";
-					EmSessionStopper stopper (gSession, kStopOnCycle);
+					EmSessionStopper stopper (gSession, kStopOnCycle, 5000);
 					if (!stopper.Stopped ())
-						return "ERR transient: could not stop session\n";
+						return "ERR timeout: CPU did not reach a cycle boundary within 5000ms. "
+						       "Recovery: dismiss any dialog (dialog respond) or palm_reset.\n";
 					return handler (parts);
 				});
 			}

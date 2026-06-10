@@ -64,14 +64,21 @@ host.
    are no longer swallowed — WorkerDirect args are validated on the main
    thread, so `tap banana` returns `ERR usage…`, not `OK`. Verified:
    `tests/phase1/repro_1_8_argval.py`.
-4. **Untimed stops can wedge the whole control plane.** `kStopNow`/
-   `kStopOnCycle` stoppers have no timeout (`EmSession.cpp:830` — timeout
-   applies only to `kStopOnSysCall`); a wedged stop blocks the worker thread
-   forever (Phase 1 task 1.2). *The proxy half is fixed 2026-06-10 (task 1.3,
-   commit `08d8690`):* the MCP proxy now sets `SO_RCVTIMEO` (a wedged server
-   yields `ERR timeout` instead of hanging every later MCP call) and never
-   reconnects-and-resends a non-idempotent command (`install` can no longer
-   double-execute). Verified: `tests/phase1/repro_1_3_proxy.py`.
+4. ~~**Untimed stops can wedge the whole control plane.**~~ **FIXED (task 1.2,
+   2026-06-10).** `kStopNow`/`kStopOnCycle` stoppers previously had no timeout
+   (`EmSession.cpp` — `useTimeout` was gated on `how == kStopOnSysCall`). A CPU
+   nested in a ROM call could park the worker thread forever via a livelock in
+   `SuspendThread`'s wait loop (both sides broadcasting on `fSharedCondition`
+   without `fState` leaving `kRunning`). **Fix:** `useTimeout = (timeoutMs > 0)`
+   (gate removed); `kCmdWorkerCycle` and `kCmdAdaptive` dispatch now pass 5000ms
+   and return `ERR timeout: ...` with a recovery hint instead of the generic
+   `ERR transient: could not stop session`. The timeout return path also balances
+   the `fSuspendByUIThread` increment (consistent with the 1.1 fix).
+   Repro (3× PASS): `tests/phase1/repro_1_2_stop_timeout.py`.
+   *The proxy half is also fixed (task 1.3, commit `08d8690`):* the MCP proxy
+   sets `SO_RCVTIMEO` (a wedged server yields `ERR timeout` instead of hanging)
+   and never double-executes non-idempotent commands. Verified:
+   `tests/phase1/repro_1_3_proxy.py`.
 5. **Two threads can run the 68K core concurrently (rare).** A second caller
    of `SuspendThread(kStopOnSysCall)` succeeds trivially while the first is
    mid-`ExecuteSubroutine` (`EmSession.cpp:979-986`); a GUI menu action
@@ -106,11 +113,11 @@ host.
 ## Recovery progress (read `docs/recovery-plan-2026-06.md` for the roadmap)
 
 - **Phase 0 — complete 2026-06-10** (GATE 0 passed; details below).
-- **Phase 1 — in progress.** Done & verified: **1.8** (WorkerDirect arg
-  validation, `5f5c443`), **1.3** (proxy read timeout + no double-execute,
-  `08d8690`), **1.0d** (`BlockOnDialog` action-lifetime handshake / UAF fix,
-  `865f612`), **1.1** (`SuspendThread` failure path balances counter, this
-  commit). **Next task: 1.2** — universal stop timeouts — follow
+- **Phase 1 — in progress.** Done & verified: **1.8** (`5f5c443`), **1.3**
+  (`08d8690`), **1.0d** (`865f612`), **1.1** (`b9606ed`), **1.2** (this
+  commit — bounded `ERR timeout` for `kCmdWorkerCycle`/`kCmdAdaptive`).
+  **Next task: 1.4** (CPUWorkerThread bounded shutdown) or **1.7**
+  (PostPenEvent race), per
   `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md`. Repros
   live in `tests/phase1/` (self-launching, offscreen).
 

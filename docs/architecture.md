@@ -270,6 +270,13 @@ guaranteed to be unchanged. `EmSessionStopper` correctly does NOT call
 `ForceReset` also clears `fSuspendByUIThread` as a last-resort recovery
 guarantee.
 
+**Bounded timeouts (task 1.2):** `useTimeout = (timeoutMs > 0)` — the old
+`&& how == kStopOnSysCall` restriction is removed. `kCmdWorkerCycle` and
+`kCmdAdaptive` dispatch pass 5000ms so a nested-ROM deadlock (CPU in
+`IsNested()` state, wait-loop livelock) times out cleanly instead of parking
+the worker thread forever. The `kStopOnCycle` timeout path also balances
+`fSuspendByUIThread` (consistent with the 1.1 fix).
+
 ---
 
 ## ReControl and CPUWorkerThread

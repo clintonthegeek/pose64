@@ -45,6 +45,12 @@ a modal dialog and enters `blocked_on_ui` state.  In this state:
 Commands that require CPU execution (`install`, `launch`, `tap`, etc.) will
 fail in this state.  Dismiss the dialog or reset first.
 
+Commands that require a CPU cycle boundary (`ui`, `watch`, `spy`, `break`,
+`peek`/`poke`/`regs`/`backtrace` when not `blocked_on_ui`) return:
+```
+ERR timeout: CPU did not reach a cycle boundary within 5000ms. Recovery: dismiss any dialog (dialog respond) or palm_reset.
+```
+
 ## Commands
 
 ### State

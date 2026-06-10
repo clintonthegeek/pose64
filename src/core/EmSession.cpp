@@ -827,7 +827,7 @@ Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 
 		unsigned long deadline_sec  = 0;
 		unsigned long deadline_nsec = 0;
-		Bool useTimeout = (timeoutMs > 0 && how == kStopOnSysCall);
+		Bool useTimeout = (timeoutMs > 0);
 
 		if (useTimeout)
 		{
@@ -877,8 +877,12 @@ Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 				int rc = fSharedCondition.timedwait (deadline_sec, deadline_nsec);
 				if (rc == 0)  // timeout (0 = timeout, 1 = signaled)
 				{
-					// Clean up: cancel the syscall break request
 					fBreakOnSysCall = false;
+					// Undo the first-switch increment for kStopNow/kStopOnCycle
+					// (kStopOnSysCall increments inside the wait loop, not here).
+					if ((how == kStopNow || how == kStopOnCycle) &&
+						fSuspendState.fCounters.fSuspendByUIThread > 0)
+						--fSuspendState.fCounters.fSuspendByUIThread;
 					return false;
 				}
 			}
