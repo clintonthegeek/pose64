@@ -113,19 +113,19 @@ host.
 ## Recovery progress (read `docs/recovery-plan-2026-06.md` for the roadmap)
 
 - **Phase 0 — complete 2026-06-10** (GATE 0 passed; details below).
-- **Phase 1 — GATE 1 in progress.** Done & verified: **1.8** (`5f5c443`),
+- **Phase 1 — GATE 1 PASSED (2026-06-10).** Done & verified: **1.8** (`5f5c443`),
   **1.3** (`08d8690`), **1.0d** (`865f612`), **1.1** (`b9606ed`), **1.2**
   (`bbc48bf`), **1.4** (`603ac2f`), **1.7** (fLastPenEvent mutex; TSAN
-  verification requires a real display). **GATE 1 stress test** (12 GATE 1
-  scenarios via `test_recontrol_stress.py`): TSAN single-pass = **13/13
-  PASS** (2026-06-10); ASAN 30-min soak started 2026-06-10 (in progress). One
-  known TSAN exclusion: `load_during_queue` SKIP under TSAN — pre-existing
-  window lifecycle race (brief `HandleClose`→`DoOpen` gap where `lastWindowClosed`
-  fires; fixed in normal + ASAN builds by timing; TSAN overhead widens the gap
-  enough to trigger it). Fix: add `setQuitOnLastWindowClosed(false)` around
-  load, deferred to next session. **Next: verify ASAN 30-min result → tag
-  `phase-1-complete` (honesty gate: 1.5/1.6 deferred — offscreen-only; GATE 1
-  tags are per-scenario, not full phase complete).** Repros live in
+  verification requires a real display). **GATE 1 stress test** (13 scenarios
+  via `test_recontrol_stress.py`): TSAN single-pass = **13/13 PASS** (verified
+  3× on 2026-06-10); ASAN 30-min soak = **all iterations PASS** (2026-06-10).
+  Thread-lifecycle fixes this session: `omni_thread` and `CPUWorkerThread`
+  converted from QThread to raw pthreads so `pthread_join` gives TSAN a proper
+  happens-before point; `DestroyThread` now joins before deleting the thread
+  object; `RcCmd_Load` uses a two-timer split to prevent deadlock when a Qt
+  modal dialog is mid-close on the emulation thread (`BlockOnDialog` + nested
+  `msgBox.exec()`). 1.5/1.6 deferred (TSAN verify requires real display).
+  **Next: tag `phase-1-complete`, begin Phase 2.** Repros live in
   `tests/phase1/` (self-launching, offscreen).
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)

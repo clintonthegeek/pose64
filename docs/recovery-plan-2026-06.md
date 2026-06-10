@@ -8,14 +8,13 @@
 
 > **CURRENT POSITION (updated 2026-06-10 — keep this banner current, R5):**
 > Phase 0 **complete** (GATE 0 passed). Phase 1 tasks **1.8, 1.3, 1.0d,
-> 1.1, 1.2, 1.4, 1.7** all done & verified. GATE 1 stress suite: TSAN
-> single-pass 13/13 PASS; ASAN 30-min soak **in progress** (started
-> 2026-06-10, verify result then tag). One known TSAN exclusion:
-> `load_during_queue` — pre-existing window lifecycle race, not introduced by
-> Phase 1, fix deferred (add `setQuitOnLastWindowClosed(false)` around load).
-> **NEXT: confirm ASAN soak passes → commit GATE 1 → if 1.5/1.6 unresolved,
-> acknowledge as deferred → tag per-scenario (honesty gate).** Tasks 1.5/1.6
-> deferred (TSAN requires real display). Follow
+> 1.1, 1.2, 1.4, 1.7** all done & verified. **GATE 1 PASSED (2026-06-10):**
+> TSAN single-pass 13/13 PASS (verified 3×); ASAN 30-min soak all iterations
+> PASS. Thread-lifecycle root causes fixed: `omni_thread` + `CPUWorkerThread`
+> converted to raw pthreads; `DestroyThread` joins before delete; `RcCmd_Load`
+> two-timer split avoids deadlock when dialog is mid-close. 1.5/1.6 deferred
+> (TSAN verify requires real display). **NEXT: tag `phase-1-complete`, begin
+> Phase 2 planning.** Follow
 > `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md`.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"

@@ -464,19 +464,6 @@ def test_load_during_queue(host, port, psf_path):
         print(f"  SKIP: PSF not found: {psf_path}")
         return name, True
 
-    # Under TSAN, RcCmd_Load's session teardown exposes a pre-existing window
-    # lifecycle bug: the brief period between HandleClose and DoOpen lets Qt
-    # emit lastWindowClosed → quit().  Under TSAN overhead, this window is
-    # wide enough for the quit() to take effect before DoOpen creates the new
-    # window, causing the emulator to exit.  The same code path works
-    # correctly under ASAN and in normal builds.  Skip rather than corrupt the
-    # rest of the TSAN suite (which would lose the other 11 passing scenarios).
-    # TODO: fix by adding setQuitOnLastWindowClosed(false) around load.
-    if os.environ.get("TSAN_OPTIONS"):
-        print("  SKIP: TSAN run — load_during_queue excluded "
-              "(pre-existing window lifecycle race, not introduced by Phase 1)")
-        return name, True
-
     # Phase 1: verify baseline state.
     ca = ReControlClient(host=host, port=port, timeout=15)
     if not ca.connect():

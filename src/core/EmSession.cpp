@@ -734,17 +734,30 @@ void EmSession::DestroyThread (void)
 	if (!fThread)
 		return;
 
-	omni_mutex_lock	lock (fSharedLock);
+	{
+		omni_mutex_lock	lock (fSharedLock);
 
-	fStop = true;
-	fSuspendState.fCounters.fSuspendByUIThread++;
-	fSharedCondition.broadcast ();
+		fStop = true;
+		fSuspendState.fCounters.fSuspendByUIThread++;
+		fSharedCondition.broadcast ();
 
-	while (fState != kStopped)
-		fSharedCondition.wait ();
+		while (fState != kStopped)
+			fSharedCondition.wait ();
+	}
 
-	// fThread thread will quit and destroy itself.
-
+	// Join and delete the thread before returning.
+	//
+	// join() waits for the emulation thread to fully exit (including its final
+	// ~omni_mutex_lock at Run's closing brace).  Without this, a subsequent
+	// delete of fSession (which contains fSharedLock) races with the thread
+	// still in its unlock dance — a UAF that TSAN correctly reports.
+	//
+	// delete is also required: without it the QThread object (and its pthread_t)
+	// remain in TSAN's thread registry.  When the OS reuses that pthread_t for
+	// the next emulation thread, TSAN's try_emplace check fires (duplicate tid
+	// → CHECK failed → process abort).
+	fThread->join ();
+	delete fThread;
 	fThread = NULL;
 #endif
 }

@@ -36,6 +36,9 @@ extern std::string EmDlgQt_GetPendingDialog (void);
 extern bool EmDlgQt_RespondToDialog (const std::string& buttonName);
 extern void EmDlgQt_DismissIfPending (void);
 
+// From DebugMgr.h — watchpoint state (clear before session teardown)
+#include "DebugMgr.h"
+
 // ============================================================================
 // RcCmd_State — Immediate (no stopper, handles null gSession)
 // ============================================================================
@@ -326,17 +329,20 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 	QPointer<ReControlSession> safeRef (session);
 	std::string pathStr = path.toStdString ();
 
-	QTimer::singleShot (0, qApp, [safeRef, pathStr]() {
+	// doTeardown: executes the actual session teardown + rebuild.  Split out so
+	// it can be posted from a second timer when the first fires inside a nested
+	// msgBox.exec() event loop (the kBlockedOnUI case).
+	auto doTeardown = [safeRef, pathStr]() {
 		auto safeSend = [&safeRef](const std::string& msg) {
 			if (safeRef)
 				safeRef->Send (msg);
 		};
 
+		bool wasQuitOnLastWindow = qApp->quitOnLastWindowClosed ();
+		qApp->setQuitOnLastWindowClosed (false);
+
 		try
 		{
-			if (gSession && gSession->GetSessionState () == kBlockedOnUI)
-				EmDlgQt_DismissIfPending ();
-
 			if (gCPUWorker)
 			{
 				gCPUWorker->shutdown ();
@@ -351,6 +357,7 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 
 			if (gDocument != NULL)
 			{
+				qApp->setQuitOnLastWindowClosed (wasQuitOnLastWindow);
 				safeSend ("ERR transient: could not close current session\n");
 				return;
 			}
@@ -358,20 +365,19 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 			EmFileRef ref (pathStr);
 			EmDocument::DoOpen (ref);
 
+			qApp->setQuitOnLastWindowClosed (wasQuitOnLastWindow);
+
 			gCPUWorker = new CPUWorkerThread ();
 			gCPUWorker->start ();
 
 			if (gDocument && gSession)
-			{
 				safeSend ("OK\n");
-			}
 			else
-			{
 				safeSend ("ERR fatal: failed to open session\n");
-			}
 		}
 		catch (ErrCode errCode)
 		{
+			qApp->setQuitOnLastWindowClosed (wasQuitOnLastWindow);
 			if (!gCPUWorker && gSession)
 			{
 				gCPUWorker = new CPUWorkerThread ();
@@ -381,6 +387,7 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 		}
 		catch (...)
 		{
+			qApp->setQuitOnLastWindowClosed (wasQuitOnLastWindow);
 			if (!gCPUWorker && gSession)
 			{
 				gCPUWorker = new CPUWorkerThread ();
@@ -388,6 +395,36 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 			}
 			safeSend ("ERR fatal: load failed (unknown exception)\n");
 		}
+	};
+
+	// First timer: may fire inside msgBox.exec()'s nested event loop when
+	// kBlockedOnUI.  We dismiss the dialog and clear the watchpoint here,
+	// then RETURN immediately so the nested event loop can exit cleanly
+	// (msgBox.exec() returns, EndDialogAction() runs, BlockOnDialog() unblocks).
+	// We post doTeardown in a second timer, which fires from the OUTER event
+	// loop after the nested loop has exited.
+	//
+	// When NOT kBlockedOnUI, no nesting is in play and we run doTeardown
+	// directly in this same timer callback.
+	QTimer::singleShot (0, qApp, [safeRef, pathStr, doTeardown = std::move (doTeardown)]() mutable {
+		if (gSession && gSession->GetSessionState () == kBlockedOnUI)
+		{
+			// Clear watchpoint FIRST so the emulation thread can't re-enter
+			// BlockOnDialog() after the dismiss.
+			gDebuggerGlobals.watchEnabled = false;
+			EmDlgQt_DismissIfPending ();
+
+			// Defer teardown until after the nested event loop exits and
+			// EmActionDialog::Do() has called EndDialogAction().
+			QTimer::singleShot (0, qApp, [doTeardown = std::move (doTeardown)]() mutable {
+				doTeardown ();
+			});
+			return;
+		}
+
+		// No dialog running: safe to tear down immediately.
+		gDebuggerGlobals.watchEnabled = false;
+		doTeardown ();
 	});
 }
 

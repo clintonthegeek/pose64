@@ -12,7 +12,9 @@
 #include <QMutex>
 #include <QWaitCondition>
 #include <QThread>
-#include <time.h>    // clock_gettime for absolute<->relative time conversion
+#include <pthread.h>
+#include <sched.h>   // sched_yield
+#include <time.h>    // clock_gettime, nanosleep
 
 // Forward declarations
 class omni_condition;
@@ -92,7 +94,10 @@ private:
 
 // ---- Thread ----
 // omni_thread used a static function + void* arg pattern for detached threads.
-// We wrap it with a QThread that calls the static function.
+// Uses raw pthreads (joinable, not detached) so that pthread_join in join()
+// gives TSAN a proper happens-before point.  Using QThread here caused TSAN's
+// thread registry to see duplicate pthread_t values when the OS reused the old
+// thread's ID for the new emulation thread before TSAN finished its cleanup.
 class omni_thread {
 public:
     enum priority_t {
@@ -110,40 +115,28 @@ public:
     // Detached thread constructor: void (*fn)(void*)
     omni_thread(void (*fn)(void*), void* arg = 0,
                 priority_t pri = PRIORITY_NORMAL)
-        : m_fn_void(fn), m_fn_ret(0), m_arg(arg), m_thread(0) {}
+        : m_fn_void(fn), m_fn_ret(0), m_arg(arg), m_started(false) {}
 
     // Undetached thread constructor: void* (*fn)(void*)
     omni_thread(void* (*fn)(void*), void* arg = 0,
                 priority_t pri = PRIORITY_NORMAL)
-        : m_fn_void(0), m_fn_ret(fn), m_arg(arg), m_thread(0) {}
+        : m_fn_void(0), m_fn_ret(fn), m_arg(arg), m_started(false) {}
 
-    ~omni_thread() { delete m_thread; }
+    ~omni_thread() {
+        if (m_started)
+            pthread_detach(m_pthread);  // prevent resource leak if not joined
+    }
 
     void start() {
-        class WorkerThread : public QThread {
-        public:
-            void (*fn_void)(void*);
-            void* (*fn_ret)(void*);
-            void* arg;
-            omni_thread* owner;
-            WorkerThread(void (*fv)(void*), void* (*fr)(void*), void* a,
-                         omni_thread* o)
-                : fn_void(fv), fn_ret(fr), arg(a), owner(o) {}
-            void run() override {
-                sCurrentThread = owner;
-                if (fn_void)
-                    fn_void(arg);
-                else if (fn_ret)
-                    fn_ret(arg);
-                sCurrentThread = nullptr;
-            }
-        };
-        m_thread = new WorkerThread(m_fn_void, m_fn_ret, m_arg, this);
-        m_thread->start();
+        m_started = true;
+        pthread_create(&m_pthread, nullptr, &omni_thread::thread_func, this);
     }
 
     void join(void** = 0) {
-        if (m_thread) m_thread->wait();
+        if (m_started) {
+            pthread_join(m_pthread, nullptr);
+            m_started = false;
+        }
     }
 
     static omni_thread* create(void (*fn)(void*), void* arg = 0,
@@ -153,10 +146,13 @@ public:
         return t;
     }
 
-    static void yield() { QThread::yieldCurrentThread(); }
+    static void yield() { sched_yield(); }
 
     static void sleep(unsigned long secs, unsigned long nsecs = 0) {
-        QThread::msleep(secs * 1000 + nsecs / 1000000);
+        struct timespec ts;
+        ts.tv_sec  = secs;
+        ts.tv_nsec = (long)nsecs;
+        nanosleep(&ts, nullptr);
     }
 
     // get_time: compute absolute time = now + relative offset
@@ -173,14 +169,14 @@ public:
         }
     }
 
-    // Thread-local pointer set in WorkerThread::run() so self() works.
+    // Thread-local pointer set in thread_func so self() works.
     // This enables InCPUThread() to correctly identify the CPU thread,
     // which is needed for BlockOnDialog to marshal UI calls.
     static omni_thread* self() { return sCurrentThread; }
-    static void exit(void* = 0) { QThread::currentThread()->quit(); }
+    static void exit(void* = 0) { pthread_exit(nullptr); }
 
     priority_t priority() { return PRIORITY_NORMAL; }
-    state_t state()       { return m_thread ? STATE_RUNNING : STATE_NEW; }
+    state_t state()       { return m_started ? STATE_RUNNING : STATE_NEW; }
     int id()              { return 0; }
 
     void set_priority(priority_t) {}
@@ -189,7 +185,19 @@ private:
     void (*m_fn_void)(void*);
     void* (*m_fn_ret)(void*);
     void* m_arg;
-    QThread* m_thread;
+    pthread_t m_pthread;
+    bool m_started;
+
+    static void* thread_func(void* arg) {
+        omni_thread* self = static_cast<omni_thread*>(arg);
+        sCurrentThread = self;
+        if (self->m_fn_void)
+            self->m_fn_void(self->m_arg);
+        else if (self->m_fn_ret)
+            self->m_fn_ret(self->m_arg);
+        sCurrentThread = nullptr;
+        return nullptr;
+    }
 
     inline static thread_local omni_thread* sCurrentThread = nullptr;
 };

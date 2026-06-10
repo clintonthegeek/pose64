@@ -7,14 +7,29 @@
 #include "CPUWorkerThread.h"
 #include <QCoreApplication>
 #include <QMutexLocker>
+#include <stdio.h>
 
-CPUWorkerThread::CPUWorkerThread(QObject* parent)
-    : QThread(parent), fShouldStop(false)
+CPUWorkerThread::CPUWorkerThread()
+    : fShouldStop(false), fStarted(false)
 {
 }
 
 CPUWorkerThread::~CPUWorkerThread()
 {
+    if (fStarted)
+        pthread_detach(fPthread);   // prevent resource leak if not joined
+}
+
+void CPUWorkerThread::start()
+{
+    fStarted = true;
+    pthread_create(&fPthread, nullptr, &CPUWorkerThread::threadFunc, this);
+}
+
+void* CPUWorkerThread::threadFunc(void* arg)
+{
+    static_cast<CPUWorkerThread*>(arg)->run();
+    return nullptr;
 }
 
 void CPUWorkerThread::queueCommand(const Command& cmd)
@@ -43,11 +58,17 @@ void CPUWorkerThread::shutdown()
     // forever.  After 1.2, any EmSessionStopper inside a handler self-releases
     // within its own deadline (5000ms), so 8s comfortably exceeds all
     // legitimate cases.
-    if (!wait(8000))
-    {
-        fprintf(stderr, "[CPUWorker] handler did not exit in 8s; terminating\n");
-        terminate();
-        wait(2000);
+    if (fStarted) {
+        struct timespec deadline;
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += 8;
+
+        int rc = pthread_timedjoin_np(fPthread, nullptr, &deadline);
+        if (rc != 0) {
+            fprintf(stderr, "[CPUWorker] handler did not exit in 8s (rc=%d); detaching\n", rc);
+            pthread_detach(fPthread);
+        }
+        fStarted = false;
     }
 }
 
@@ -78,9 +99,9 @@ void CPUWorkerThread::executeCommand(const Command& cmd)
             cmd.handler();
         }
     } catch (const std::exception& e) {
-        emit errorOccurred(QString::fromStdString(e.what()));
+        fprintf(stderr, "[CPUWorker] exception in handler: %s\n", e.what());
     } catch (...) {
-        emit errorOccurred(QString("Unknown exception in CPU worker handler"));
+        fprintf(stderr, "[CPUWorker] unknown exception in handler\n");
     }
 
     // ALWAYS fire the response callback, even if the handler threw.
@@ -113,8 +134,8 @@ void CPUWorkerThread::run()
             executeCommand(cmd);
         }
     } catch (const std::exception& e) {
-        emit errorOccurred(QString::fromStdString(e.what()));
+        fprintf(stderr, "[CPUWorker] thread terminated by exception: %s\n", e.what());
     } catch (...) {
-        emit errorOccurred(QString("CPU worker thread terminated by unknown exception"));
+        fprintf(stderr, "[CPUWorker] thread terminated by unknown exception\n");
     }
 }

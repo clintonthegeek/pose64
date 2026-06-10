@@ -1,9 +1,9 @@
 #ifndef CPUWorkerThread_h
 #define CPUWorkerThread_h
 
-#include <QThread>
 #include <QMutex>
 #include <QWaitCondition>
+#include <pthread.h>
 #include <queue>
 #include <functional>
 
@@ -25,11 +25,14 @@ class EmSession;
  * EmSession::CreateThread (EmSession::Run -> CallCPU ->
  * EmCPU68K::Execute).  This thread only dispatches handler
  * lambdas queued by ReControl commands.
+ *
+ * Uses raw pthreads (not QThread) so that shutdown() can call
+ * pthread_join, giving TSAN a proper happens-before point and
+ * preventing its thread-registry CHECK failure on reload (which
+ * Qt's detach-based lifecycle triggered by reusing pthread_t).
  */
-class CPUWorkerThread : public QThread
+class CPUWorkerThread
 {
-    Q_OBJECT
-
 public:
     enum CommandType {
         CMD_PAUSE,           // Pause CPU, wait for next command
@@ -45,8 +48,13 @@ public:
         std::function<void()> response;     // Execute in main thread after handler
     };
 
-    CPUWorkerThread(QObject* parent = nullptr);
+    CPUWorkerThread();
     ~CPUWorkerThread();
+
+    /**
+     * Start the worker thread.
+     */
+    void start();
 
     /**
      * Queue a command for execution by the CPU worker thread.
@@ -55,29 +63,21 @@ public:
     void queueCommand(const Command& cmd);
 
     /**
-     * Request graceful shutdown. Blocks until thread exits.
+     * Request graceful shutdown. Blocks until thread exits (pthread_join).
      */
     void shutdown();
-
-    /**
-     * Thread entry point — command processing loop.
-     * Blocks on the queue, executes handler lambdas, delivers
-     * response callbacks to the main thread.  Overrides QThread::run().
-     */
-    void run() override;
-
-signals:
-    // Emitted when a command's response callback should run in main thread
-    void commandCompleted();
-
-    // Emitted if an error occurs in worker thread
-    void errorOccurred(const QString& message);
 
 private:
     QMutex fMutex;
     QWaitCondition fWakeupSignal;
     std::queue<Command> fCommandQueue;
     bool fShouldStop;
+
+    pthread_t fPthread;
+    bool fStarted;
+
+    static void* threadFunc(void* arg);
+    void run();
 
     // Helper: Dequeue next command, blocking if none available
     Command dequeueCommand();
