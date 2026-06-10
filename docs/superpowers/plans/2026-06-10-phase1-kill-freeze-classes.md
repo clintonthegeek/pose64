@@ -19,6 +19,20 @@ docs in the same commit (R5).
 **Tech stack:** Qt6/C++17, CMake, omni_thread, ASAN/TSAN, Python (`test_recontrol.py`
 `ReControlClient` + `test_recontrol_stress.py`).
 
+> **REVISION 2026-06-10 (plan designer):** Task **1.0d** (dialog-action lifetime
+> fix, landmine #9) is inserted before 1.1 — full plan:
+> `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md`. Live
+> re-verification **disproved** the "dialog never shows" hang from the
+> 2026-06-10 finding: dialogs show one idle tick (~100 ms) after
+> `blocked_on_ui`, and `dialog` / `dialog respond continue` work. Therefore
+> 1.1/1.2 are NOT hang-blocked; they follow 1.0d only so `reset` is a safe
+> recovery while their repros raise dialogs. For Task 1.1's `_force_blocked`:
+> candidate (c) is verified — `spy set 0x134` reaches `blocked_on_ui` in
+> ~50 ms; dismiss with `dialog respond continue`; `spy clear` stops re-fires
+> (the spy re-fires within ~10 ms of resuming, so clear it in the
+> respond→clear loop or finish with a post-1.0d `reset`).
+> Status: 1.0 (harness) done; 1.8, 1.3 done & verified; 1.0d next, then 1.1.
+
 ---
 
 ## Binding process rules (from docs/recovery-plan-2026-06.md)
@@ -135,6 +149,23 @@ def emulator(port, psf="m515.psf", build="build", env_extra=None):
 git add tests/phase1/_harness.py tests/phase1/__init__.py .gitignore
 git commit -m "test: Phase 1 reproduction harness (offscreen self-launch)"
 ```
+
+---
+
+## Task 1.0d: Dialog-action lifetime fix (landmine #9) — DANGEROUS, goes before 1.1
+
+**Added 2026-06-10.** `reset` (or stop) while a deferred-error dialog is queued
+or showing UAFs the CPU thread's `BlockOnDialog` stack frame — two verified
+lethal interleavings (queued → SIGSEGV read; showing → dangling `fDlgResult`
+write). Cross-thread lifetime fix in `EmSession`/`EmDocument`; R6 applies
+(strongest model, single sitting).
+
+**Full step-by-step plan (do not improvise from this stub):**
+`docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md`
+
+**Gate:** `tests/phase1/repro_dialog_subsystem.py` (extended: both
+interleavings + show-latency guard) passes 3× on `build/` and once ASAN-clean
+on `build-asan/`. Unblocks 1.1/1.2.
 
 ---
 

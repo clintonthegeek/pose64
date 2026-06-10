@@ -74,19 +74,27 @@ host.
 8. **SLP debugger sockets listen by default** (6414/2000) and connecting
    triggers an untimed main-thread `kStopOnSysCall` stop
    (`Debug::EventCallback`) — a UI hang waiting to happen.
-9. **Deferred-error dialogs hang, then crash on reset (NEW, 2026-06-10).** Any
-   spy/watch/memory-access error raises a deferred-error dialog via
-   `EmSession::BlockOnDialog`; in this build the main thread never *shows* it
-   during idle (`dialog` returns `none`, CPU stuck `blocked_on_ui`), and
-   dismissing via `reset` breaks `BlockOnDialog` out on `fReset`
-   (`EmSession.cpp:1637`) while the queued `EmActionDialog` still points at the
-   now-freed CPU-stack dialog data → use-after-free SIGSEGV in
-   `PrvHostCommonDialog`. Verified offscreen and on xcb. Repro:
-   `tests/phase1/repro_dialog_subsystem.py`. Full analysis:
-   `docs/superpowers/findings/2026-06-10-dialog-subsystem.md`. **This blocks the
-   runtime verification of landmine #2 (a `blocked_on_ui` dialog is required to
-   trigger the suspend-counter leak), so it must be fixed before Phase 1 tasks
-   1.1/1.2.**
+9. **`reset` during a deferred-error dialog crashes the process (2026-06-10,
+   corrected same day).** Any spy/watch/memory-access error raises a dialog via
+   `EmSession::BlockOnDialog`, which posts an `EmActionDialog` referencing the
+   CPU thread's **stack-local** dialog data, then waits. `reset` (`ForceReset`)
+   sets `fReset`, breaking the wait (`EmSession.cpp:1625`) and destroying that
+   stack while the action can still touch it. Two verified lethal
+   interleavings: reset while the action is still *queued* (≤100 ms window) →
+   UAF read of `fMessage` in `PrvHostCommonDialog` → SIGSEGV; reset while the
+   dialog is *showing* → `EmActionDialog::Do` writes the dangling `fDlgResult`
+   after `msgBox.exec()` returns → stack corruption, process dies after
+   replying `OK reset`. Repro: `tests/phase1/repro_dialog_subsystem.py`.
+   Analysis + verification addendum:
+   `docs/superpowers/findings/2026-06-10-dialog-subsystem.md`. Fix plan:
+   `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` (Phase 1
+   task **1.0d**, before 1.1/1.2).
+   *Correction (verified live 2026-06-10):* the originally-reported companion
+   hang ("the dialog never shows; `dialog` returns `none` for many seconds")
+   did **not** reproduce — the dialog shows one idle tick (~100 ms) after
+   `blocked_on_ui`, and `dialog`/`dialog respond continue` work. 1.1/1.2 were
+   deferred on that false premise; they are sequenced after 1.0d only so that
+   `reset` is a safe recovery while their repros hammer dialogs.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 

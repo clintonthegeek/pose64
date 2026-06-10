@@ -1,6 +1,14 @@
 # Finding: the deferred-error dialog subsystem is broken (2026-06-10)
 
-**Status:** OPEN. Discovered while building the reproduction for Phase 1 task 1.1
+**Status:** OPEN — **partially corrected; see the verification addendum at the
+bottom.** Bug B (the reset UAF) is confirmed in two interleavings and is Phase 1
+task **1.0d** (`docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md`).
+Bug A (the hang) **did not reproduce** under live re-testing and is presumed a
+mis-observation; 1.1/1.2 are *not* hang-blocked.
+
+Original finding text follows unchanged (dated record):
+
+Discovered while building the reproduction for Phase 1 task 1.1
 (landmine #2, the suspend-counter leak). This is a **hard prerequisite** for
 tasks 1.1 and 1.2 — both need a working `blocked_on_ui` dialog to exercise
 `kStopOnCycle` while the CPU is blocked, and right now raising such a dialog
@@ -124,3 +132,37 @@ watch/error dialog can be queried with `dialog` and dismissed with
 - **1.2 (universal stop timeouts):** same dependency for the blocked-CPU repro.
 - Recommend inserting a new prerequisite task **"1.0d — repair the deferred-error
   dialog subsystem"** ahead of 1.1/1.2 in the recovery plan.
+
+---
+
+## Verification addendum (plan designer, 2026-06-10, HEAD `103356e`)
+
+Re-tested live (offscreen, direct TCP, single persistent connection) before
+replanning. Results:
+
+1. **Bug A did NOT reproduce.** After `spy set 0x134`: `state` →
+   `blocked_on_ui` at **+50 ms**; `dialog` reported the full dialog (message,
+   `continue`/`debug`/`reset` buttons, registers) at **+101 ms** — exactly one
+   idle-timer tick (`main.cpp:113`, 100 ms). `dialog respond continue` resumed
+   the CPU and the re-firing spy raised the next dialog, which also showed.
+   The show → query → respond cycle is healthy. The original "dialog returns
+   `none` for many seconds" observation could not be reproduced and is presumed
+   to have been a probe inside the ≤100 ms queued-but-not-yet-shown window (or
+   an artifact of the pre-1.3 proxy path). The extended repro now guards
+   show-latency (≤2 s) as a regression check, so if the hang is real-but-rare
+   it will resurface with evidence.
+2. **Bug B confirmed — and it has a SECOND lethal interleaving.** Besides the
+   documented queued-action UAF read (repro exits on SIGSEGV, deterministic),
+   `reset` while the dialog is *showing* also kills the process: `Do()` is
+   inside `msgBox.exec()` when the CPU thread unwinds; after `exec` returns,
+   `fDlgResult = EmDlg::RunDialog(...)` (`EmDocument.cpp:136`) writes through a
+   reference into the dead `BlockOnDialog` frame, corrupting the live CPU
+   thread stack. Verified: the process replies `OK reset (was blocked_on_ui,
+   dialog dismissed)` and then dies.
+3. **Consequence for the plan:** 1.1/1.2 are *not* hang-blocked (their premise
+   "reaching blocked_on_ui hangs" is false); they are sequenced after 1.0d only
+   so `reset` is a safe recovery while their repros hammer dialogs. The fix
+   approach below ("cancel-on-early-exit") is superseded by the fuller
+   cancel-or-wait handshake in the 1.0d plan, which also covers the
+   running-action interleaving that pure cancellation cannot:
+   `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md`.

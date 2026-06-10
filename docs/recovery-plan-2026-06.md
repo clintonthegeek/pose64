@@ -125,13 +125,28 @@ else proceeds until GATE 1 passes.
 
 Ranked tasks (each = failing repro → fix → test → commit):
 
+- [ ] **1.0d Dialog-action lifetime fix** *(added 2026-06-10 — landmine #9,
+      discovered building the 1.1 repro)* — `EmSession::BlockOnDialog` posts an
+      `EmActionDialog` referencing its own stack frame; `fReset`/`fStop` break
+      the wait and let the frame die while the action is still queued (UAF
+      read → SIGSEGV) or running (UAF write through `fDlgResult`). Fix: a
+      queued/running/done/cancelled handshake under `fSharedLock` so
+      `BlockOnDialog` never returns while the action can touch its stack.
+      Repro: `tests/phase1/repro_dialog_subsystem.py` (both interleavings).
+      Full plan: `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md`.
+      Goes first so `reset` is a safe recovery for the dialog-heavy 1.1/1.2
+      repros. (The companion "dialog never shows" hang claim was disproven
+      live the same day — dialogs show one idle tick after `blocked_on_ui`.)
 - [ ] **1.1 Suspend-counter leak** — `EmSession.cpp` `SuspendThread`: the
       `kStopNow`/`kStopOnCycle` failure paths return `false` without
       decrementing `fSuspendByUIThread` (increment at :788-793, returns at
-      :961-1001). Make failure side-effect-free. Repro: raise an error dialog
-      (watchpoint or `errorhandling set ErrorOn show` + illegal write), then
-      issue `ui` → dismiss dialog → `state` must return `running`. Also make
-      `ForceReset` clear the counter as a belt-and-suspenders (document why).
+      :961-1001). Make failure side-effect-free. Repro (verified plumbing):
+      `spy set 0x134` → `blocked_on_ui` within ~1 s, then issue `ui` →
+      dismiss via `dialog respond continue` → `state` must return `running`
+      (`spy clear` to stop re-fires). Also make `ForceReset` clear the counter
+      as a belt-and-suspenders (document why). The exact fix diff (written,
+      reverted unverified per R1/R4) is in
+      `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` Task 1.1.
 - [ ] **1.2 Universal stop timeouts** — give `kStopNow`/`kStopOnCycle` the
       same deadline treatment `kStopOnSysCall` got (`EmSession.cpp:830`);
       every `kCmdWorkerCycle`/`kCmdWorkerRaw` handler returns
