@@ -114,10 +114,10 @@ host.
 
 - **Phase 0 — complete 2026-06-10** (GATE 0 passed; details below).
 - **Phase 1 — in progress.** Done & verified: **1.8** (`5f5c443`), **1.3**
-  (`08d8690`), **1.0d** (`865f612`), **1.1** (`b9606ed`), **1.2** (this
-  commit — bounded `ERR timeout` for `kCmdWorkerCycle`/`kCmdAdaptive`).
-  **Next task: 1.4** (CPUWorkerThread bounded shutdown) or **1.7**
-  (PostPenEvent race), per
+  (`08d8690`), **1.0d** (`865f612`), **1.1** (`b9606ed`), **1.2** (`bbc48bf`),
+  **1.4** (`603ac2f`), **1.7** (this commit — `fLastPenEvent` mutex fix; TSAN
+  verification requires a real display). **Next tasks: 1.5/1.6** (TSAN races)
+  or **GATE 1** (30-min stress run), per
   `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md`. Repros
   live in `tests/phase1/` (self-launching, offscreen).
 

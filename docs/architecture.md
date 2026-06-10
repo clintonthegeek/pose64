@@ -110,6 +110,12 @@ Later, on CPU thread:
 NOT through the hardware digitizer. The ADS784x SPI slave returns 0 for pen
 X/Y channels. The ROM's pen interrupt handler is never involved.
 
+**Thread safety of PostPenEvent (task 1.7):** `PostPenEvent` is called from
+both the Qt main thread (mouse handler) and the CPUWorkerThread (`tap`/`pen`
+commands). `fLastPenEvent` (the dedup guard) is guarded by `fPenEventLock`
+(an `omni_mutex`) to eliminate the two-writer data race. `fPenQueue` is
+already `EmThreadSafeQueue` (lock-free FIFO) — no change needed there.
+
 ### Key Events
 
 Same flow as pen events but through `fKeyQueue` and `StubAppEnqueueKey()`.

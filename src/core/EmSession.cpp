@@ -1984,6 +1984,8 @@ void EmSession::PostPenEvent (const EmPenEvent& event)
 	if (!::PrvCanBotherCPU())
 		return;
 
+	omni_mutex_lock	lock (fPenEventLock);
+
 	// If this pen-down event is the same as the last pen-down
 	// event, do nothing.
 

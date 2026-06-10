@@ -697,6 +697,7 @@ class EmSession
 
 		EmKeyQueue				fKeyQueue;
 		EmPenQueue				fPenQueue;
+		omni_mutex				fPenEventLock;	// guards fLastPenEvent across writer threads
 
 		EmPenEvent				fLastPenEvent;
 		uint32					fBootKeys;
