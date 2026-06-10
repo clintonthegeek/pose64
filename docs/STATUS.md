@@ -75,21 +75,25 @@ host.
    triggers an untimed main-thread `kStopOnSysCall` stop
    (`Debug::EventCallback`) — a UI hang waiting to happen.
 
-## Working tree state (as of this audit)
+## Working tree state (Phase 0 baseline, 2026-06-10)
 
-~465 uncommitted lines from the final 2026-03-13 session: mostly `fprintf`
-debug instrumentation (CPUWorkerThread, EmSession, ReControl, EmPatchMgr,
-EmApplication, EmWindow) wrapped around one real, plausible-but-unverified
-behavior change: PuppetString force-feeds nil events + `kSkipROM` after
-enqueueing pen/key and sets `clearTimeout = true` unconditionally in
-interactive mode (poll-always event delivery, compensating for the removed
-`PrvWakeUpCPU` wakeup). Also staged: 0.9.1 metainfo notes, doc expansions.
-**Decision needed**: strip the printf noise, keep/verify the PuppetString
-change. See the recovery plan.
+Clean. The abandoned 2026-03-13 working tree was resolved by Phase 0 (recovery
+plan), which froze a trustworthy baseline:
+- All `fprintf`/timing debug instrumentation stripped (the touched control-plane
+  files are back to their committed behavior).
+- The one unverified behavior change — PuppetString's poll-always delivery
+  (`kSkipROM` after enqueue + unconditional `clearTimeout`) — was **deferred to
+  Phase 2**, not adopted. It is preserved at
+  `docs/superpowers/patches/2026-03-13-puppetstring-poll-delivery.patch`
+  (landmine #3 stands until Phase 2 verifies a fix).
+- `src/cpp-mcp/` is now a registered submodule (`hkr04/cpp-mcp` @ `dc86c91`);
+  `docs/architecture.md` and the audited doc set are committed — a fresh clone
+  builds both binaries (verified) and includes the architecture guide.
+- Audit-verified dead source removed (EmWindowUnix, omnithread backends, the
+  unused UAE `cpuemu1-8.c`/`missing.c`, `jpeg_disabled.h`).
 
-Also: `src/cpp-mcp/` (a build dependency of the proxy) and
-`docs/architecture.md` (the best doc in the repo) are **untracked** — a fresh
-clone neither builds nor includes the architecture guide.
+Reference trees (`abandoned/`, `pose32bit/`, `src/fltk-*`, `src/Emulator_Src_3.5/`)
+remain on disk but gitignored — see `docs/reference-trees.md`.
 
 ## HotSync status
 
