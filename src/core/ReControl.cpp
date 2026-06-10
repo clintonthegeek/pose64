@@ -68,6 +68,13 @@ std::string RcCmd_Button (const QStringList& args);
 void        RcCmd_Menu (ReControlSession* s, const QStringList& args);
 void        RcCmd_Run (ReControlSession* s, const QStringList& args);
 
+// Main-thread argument validators for WorkerDirect commands (ReControlCmds_Input.cpp)
+std::string RcValidate_Tap (const QStringList& args);
+std::string RcValidate_Pen (const QStringList& args);
+std::string RcValidate_Key (const QStringList& args);
+std::string RcValidate_Type (const QStringList& args);
+std::string RcValidate_Button (const QStringList& args);
+
 // Query commands (ReControlCmds_Query.cpp)
 std::string RcCmd_Screenshot (const QStringList& args);
 std::string RcCmd_ScreenHash (const QStringList& args);
@@ -113,12 +120,12 @@ static const CommandEntry sCommandTable[] = {
 	{"delete",         kCmdWorkerSysCall, 5000, RcCmd_Delete,     nullptr},
 
 	// Input
-	{"tap",            kCmdWorkerDirect,  0,    RcCmd_Tap,        nullptr},
+	{"tap",            kCmdWorkerDirect,  0,    RcCmd_Tap,        nullptr, RcValidate_Tap},
 	{"tap-id",         kCmdWorkerCycle,   0,    RcCmd_TapId,      nullptr},
-	{"pen",            kCmdWorkerDirect,  0,    RcCmd_Pen,        nullptr},
-	{"key",            kCmdWorkerDirect,  0,    RcCmd_Key,        nullptr},
-	{"type",           kCmdWorkerDirect,  0,    RcCmd_Type,       nullptr},
-	{"button",         kCmdWorkerDirect,  0,    RcCmd_Button,     nullptr},
+	{"pen",            kCmdWorkerDirect,  0,    RcCmd_Pen,        nullptr, RcValidate_Pen},
+	{"key",            kCmdWorkerDirect,  0,    RcCmd_Key,        nullptr, RcValidate_Key},
+	{"type",           kCmdWorkerDirect,  0,    RcCmd_Type,       nullptr, RcValidate_Type},
+	{"button",         kCmdWorkerDirect,  0,    RcCmd_Button,     nullptr, RcValidate_Button},
 	{"menu",           kCmdCustom,        0,    nullptr,          RcCmd_Menu},
 	{"run",            kCmdCustom,        0,    nullptr,          RcCmd_Run},
 
@@ -439,6 +446,14 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 		case kCmdWorkerDirect:
 		{
 			if (!gSession) { SendErr ("transient", "no session"); return; }
+			// Validate args on the MAIN thread before queueing so malformed
+			// input returns ERR usage immediately instead of a swallowed OK
+			// (and without depending on the worker thread being responsive).
+			if (entry->validate)
+			{
+				std::string verr = entry->validate (parts);
+				if (!verr.empty ()) { Send (verr); return; }
+			}
 			auto handler = entry->handler;
 			QueueWork ([handler, parts]() {
 				if (!gSession) return;

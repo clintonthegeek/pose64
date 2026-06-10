@@ -342,4 +342,8 @@ python3 test_recontrol_stress.py --no-launch --port 6416
   session-destroyed races.  See `docs/stability-findings.md` for full analysis.
 - **Known limitation:** `kCmdWorkerDirect` commands (`tap`, `pen`, `key`,
   `type`, `button`) are fire-and-forget — the `OK` confirms queueing, not
-  delivery to the emulated app, and argument errors are currently swallowed.
+  delivery to the emulated app (delivery honesty is Phase 2). Argument errors,
+  however, are no longer swallowed: each is validated on the **main thread**
+  before queueing, so malformed input (wrong arg count, non-numeric
+  coordinates, unknown button name) returns `ERR usage` immediately rather than
+  a misleading `OK`.

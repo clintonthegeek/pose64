@@ -47,6 +47,8 @@ struct CommandEntry {
 	int              timeoutMs;      // for kCmdWorkerSysCall (0 = default 5000)
 	CmdHandler       handler;        // non-null for standard categories
 	CustomCmdHandler customHandler;  // non-null for kCmdCustom
+	CmdHandler       validate = nullptr;  // optional main-thread arg validator
+	                                      // (kCmdWorkerDirect); returns "" if OK
 };
 
 // ---------------------------------------------------------------------------

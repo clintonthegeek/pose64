@@ -21,6 +21,73 @@
 #include <cstring>
 
 // ============================================================================
+// Argument validators — run on the MAIN thread before a WorkerDirect command
+// is queued, so malformed input returns "ERR usage" immediately instead of a
+// swallowed "OK".  Each returns "" when the args are well-formed.  They mirror
+// the arg-count/format checks in the handlers below, and additionally reject
+// non-numeric coordinates that QString::toInt() would otherwise read as 0.
+// ============================================================================
+
+static bool PrvArgIsInt (const QString& s)
+{
+	bool ok = false;
+	s.toInt (&ok);
+	return ok;
+}
+
+std::string RcValidate_Tap (const QStringList& a)
+{
+	if (a.size () != 3 || !PrvArgIsInt (a[1]) || !PrvArgIsInt (a[2]))
+		return "ERR usage: tap <x> <y>\n";
+	return "";
+}
+
+std::string RcValidate_Pen (const QStringList& a)
+{
+	if (a.size () != 4)
+		return "ERR usage: pen <down|up> <x> <y>\n";
+	QString dir = a[1].toLower ();
+	if ((dir != "down" && dir != "up") || !PrvArgIsInt (a[2]) || !PrvArgIsInt (a[3]))
+		return "ERR usage: pen <down|up> <x> <y>\n";
+	return "";
+}
+
+std::string RcValidate_Key (const QStringList& a)
+{
+	if (a.size () != 2 || !PrvArgIsInt (a[1]))
+		return "ERR usage: key <charcode>\n";
+	return "";
+}
+
+std::string RcValidate_Type (const QStringList& a)
+{
+	if (a.size () < 2)
+		return "ERR usage: type <text>\n";
+	return "";
+}
+
+std::string RcValidate_Button (const QStringList& a)
+{
+	if (a.size () != 3)
+		return "ERR usage: button <name> <down|up|tap>\n";
+
+	static const char* const kNames[] = {
+		"power", "up", "down", "app1", "app2", "app3", "app4",
+		"cradle", "contrast"};
+	QString name = a[1].toLower ();
+	bool known = false;
+	for (const char* n : kNames)
+		if (name == n) { known = true; break; }
+	if (!known)
+		return "ERR usage: unknown button '" + name.toStdString () + "'\n";
+
+	QString action = a[2].toLower ();
+	if (action != "down" && action != "up" && action != "tap")
+		return "ERR usage: button <name> <down|up|tap>\n";
+	return "";
+}
+
+// ============================================================================
 // RcCmd_Tap — WorkerDirect (posts pen down + up)
 // ============================================================================
 
