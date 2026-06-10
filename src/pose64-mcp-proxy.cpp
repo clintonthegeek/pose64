@@ -23,6 +23,7 @@
 
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -37,6 +38,28 @@ using json = nlohmann::json;
 static std::string g_host = "127.0.0.1";
 static int         g_port = 6416;
 static int         g_sock = -1;
+static int         g_recv_timeout_sec = 60;  // SO_RCVTIMEO; must exceed the
+                                             // server's slowest command (a 4MB
+                                             // install ~47s). Tunable via
+                                             // --recv-timeout (mainly for tests).
+
+// recv outcome, so callers can distinguish "server wedged" from "peer closed".
+enum RecvStatus { RECV_OK = 1, RECV_LOST = 0, RECV_TIMEOUT = -1 };
+
+// Side-effect-free commands, where a reconnect+resend after a dropped response
+// cannot double-execute anything.  Everything NOT listed (install, key, type,
+// poke, delete, tap, pen, button, launch, reset, save, load, menu, run, ...) is
+// treated as non-idempotent and is never silently re-sent.
+static bool cmd_is_idempotent (const std::string& cmd)
+{
+    std::string verb = cmd.substr (0, cmd.find_first_of (" \r\n"));
+    static const char* const kReadOnly[] = {
+        "state", "info", "apps", "ui", "peek", "regs",
+        "backtrace", "bt", "screen-hash"};
+    for (const char* v : kReadOnly)
+        if (verb == v) return true;
+    return false;
+}
 
 // ============================================================================
 // Logging (all to stderr — stdout is clean JSON-RPC only)
@@ -78,6 +101,13 @@ static int tcp_connect (const std::string& host, int port)
         return -1;
     }
 
+    // Per-command read timeout: a wedged ReControl server then surfaces as a
+    // structured timeout instead of hanging this (and every subsequent) call.
+    struct timeval tv;
+    tv.tv_sec  = g_recv_timeout_sec;
+    tv.tv_usec = 0;
+    setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof (tv));
+
     return fd;
 }
 
@@ -94,19 +124,26 @@ static bool tcp_send (int fd, const std::string& msg)
     return true;
 }
 
-// Read until '\n'.  Returns true on success, false on error/EOF.
+// Read until '\n'.  Returns a RecvStatus so callers can tell a wedged server
+// (RECV_TIMEOUT, from SO_RCVTIMEO) apart from a closed connection (RECV_LOST).
 // The line is returned WITHOUT the trailing newline.
-static bool tcp_recv_line (int fd, std::string& out)
+static int tcp_recv_line (int fd, std::string& out)
 {
     out.clear ();
     char ch;
     while (true)
     {
         ssize_t n = recv (fd, &ch, 1, 0);
-        if (n <= 0)
-            return false;  // error or EOF
+        if (n == 0)
+            return RECV_LOST;                       // peer closed (EOF)
+        if (n < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                return RECV_TIMEOUT;                 // SO_RCVTIMEO expired
+            return RECV_LOST;                        // other socket error
+        }
         if (ch == '\n')
-            return true;
+            return RECV_OK;
         out += ch;
     }
 }
@@ -120,7 +157,7 @@ static bool tcp_recv_multiline (int fd, std::string& result)
     std::string line;
     while (true)
     {
-        if (!tcp_recv_line (fd, line))
+        if (tcp_recv_line (fd, line) != RECV_OK)
             return false;
         if (line == ".")
             return true;
@@ -158,18 +195,46 @@ static bool tcp_ensure_connected ()
     return g_sock >= 0;
 }
 
-// Send a command and receive a single-line response, with one reconnect attempt.
+// Send a command and receive a single-line response.
+//
+// Reconnect policy (landmine #4): a reconnect+resend is only safe when the
+// command did NOT reach the server (the send itself failed).  Once the command
+// has been delivered, we never blindly resend it — a dropped *response* must not
+// double-execute a non-idempotent command (install/key/type/poke/delete/...).
 static std::string rc_command (const std::string& cmd)
 {
     std::string full = cmd + "\n";
     std::string resp;
 
-    if (!tcp_ensure_connected () || !tcp_send (g_sock, full) || !tcp_recv_line (g_sock, resp))
+    if (!tcp_ensure_connected ())
+        return "ERR transient: cannot reach ReControl (is pose64 running?)";
+
+    // Send failed => command never reached the server => safe to reconnect+resend.
+    if (!tcp_send (g_sock, full))
     {
-        if (!tcp_reconnect () || !tcp_send (g_sock, full) || !tcp_recv_line (g_sock, resp))
-            return "ERR transient: TCP connection lost";
+        if (!tcp_reconnect () || !tcp_send (g_sock, full))
+            return "ERR transient: ReControl connection lost (command not sent)";
     }
-    return resp;
+
+    // Command delivered.  Interpret the receive outcome without blind resends.
+    int rc = tcp_recv_line (g_sock, resp);
+    if (rc == RECV_OK)
+        return resp;
+    if (rc == RECV_TIMEOUT)
+        return "ERR timeout: no response from ReControl within "
+               + std::to_string (g_recv_timeout_sec)
+               + "s; the command may still be running — query state before retrying.";
+    // RECV_LOST: connection dropped after delivery.  Resend only if a re-run is
+    // side-effect-free; otherwise report honestly instead of double-executing.
+    if (cmd_is_idempotent (cmd))
+    {
+        if (tcp_reconnect () && tcp_send (g_sock, full)
+            && tcp_recv_line (g_sock, resp) == RECV_OK)
+            return resp;
+        return "ERR transient: ReControl connection lost";
+    }
+    return "ERR transient: ReControl connection lost after the command was sent; "
+           "it may or may not have executed — query state/apps before retrying.";
 }
 
 // Send a command and receive a multi-line response, with one reconnect attempt.
@@ -182,10 +247,25 @@ static std::string rc_command_multi (const std::string& cmd)
     std::string full = cmd + "\n";
     std::string first_line;
 
-    if (!tcp_ensure_connected () || !tcp_send (g_sock, full) || !tcp_recv_line (g_sock, first_line))
+    if (!tcp_ensure_connected ())
+        return "ERR transient: cannot reach ReControl (is pose64 running?)";
+
+    if (!tcp_send (g_sock, full))
     {
-        if (!tcp_reconnect () || !tcp_send (g_sock, full) || !tcp_recv_line (g_sock, first_line))
-            return "ERR transient: TCP connection lost";
+        if (!tcp_reconnect () || !tcp_send (g_sock, full))
+            return "ERR transient: ReControl connection lost (command not sent)";
+    }
+
+    int rc = tcp_recv_line (g_sock, first_line);
+    if (rc == RECV_TIMEOUT)
+        return "ERR timeout: no response from ReControl within "
+               + std::to_string (g_recv_timeout_sec) + "s.";
+    if (rc == RECV_LOST)
+    {
+        // Multi-line commands (ui/info/apps) are read-only — safe to resend.
+        if (!tcp_reconnect () || !tcp_send (g_sock, full)
+            || tcp_recv_line (g_sock, first_line) != RECV_OK)
+            return "ERR transient: ReControl connection lost";
     }
 
     // If first line is ERR, return it immediately (no dot terminator follows)
@@ -195,7 +275,7 @@ static std::string rc_command_multi (const std::string& cmd)
     // Read remaining lines until "."
     std::string rest;
     if (!tcp_recv_multiline (g_sock, rest))
-        return "ERR transient: TCP connection lost during multi-line read";
+        return "ERR transient: ReControl connection lost during multi-line read";
 
     if (rest.empty ())
         return first_line;
@@ -680,12 +760,15 @@ int main (int argc, char* argv[])
             g_port = std::atoi (argv[++i]);
         else if (arg == "--host" && i + 1 < argc)
             g_host = argv[++i];
+        else if (arg == "--recv-timeout" && i + 1 < argc)
+            g_recv_timeout_sec = std::atoi (argv[++i]);
         else if (arg == "--help" || arg == "-h")
         {
             fprintf (stderr,
-                "Usage: pose64-mcp-proxy [--host HOST] [--port PORT]\n"
-                "  --host HOST  ReControl server host (default: 127.0.0.1)\n"
-                "  --port PORT  ReControl server port (default: 6416)\n");
+                "Usage: pose64-mcp-proxy [--host HOST] [--port PORT] [--recv-timeout SEC]\n"
+                "  --host HOST         ReControl server host (default: 127.0.0.1)\n"
+                "  --port PORT         ReControl server port (default: 6416)\n"
+                "  --recv-timeout SEC  per-command read timeout (default: 60)\n");
             return 0;
         }
     }

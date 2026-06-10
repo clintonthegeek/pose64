@@ -222,6 +222,23 @@ and stable.
 Use `palm_dialog respond=reset` for a clean recovery, or `palm_reset type=hard`
 if the device needs a full hard reset.
 
+### Connection failures (MCP proxy)
+
+The proxy enforces a per-command read timeout and will **not** silently re-run a
+command after a dropped connection:
+
+- **Timeout** (`ERR timeout: no response from ReControl within Ns`) — the
+  command may still be running on the emulator. Query `palm_state` before
+  retrying; don't fire it again blindly.
+- **Connection lost after a mutating command** (`install`, `key`, `type`,
+  `poke`, `delete`, `tap`, `pen`, `button`, `launch`, `save`, `load`, `reset`)
+  returns `ERR transient: ... it may or may not have executed`. The proxy does
+  not auto-resend it (that previously risked a double-install / double-type).
+  Check `palm_state` / `palm_apps`, then retry deliberately if needed.
+- **Read-only queries** (`state`, `info`, `apps`, `ui`, `peek`, `regs`,
+  `screen-hash`) are reconnected and retried automatically — they are safe to
+  re-run.
+
 ### Loading sessions programmatically
 
 `palm_load` works even from a cold start (no existing session required):
