@@ -246,6 +246,12 @@ void EmSPISlaveADS784x::ProcessCommand (uint8 command)
 		case kChannelPenX:
 		case kChannelPenY:
 		{
+			// Return 0 (no pen touching).  Pen data is delivered through
+			// PuppetString's software queue via EvtEnqueuePenPoint, not
+			// through the hardware digitizer path.  The pen interrupt
+			// fired by EmRegs*::CycleSlowly serves only to wake the CPU
+			// from STOP so that SysEvGroupWait returns and PuppetString
+			// can deliver the queued event.
 			result = 0;
 			break;
 		}
