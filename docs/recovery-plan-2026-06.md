@@ -7,12 +7,16 @@
 > the gates exist because this project previously died of skipped gates.
 
 > **CURRENT POSITION (updated 2026-06-10 — keep this banner current, R5):**
-> Phase 0 **complete** (GATE 0 passed). Phase 1 **in progress**: 1.8, 1.3,
-> and 1.0d done & verified (commits `5f5c443`, `08d8690`, plus this commit);
-> **NEXT TASK: 1.1** — follow
-> `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (its
-> revision banner has verified repro plumbing for 1.1). The sanitizer build
-> dir (`build-asan/`) exists; `build-tsan/` not yet configured.
+> Phase 0 **complete** (GATE 0 passed). Phase 1 tasks **1.8, 1.3, 1.0d,
+> 1.1, 1.2, 1.4, 1.7** all done & verified. GATE 1 stress suite: TSAN
+> single-pass 13/13 PASS; ASAN 30-min soak **in progress** (started
+> 2026-06-10, verify result then tag). One known TSAN exclusion:
+> `load_during_queue` — pre-existing window lifecycle race, not introduced by
+> Phase 1, fix deferred (add `setQuitOnLastWindowClosed(false)` around load).
+> **NEXT: confirm ASAN soak passes → commit GATE 1 → if 1.5/1.6 unresolved,
+> acknowledge as deferred → tag per-scenario (honesty gate).** Tasks 1.5/1.6
+> deferred (TSAN requires real display). Follow
+> `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md`.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
