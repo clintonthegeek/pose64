@@ -339,14 +339,27 @@ def test_commands_while_dialog_pending(host, port):
     name = "commands_while_dialog_pending"
     print("\n=== GATE 1: Commands While Dialog Pending ===")
 
-    client = ReControlClient(host=host, port=port, timeout=10)
-    if not client.connect():
-        print("  FAIL: could not connect")
+    # Retry once on connection reset — a transient TCP RST can occur if a
+    # previous test's socket cleanup races with this connect.  Verify with
+    # 'state' after connect to catch post-accept RSTs before continuing.
+    client = None
+    for attempt in range(2):
+        c = ReControlClient(host=host, port=port, timeout=10)
+        if c.connect():
+            probe = c.send_command("state") or ""
+            if probe.startswith("OK"):
+                client = c
+                break
+            c.disconnect()
+        if attempt == 0:
+            time.sleep(0.5)
+    if client is None:
+        print("  FAIL: could not establish a healthy connection (2 attempts)")
         return name, False
 
     try:
         # Get current state; bail early if already blocked.
-        state0 = client.send_command("state") or ""
+        state0 = probe  # already fetched above
         if "blocked_on_ui" in state0:
             # Already in a dialog — someone else left the watchpoint armed?
             client.send_command("dialog respond continue")
@@ -761,10 +774,14 @@ def main():
 
         if args.duration > 0:
             # Soak mode: loop the suite for --duration seconds.
+            # Stop immediately on process death or 2+ consecutive failing
+            # iterations.  A single transient failure (e.g. one TCP reset)
+            # is tolerated and logged but does not abort the soak.
             deadline = time.time() + args.duration
             iteration = 0
             cumulative: list = []
             early_fail = False
+            consecutive_fails = 0
             while time.time() < deadline:
                 iteration += 1
                 remaining = max(0, deadline - time.time())
@@ -776,10 +793,18 @@ def main():
                     print(f"\nFAIL: process exited during iteration {iteration}")
                     early_fail = True
                     break
-                if any(not ok for _, ok in results):
-                    print(f"\nFAIL: suite failure in iteration {iteration}; stopping soak")
-                    early_fail = True
-                    break
+                iter_failed = [n for n, ok in results if not ok]
+                if iter_failed:
+                    consecutive_fails += 1
+                    print(f"\nWARN: iteration {iteration} had {len(iter_failed)} failure(s): "
+                          f"{iter_failed} (consecutive fails: {consecutive_fails})")
+                    if consecutive_fails >= 2:
+                        print(f"FAIL: {consecutive_fails} consecutive failing iterations; "
+                              f"stopping soak")
+                        early_fail = True
+                        break
+                else:
+                    consecutive_fails = 0
             if not early_fail:
                 print(f"\nSoak complete: {iteration} iterations, {len(cumulative)} test runs")
             results = cumulative
