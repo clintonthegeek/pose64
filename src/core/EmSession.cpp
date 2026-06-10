@@ -988,6 +988,17 @@ Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 
 	fBreakOnSysCall = false;
 
+	// If we incremented fSuspendByUIThread in the first switch but then
+	// couldn't actually stop (CPU was kBlockedOnUI, so the wait loop was
+	// skipped and result is false), we must undo the increment here.
+	// Without this, the counter leaks and CheckForBreak parks the CPU
+	// permanently after the next BlockOnDialog returns.
+	if (!result && (how == kStopNow || how == kStopOnCycle))
+	{
+		if (fSuspendState.fCounters.fSuspendByUIThread > 0)
+			--fSuspendState.fCounters.fSuspendByUIThread;
+	}
+
 	if (result)
 	{
 		EmAssert (fSuspendState.fCounters.fSuspendByUIThread > 0);
@@ -2320,11 +2331,11 @@ void EmSession::ForceReset (EmResetType resetType)
 	fReset = 1;
 	fResetType = resetType;
 
-	// Clear suspend counters that prevent the CPU from running.
-	// This allows reset to work even when the CPU is suspended
-	// by a debugger break or stale external lock.
-	// Do NOT clear fSuspendByUIThread — it's managed by
-	// SuspendThread/ResumeThread RAII and must stay balanced.
+	// Clear ALL suspend counters so reset is unconditionally effective.
+	// fSuspendByUIThread is now safe to clear here because SuspendThread
+	// properly balances it on failure paths (task 1.1 fix); the old
+	// exclusion was a workaround for the leak, not a correctness requirement.
+	fSuspendState.fCounters.fSuspendByUIThread = 0;
 	fSuspendState.fCounters.fSuspendByDebugger = 0;
 	fSuspendState.fCounters.fSuspendByExternal = 0;
 	fSuspendState.fCounters.fSuspendBySysCall = 0;

@@ -40,14 +40,20 @@ host.
    6414/2000); otherwise it silently continues (`DebugMgr.cpp`,
    `ConditionalBreak`/`EnterDebugger`). No hit notification, no `continue`
    command. Use `watch`/`spy` instead.
-2. **Suspend-counter leak ⇒ unrecoverable freeze.** `SuspendThread(kStopNow/
-   kStopOnCycle)` increments `fSuspendByUIThread` before checking state and
-   does NOT decrement on failure (`EmSession.cpp:788-793, 961-1001`). Issuing
-   a `kCmdWorkerCycle` command (`ui`, `tap-id`, `break`, `watch`, `spy`)
-   while a dialog is up leaks the counter; the CPU then parks forever and
-   `ForceReset` deliberately skips that counter (`EmSession.cpp:2277-2285`).
-   Only a process restart recovers. This is the inherited POSE 3.5 bug class
-   that caused the "permanently locked emulation" reports.
+2. ~~**Suspend-counter leak ⇒ unrecoverable freeze.**~~ **FIXED (task 1.1,
+   2026-06-10).** `SuspendThread(kStopNow/kStopOnCycle)` incremented
+   `fSuspendByUIThread` unconditionally in the first switch, then returned
+   false without decrementing when the CPU was `kBlockedOnUI` (wait loop
+   skipped, result switch saw `fState != kSuspended`). The caller
+   (`EmSessionStopper`) saw `Stopped()==false` and did NOT call `ResumeThread`,
+   so the counter leaked. After the next `BlockOnDialog` returned,
+   `CheckForBreak` saw `fAllCounters != 0` and parked the CPU permanently.
+   **Fix:** `SuspendThread` now decrements `fSuspendByUIThread` on the failure
+   path for `kStopNow`/`kStopOnCycle` (`EmSession.cpp` after the result
+   switch), making failure side-effect-free. `ForceReset` now clears the
+   counter as a last-resort safety net (the "Do NOT clear" guard was a
+   workaround for this leak, not a correctness requirement).
+   Repro (3× PASS): `tests/phase1/repro_1_1_suspend_leak.py`.
 3. **Input is fire-and-forget.** `tap/pen/key/type/button` return `OK` when
    queued, not when delivered; delivery depends on PuppetString firing inside
    `SysEvGroupWait`, and events can sit undelivered (guest asleep) or be
@@ -103,11 +109,10 @@ host.
 - **Phase 1 — in progress.** Done & verified: **1.8** (WorkerDirect arg
   validation, `5f5c443`), **1.3** (proxy read timeout + no double-execute,
   `08d8690`), **1.0d** (`BlockOnDialog` action-lifetime handshake / UAF fix,
-  this commit). **Next task: 1.1** — follow
-  `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (its
-  revision banner records the verified 1.1 repro plumbing). Repros live in
-  `tests/phase1/` (self-launching, offscreen). `repro_dialog_subsystem.py`
-  PASSES 3× after 1.0d.
+  `865f612`), **1.1** (`SuspendThread` failure path balances counter, this
+  commit). **Next task: 1.2** — universal stop timeouts — follow
+  `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md`. Repros
+  live in `tests/phase1/` (self-launching, offscreen).
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 

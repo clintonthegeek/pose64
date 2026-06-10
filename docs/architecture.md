@@ -250,8 +250,10 @@ if (stopper.Stopped()) {
 
 **Stop methods:**
 - `kStopNow` — suspend immediately (sets `fSuspendByUIThread`).
-- `kStopOnCycle` — suspend at end of current instruction cycle. May fail
-  if the CPU is blocked on UI.
+- `kStopOnCycle` — suspend at end of current instruction cycle. Returns
+  false (no-op) when the CPU is `kBlockedOnUI` — the failure path is
+  side-effect-free (task 1.1 fix; prior to that, `fSuspendByUIThread` leaked
+  permanently on this path).
 - `kStopOnSysCall` — suspend at the next system call boundary. **BLOCKS
   the calling thread** until the CPU reaches a syscall. Can deadlock if
   the CPU never reaches one (e.g., tight loop, sleeping in STOP with no
@@ -260,6 +262,13 @@ if (stopper.Stopped()) {
 
 **Timeout:** `SuspendThread(how, timeoutMs)` accepts a timeout. If the CPU
 doesn't reach the requested state within the timeout, it returns false.
+
+**Failure is side-effect-free (task 1.1):** When `SuspendThread` returns
+false for `kStopNow`/`kStopOnCycle`, the `fSuspendByUIThread` counter is
+guaranteed to be unchanged. `EmSessionStopper` correctly does NOT call
+`ResumeThread` on failure — both sides of the contract are now consistent.
+`ForceReset` also clears `fSuspendByUIThread` as a last-resort recovery
+guarantee.
 
 ---
 
