@@ -163,12 +163,19 @@ for events.
    never let a nested call sleep.
 3. If Gremlins or event playback is active, handle those (always set
    `clearTimeout = true`).
-4. Otherwise (interactive mode):
-   - If key events queued: dequeue, call `StubAppEnqueueKey()`, skip ROM.
-   - If pen events queued: dequeue, call `StubAppEnqueuePt()`, skip ROM.
+4. Otherwise (interactive mode) — **as actually implemented at HEAD `460449e`**:
+   - If key events queued: dequeue, call `StubAppEnqueueKey()`, then **fall
+     through** (does NOT `kSkipROM`, does NOT set `clearTimeout`).
+   - If pen events queued: dequeue, call `StubAppEnqueuePt()`, then **fall
+     through** (does NOT `kSkipROM`, does NOT set `clearTimeout`).
    - If app switch pending: do it, set `clearTimeout = true`.
-   - Always set `clearTimeout = true` in interactive mode to prevent
-     SysEvGroupWait from sleeping with an infinite timeout.
+   - `clearTimeout = true` is set **only** for Replay / Hordes / app-switch —
+     **NOT** for plain interactive pen/key delivery, so the real ROM
+     `SysEvGroupWait` runs and may sleep with an infinite timeout.
+   > **Correction (2026-06-10):** earlier text claimed interactive mode always
+   > set `clearTimeout`/`kSkipROM`. That "poll-always" design is the deferred
+   > 2026-03-13 patch (Phase 2 approach **A**), NOT current behavior. See
+   > `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`.
 
 **`clearTimeout`:** When true, changes SysEvGroupWait's timeout from 0
 (infinite/wait forever) to -1 (no wait/return immediately). This prevents
@@ -233,10 +240,14 @@ execution continues. For SysEvGroupWait, the ISR typically returns to the
 wait loop inside SysEvGroupWait, which checks if its event group was
 signaled. If not, it re-enters STOP.
 
-**Why the CPU doesn't sleep anymore:** We set `clearTimeout = true` in
-PuppetString for interactive mode, so SysEvGroupWait never gets an infinite
-timeout, never enters STOP for event waiting. The CPU stays running and
-PuppetString fires on every EvtGetEvent call.
+**Idle sleep status (corrected 2026-06-10):** Earlier text here claimed the CPU
+"doesn't sleep anymore" because interactive mode always sets `clearTimeout`. That
+is **NOT** current behavior (HEAD `460449e`): interactive pen/key delivery leaves
+`clearTimeout = false`, so `SysEvGroupWait` can take an infinite timeout and the
+CPU can enter STOP — which is precisely the "guest asleep ⇒ event undelivered"
+failure mode Phase 2 must fix. How much the guest actually sleeps at idle is
+unmeasured pending Phase 2's idle-CPU harness. The poll-always "never sleep"
+design is Phase 2 approach **A** (deferred 2026-03-13 patch), not today's code.
 
 ---
 
@@ -441,6 +452,10 @@ was actually shipped or a fix attempt that failed.
    no mechanism to wake it and cause SysEvGroupWait to return. Always set
    `clearTimeout = true` so SysEvGroupWait returns immediately and
    PuppetString fires on every EvtGetEvent call.
+   **(Status note 2026-06-10:** this states the *intended* end-state; the current
+   tree does NOT yet implement it for interactive pen/key delivery — see the
+   Event Delivery correction above. "Always set `clearTimeout`" is Phase 2
+   approach **A**, still an open decision vs. approach **B** targeted-wake.)**
 
 10. **DO NOT inject events when `EmLowMem::GetEvtMgrIdle()` returns false.**
     The event manager is in the middle of processing. PuppetString already

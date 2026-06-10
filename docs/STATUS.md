@@ -125,8 +125,13 @@ host.
   object; `RcCmd_Load` uses a two-timer split to prevent deadlock when a Qt
   modal dialog is mid-close on the emulation thread (`BlockOnDialog` + nested
   `msgBox.exec()`). 1.5/1.6 deferred (TSAN verify requires real display).
-  **Next: tag `phase-1-complete`, begin Phase 2.** Repros live in
+  `phase-1-complete` tag now exists (HEAD `460449e`). Repros live in
   `tests/phase1/` (self-launching, offscreen).
+- **Phase 2 — planning started, paused (2026-06-10).** Mechanism choice (2.2)
+  pends hardware-emulation research; strategy locked to **measure-first**. The
+  verified current input-delivery behavior and every open question gating Phase 2
+  are captured in
+  `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` — resume there.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -170,7 +175,8 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/debugging-guide.md` | Host-side debugging (ASAN/GDB/perf) |
 | `docs/recovery-plan-2026-06.md` | The active roadmap + current-position banner |
 | `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | historical — 1.0d complete |
-| `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | ACTIVE — Phase 1 detailed plan (next: 1.1) |
+| `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | historical — Phase 1 detailed plan (GATE 1 passed) |
+| `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | ACTIVE — Phase 2 planning handoff + open questions |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),

@@ -13,9 +13,14 @@
 > PASS. Thread-lifecycle root causes fixed: `omni_thread` + `CPUWorkerThread`
 > converted to raw pthreads; `DestroyThread` joins before delete; `RcCmd_Load`
 > two-timer split avoids deadlock when dialog is mid-close. 1.5/1.6 deferred
-> (TSAN verify requires real display). **NEXT: tag `phase-1-complete`, begin
-> Phase 2 planning.** Follow
-> `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md`.
+> (TSAN verify requires real display). `phase-1-complete` **tag exists** (HEAD
+> `460449e`). **Phase 2 planning STARTED, then PAUSED** (2026-06-10) pending
+> hardware-emulation research needed to settle the 2.2 mechanism choice. Strategy
+> locked: **measure-first** (build the 2.1 delivery test + idle-CPU harness,
+> then decide A vs B at a data-backed checkpoint). **NEXT: resume from the
+> handoff** —
+> `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` — which records
+> the verified current delivery behavior and every open question gating Phase 2.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
