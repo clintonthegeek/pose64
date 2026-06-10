@@ -185,9 +185,16 @@ Omit `respond` to just query. If no dialog is pending, returns `OK none`.
 
 ### Error recovery with `palm_reset`
 
-`palm_reset` works unconditionally — even in `blocked_on_ui` state.  It
-dismisses any pending dialog, unblocks the CPU thread, and performs the reset.
-Use `palm_reset type=hard` after a crash to fully restore the device.
+> **WARNING (landmine #9, open as of 2026-06-10 — remove this warning when
+> Phase 1 task 1.0d lands):** `palm_reset` while `blocked_on_ui` currently
+> **crashes the emulator process** (use-after-free; it may reply
+> `OK reset ...` and then die). Until 1.0d is fixed, recover from dialogs
+> with `palm_dialog respond=<button>` instead, and treat `palm_reset` during
+> `blocked_on_ui` as a process-killer. See `docs/STATUS.md` landmine #9.
+
+Intended behavior (restored by task 1.0d): `palm_reset` works
+unconditionally — even in `blocked_on_ui` state — dismissing any pending
+dialog, unblocking the CPU thread, and performing the reset.
 
 ```
 palm_state              -> "blocked_on_ui"
@@ -219,8 +226,10 @@ palm_state                           # -> "running" again
 All inspection paths (`palm_dialog`, `palm_regs`, `palm_peek`, and TCP
 `backtrace`) work while the CPU is blocked because the CPU state is frozen
 and stable.
-Use `palm_dialog respond=reset` for a clean recovery, or `palm_reset type=hard`
-if the device needs a full hard reset.
+Use `palm_dialog respond=reset` for a clean recovery (this answers the dialog
+normally and is safe). If the device needs a full hard reset, do it AFTER the
+dialog is dismissed and `palm_state` is `running` — see the landmine #9
+warning above about `palm_reset` while `blocked_on_ui`.
 
 ### Connection failures (MCP proxy)
 

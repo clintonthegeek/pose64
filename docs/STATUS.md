@@ -1,6 +1,7 @@
 # POSE64 — Project Status
 
-**Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03)
+**Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03);
+Phase 1 progress updates 2026-06-10
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -50,15 +51,21 @@ host.
 3. **Input is fire-and-forget.** `tap/pen/key/type/button` return `OK` when
    queued, not when delivered; delivery depends on PuppetString firing inside
    `SysEvGroupWait`, and events can sit undelivered (guest asleep) or be
-   silently dropped (Gremlins active). Argument errors are also swallowed
-   (`QueueWork` always replies `OK`, `ReControl.cpp:212-218`). The uncommitted
-   working-tree changes are a half-finished fix for exactly this.
+   silently dropped (Gremlins active). Stands until Phase 2 (the 2026-03-13
+   half-finished fix is preserved at
+   `docs/superpowers/patches/2026-03-13-puppetstring-poll-delivery.patch`).
+   *Partially fixed 2026-06-10 (task 1.8, commit `5f5c443`):* argument errors
+   are no longer swallowed — WorkerDirect args are validated on the main
+   thread, so `tap banana` returns `ERR usage…`, not `OK`. Verified:
+   `tests/phase1/repro_1_8_argval.py`.
 4. **Untimed stops can wedge the whole control plane.** `kStopNow`/
    `kStopOnCycle` stoppers have no timeout (`EmSession.cpp:830` — timeout
-   applies only to `kStopOnSysCall`), and the MCP proxy has no socket read
-   timeout (`pose64-mcp-proxy.cpp:99-112`), so one wedged command hangs every
-   subsequent MCP call. The proxy also auto-retries after reconnect, which
-   can double-execute non-idempotent commands (`install`).
+   applies only to `kStopOnSysCall`); a wedged stop blocks the worker thread
+   forever (Phase 1 task 1.2). *The proxy half is fixed 2026-06-10 (task 1.3,
+   commit `08d8690`):* the MCP proxy now sets `SO_RCVTIMEO` (a wedged server
+   yields `ERR timeout` instead of hanging every later MCP call) and never
+   reconnects-and-resends a non-idempotent command (`install` can no longer
+   double-execute). Verified: `tests/phase1/repro_1_3_proxy.py`.
 5. **Two threads can run the 68K core concurrently (rare).** A second caller
    of `SuspendThread(kStopOnSysCall)` succeeds trivially while the first is
    mid-`ExecuteSubroutine` (`EmSession.cpp:979-986`); a GUI menu action
@@ -95,6 +102,20 @@ host.
    `blocked_on_ui`, and `dialog`/`dialog respond continue` work. 1.1/1.2 were
    deferred on that false premise; they are sequenced after 1.0d only so that
    `reset` is a safe recovery while their repros hammer dialogs.
+
+## Recovery progress (read `docs/recovery-plan-2026-06.md` for the roadmap)
+
+- **Phase 0 — complete 2026-06-10** (GATE 0 passed; details below).
+- **Phase 1 — in progress.** Done & verified: **1.8** (WorkerDirect arg
+  validation, `5f5c443`), **1.3** (proxy read timeout + no double-execute,
+  `08d8690`). **Next task: 1.0d** (landmine #9 — the `reset`-during-dialog
+  UAF); a complete step-by-step plan exists at
+  `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` — follow
+  it, do not improvise. Then 1.1 → 1.2 per
+  `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (its
+  revision banner records the verified 1.1 repro plumbing). Repros live in
+  `tests/phase1/` (self-launching, offscreen). `repro_dialog_subsystem.py`
+  currently FAILS by design — it reproduces landmine #9 and is 1.0d's gate.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -136,10 +157,16 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `claude/skills/palm-dev/SKILL.md` | MCP tool usage for agents |
 | `claude/agents/pose64-tester.md` | Autonomous tester agent |
 | `docs/debugging-guide.md` | Host-side debugging (ASAN/GDB/perf) |
-| `docs/recovery-plan-2026-06.md` | How development gets back on course |
+| `docs/recovery-plan-2026-06.md` | The active roadmap + current-position banner |
+| `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | ACTIVE — next task's full plan |
+| `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | ACTIVE — Phase 1 detailed plan |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),
-`docs/plans/`, `docs/superpowers/`, plus `docs/debugging-infrastructure.md`
+`docs/plans/`, plus `docs/debugging-infrastructure.md`
 and `docs/qt-port-architectural-review.md` (banner-annotated in place),
 timer/benchmark/winuae docs (accurate but point-in-time).
+`docs/superpowers/` is mixed: the **2026-06-10 plans listed above are ACTIVE**;
+findings are dated records (the 2026-06-10 dialog finding carries a
+verification addendum that corrects its hang claim); everything older is
+historical.

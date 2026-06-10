@@ -89,10 +89,14 @@ docs in the same commit (R5).
 
 ## Task 1.0: Harness scaffolding (no behavior change)
 
+> **STATUS: harness DONE & committed 2026-06-10 (Steps 1, 2, 4). Step 3 is
+> STILL OPEN — `build-asan/`/`build-tsan/` were never configured; do it at
+> first need (1.0d Step 10, tasks 1.5-1.7). `build-*/` is already gitignored.**
+
 **Files:** Create `tests/phase1/_harness.py`, `tests/phase1/__init__.py`; create
 `build-asan/`, `build-tsan/` via cmake.
 
-- [ ] **Step 1: Reusable launcher.** Create `tests/phase1/_harness.py` with a context
+- [x] **Step 1: Reusable launcher.** Create `tests/phase1/_harness.py` with a context
   manager that self-launches `pose64` on a given port with `QT_QPA_PLATFORM=offscreen`
   (falling back to inherited DISPLAY), waits for `state`==OK, yields a connected
   `ReControlClient`, and tears the process down (terminate, then kill). Reuse
@@ -134,17 +138,17 @@ def emulator(port, psf="m515.psf", build="build", env_extra=None):
             except subprocess.TimeoutExpired: proc.kill(); proc.wait()
 ```
 
-- [ ] **Step 2: Verify offscreen launch works.**
+- [x] **Step 2: Verify offscreen launch works.**
   Run: `cd tests/phase1 && python3 -c "import _harness; _harness.__dict__"` then a one-liner
   that opens `emulator(6431)` and prints `state`. Expected: `OK running` (or `OK suspended:*`).
   If `QT_QPA_PLATFORM=offscreen` is rejected, fall back to `xvfb-run` and record which works.
 
-- [ ] **Step 3: Sanitizer build dirs.**
+- [ ] **Step 3: Sanitizer build dirs (STILL OPEN as of 2026-06-10).**
   Run: `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g -O1" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"`
   and the `=thread` equivalent into `build-tsan`. Do NOT build yet (build per-task to save time).
   Append `build-asan/` and `build-tsan/` to `.gitignore`.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 ```bash
 git add tests/phase1/_harness.py tests/phase1/__init__.py .gitignore
 git commit -m "test: Phase 1 reproduction harness (offscreen self-launch)"
@@ -402,6 +406,9 @@ tests/phase1/repro_1_2_stop_timeout.py"
 
 ## Task 1.3: Proxy honesty — read timeout + no double-execute
 
+> **STATUS: DONE & VERIFIED 2026-06-10, commit `08d8690`.**
+> Repro: `tests/phase1/repro_1_3_proxy.py`.
+
 **Mechanism:** `tcp_connect` (`src/pose64-mcp-proxy.cpp:54`) sets no `SO_RCVTIMEO`, so
 `tcp_recv_line` (99) blocks forever on a wedged server. `rc_command`/`rc_command_multi`
 (167-169, 185-187) reconnect **and re-send** on any read failure — double-executing
@@ -413,7 +420,7 @@ non-idempotent commands (`install`, `key`, `type`, `poke`, `delete`, and mutatin
 - Test: `tests/phase1/repro_1_3_proxy.py` (uses a fake TCP server; the proxy binary is driven
   via stdin JSON-RPC `tools/call`)
 
-- [ ] **Step 1: Failing reproduction.** Fake server #1 accepts then never replies → proxy must
+- [x] **Step 1: Failing reproduction.** Fake server #1 accepts then never replies → proxy must
   return a structured timeout within the deadline, not hang. Fake server #2 accepts an
   `install`, reads one line, closes the socket → on the proxy's reconnect the command must NOT
   be re-sent (server #2 asserts it sees the command exactly once). Drive the proxy by writing a
@@ -460,9 +467,9 @@ if __name__ == "__main__":
   > names from `pose64-mcp-proxy.cpp`. Finalize the timeout sub-test once the deadline value
   > is chosen in Step 3.
 
-- [ ] **Step 2: Run, confirm FAIL** (install seen ≥2×, or timeout test hangs).
+- [x] **Step 2: Run, confirm FAIL** (install seen ≥2×, or timeout test hangs).
 
-- [ ] **Step 3: Fix.** In `tcp_connect`, after `connect()` set a receive timeout:
+- [x] **Step 3: Fix.** In `tcp_connect`, after `connect()` set a receive timeout:
 ```cpp
 	struct timeval tv; tv.tv_sec = 30; tv.tv_usec = 0;   // > server's max command time
 	setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof (tv));
@@ -480,11 +487,11 @@ if __name__ == "__main__":
 	//   "Recovery: query state/apps before retrying."
 ```
 
-- [ ] **Step 4: Rebuild proxy.** `cmake --build build -j16 --target pose64-mcp-proxy` — exit 0.
+- [x] **Step 4: Rebuild proxy.** `cmake --build build -j16 --target pose64-mcp-proxy` — exit 0.
 
-- [ ] **Step 5: Run repro, confirm PASS** (`PASS 1.3 no-double-execute` and the timeout test).
+- [x] **Step 5: Run repro, confirm PASS** (`PASS 1.3 no-double-execute` and the timeout test).
 
-- [ ] **Step 6: Commit (R5: SKILL.md + protocol doc note the proxy timeout/no-retry contract).**
+- [x] **Step 6: Commit (R5: SKILL.md + protocol doc note the proxy timeout/no-retry contract).**
 ```bash
 git add tests/phase1/repro_1_3_proxy.py src/pose64-mcp-proxy.cpp docs/recontrol-protocol.md claude/skills/palm-dev/SKILL.md
 git commit -m "fix: MCP proxy read timeout + no double-execute of non-idempotent commands (landmine #4)"
@@ -678,6 +685,9 @@ git commit -m "fix: protect fLastPenEvent with a mutex (two-writer data race)"
 
 ## Task 1.8: WorkerDirect argument validation on the main thread
 
+> **STATUS: DONE & VERIFIED 2026-06-10, commit `5f5c443`.**
+> Repro: `tests/phase1/repro_1_8_argval.py`.
+
 **Mechanism:** `QueueWork` (`ReControl.cpp:195`) hardcodes the `OK\n` response (211); the
 `kCmdWorkerDirect` dispatch (439-448) discards the handler's return string. So `tap banana`
 returns `OK` (arg-count error swallowed) and `tap 5 banana` returns `OK` with `y` silently
@@ -688,7 +698,7 @@ parsed as 0 by `QString::toInt`.
   (table entries for direct commands + dispatch), `src/core/ReControlCmds_Input.cpp` (validators)
 - Test: `tests/phase1/repro_1_8_argval.py`
 
-- [ ] **Step 1: Failing reproduction.**
+- [x] **Step 1: Failing reproduction.**
 ```python
 #!/usr/bin/env python3
 """Repro 1.8: malformed WorkerDirect commands must return ERR usage, not OK."""
@@ -710,9 +720,9 @@ def main():
 if __name__ == "__main__": main()
 ```
 
-- [ ] **Step 2: Run, confirm FAIL** (`tap banana -> OK`).
+- [x] **Step 2: Run, confirm FAIL** (`tap banana -> OK`).
 
-- [ ] **Step 3: Fix — add `validate` to the entry struct.** In `ReControl.h`, give
+- [x] **Step 3: Fix — add `validate` to the entry struct.** In `ReControl.h`, give
   `RcCommandEntry` a defaulted member so existing positional initializers still compile:
 ```cpp
 	std::string (*validate)(const QStringList&) = nullptr;  // main-thread arg check, "" == ok
@@ -744,10 +754,10 @@ std::string RcValidate_Tap (const QStringList& a)
 		}
 ```
 
-- [ ] **Step 4: Rebuild + run repro.** `cmake --build build -j16` then
+- [x] **Step 4: Rebuild + run repro.** `cmake --build build -j16` then
   `python3 repro_1_8_argval.py` — Expected: `PASS 1.8`.
 
-- [ ] **Step 5: Commit (R5: protocol doc — direct commands now validate args on the main thread).**
+- [x] **Step 5: Commit (R5: protocol doc — direct commands now validate args on the main thread).**
 ```bash
 git add tests/phase1/repro_1_8_argval.py src/core/ReControl.h src/core/ReControl.cpp src/core/ReControlCmds_Input.cpp docs/recontrol-protocol.md
 git commit -m "fix: validate WorkerDirect args on the main thread (no more swallowed ERR usage)"

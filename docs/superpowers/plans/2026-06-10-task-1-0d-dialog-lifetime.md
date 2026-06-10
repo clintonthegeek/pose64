@@ -442,6 +442,10 @@ Expected: PASS with **zero ASAN reports** in the emulator's output.
   reference stack data without such a handshake" to the Do-Not-Do list.
 - `docs/recontrol-protocol.md`: no protocol change (`reset` response text
   unchanged) — only touch it if the implementer changed any response.
+- **Progress trackers** (same commit): in `docs/recovery-plan-2026-06.md`,
+  check the 1.0d box and update the CURRENT POSITION banner at the top to
+  "NEXT TASK: 1.1"; in `docs/STATUS.md`, update the "Recovery progress"
+  section the same way.
 
 - [ ] **Step 12: Commit.**
 
@@ -479,6 +483,15 @@ within ~1 s), dismissal is `dialog respond continue`, cleanup is `spy clear`
 should either loop respond-until-`spy clear`-lands or use post-1.0d `reset` as
 the final cleanup — finalize against the live build per the existing 1.1
 execution-note discipline).
+
+## After this task — getting back on course
+
+Continue with **Task 1.1** in
+`docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (the
+already-written, deliberately-reverted fix diff is in that doc's Task 1.1 —
+re-apply it only through its repro-first steps). Then 1.2 → 1.4 → 1.7 →
+1.5/1.6 (TSAN, with their STOP rules) → GATE 1, per that plan and the ranked
+list in `docs/recovery-plan-2026-06.md`. One phase-task per sitting (R6).
 
 ## Self-review (writing-plans)
 

@@ -7,7 +7,10 @@ All files written to this project MUST use Unix line endings (LF only, no CRLF).
   it before touching threading, event delivery, ROM calls, or painting.
 - `docs/recovery-plan-2026-06.md` — the active roadmap and its binding
   process rules (reproduce-first, replace-don't-stack, effects-not-responses,
-  clean tree per session, docs in the same commit).
+  clean tree per session, docs in the same commit). Its **CURRENT POSITION
+  banner** (top of file) names the next task and links its detailed plan;
+  keep that banner current when you finish a task. The 2026-06-10 plan docs
+  under `docs/superpowers/plans/` that it links are ACTIVE, not historical.
 - `docs/recontrol-protocol.md` — the ReControl TCP command reference.
 - Everything in `docs/history/` is a dated historical record, NOT current.
 

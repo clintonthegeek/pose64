@@ -6,6 +6,17 @@
 > session has the live code in context. Do not execute phases out of order;
 > the gates exist because this project previously died of skipped gates.
 
+> **CURRENT POSITION (updated 2026-06-10 — keep this banner current, R5):**
+> Phase 0 **complete** (GATE 0 passed). Phase 1 **in progress**: 1.8 and 1.3
+> done & verified (commits `5f5c443`, `08d8690`); **NEXT TASK: 1.0d** — follow
+> `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` step by step
+> (R6: strongest model, single sitting). After 1.0d: 1.1, then 1.2, per the
+> detailed phase plan
+> `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` (its
+> revision banner has verified repro plumbing for 1.1). The sanitizer build
+> dirs (`build-asan/`, `build-tsan/`) do not exist yet — configure at first
+> need (1.0d Step 10 / tasks 1.5-1.7).
+
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
 demonstrated HotSync" — the project's definition of *done* (v1.0).
@@ -66,46 +77,53 @@ From the seven-agent audit of code, git history, and docs:
 
 ## Phase 0 — Freeze a trustworthy baseline (half a day)
 
+> **COMPLETE 2026-06-10, GATE 0 PASSED** (fresh-clone build OK; m515 ROM
+> boots; `state` answers on 6416). The PuppetString candidate was resolved
+> via the "unverifiable in one sitting" branch: checked out away and preserved
+> at `docs/superpowers/patches/2026-03-13-puppetstring-poll-delivery.patch`
+> for Phase 2. Execution record:
+> `docs/superpowers/plans/2026-06-09-phase-0-trustworthy-baseline.md`.
+
 **Outcome:** a clean, buildable-from-fresh-clone repo; the March-13 working
 tree resolved deliberately instead of by accident.
 
 ### Task 0.1 — Triage the uncommitted working tree
 **Files:** the 12 modified files (`git diff --stat`); see STATUS.md.
-- [ ] Strip ALL `fprintf` instrumentation from: `CPUWorkerThread.cpp`,
+- [x] Strip ALL `fprintf` instrumentation from: `CPUWorkerThread.cpp`,
       `EmSession.cpp`, `EmApplication.cpp`, `EmWindow.cpp`, `ReControl.cpp`,
       `EmApplicationQt.cpp`, `Patches/EmPatchMgr.cpp` (keep behavior changes,
       remove prints; the `[PuppetString]`/`[PenEvent]`/`[CPUWorker]`/SLOW
       probes all go).
-- [ ] Keep, as a candidate, the PuppetString change in `EmPatchMgr.cpp`
+- [x] Keep, as a candidate, the PuppetString change in `EmPatchMgr.cpp`
       (nil-event + `kSkipROM` after enqueue; unconditional `clearTimeout`).
       Build and run the Phase-2 delivery test (Task 2.1) once WITH and once
       WITHOUT it (`git stash`). Record results in the commit message.
-- [ ] If it passes: commit as `fix: deliver queued pen/key events via
+- [x] If it passes: commit as `fix: deliver queued pen/key events via
       PuppetString poll (replaces PrvWakeUpCPU wakeup)`. If unverifiable in
       one sitting: `git checkout -p` it away — it is reproducible from
       STATUS.md, and an unverified hack must not be the baseline.
-- [ ] Commit the unambiguous keepers separately: `claude/` doc updates,
+- [x] Commit the unambiguous keepers separately: `claude/` doc updates,
       `data/...metainfo.xml` 0.9.1 notes, `EmSPISlaveADS784x.cpp` comment.
-- [ ] Delete the `if (0)` Wiggle Walk block in `EmWindow.cpp:474-506` and the
+- [x] Delete the `if (0)` Wiggle Walk block in `EmWindow.cpp:474-506` and the
       `fWiggled` machinery, or file it as a tracked issue — no zombie code.
 
 ### Task 0.2 — Make a fresh clone work
-- [ ] `git add src/cpp-mcp/` (the proxy build depends on it — currently
+- [x] `git add src/cpp-mcp/` (the proxy build depends on it — currently
       untracked!), `docs/architecture.md`, `docs/STATUS.md`, this plan,
       `docs/history/` additions… verify with:
       `git clone . /tmp/pose64-clone && cmake -S /tmp/pose64-clone -B /tmp/pose64-clone/build && cmake --build /tmp/pose64-clone/build -j` → must succeed.
-- [ ] Decide `src/Emulator_Src_3.5/` (33 MB reference): recommend gitignore +
+- [x] Decide `src/Emulator_Src_3.5/` (33 MB reference): recommend gitignore +
       a `docs/` note pointing to the canonical tarball. Do NOT commit.
 
 ### Task 0.3 — Repo hygiene
-- [ ] Append to `.gitignore`: `__pycache__/`, `.cache/`, `*.AppImage`,
+- [x] Append to `.gitignore`: `__pycache__/`, `.cache/`, `*.AppImage`,
       `*.deb`, `*.ddeb`, `*.exe`, `abandoned/`, `pose32bit/`,
       `src/fltk-1.1.10/`, `src/fltk-install/`, `src/core/UAE/gen/`,
       `src/Emulator_Src_3.5/`, `Screenshot_*.jpg`.
-- [ ] Archive elsewhere (or delete): `abandoned/` (158 MB), `pose32bit/`
+- [x] Archive elsewhere (or delete): `abandoned/` (158 MB), `pose32bit/`
       (88 MB), `src/fltk-*` (50 MB), `src/core/UAE/gen/`, `docs/thing.pdf`,
       `'c:\palm\bigclock\log.txt'`, `Screenshot_20260218_182122.jpg`.
-- [ ] SAFE-DELETE dead source (audit-verified unreferenced):
+- [x] SAFE-DELETE dead source (audit-verified unreferenced):
       `src/platform/EmWindowUnix.cpp`,
       `src/core/omnithread/{mach,nt,null_thread,posix,solaris}.*`,
       `src/core/UAE/cpuemu1.c`–`cpuemu8.c`, `src/core/UAE/missing.c`,
@@ -151,10 +169,11 @@ Ranked tasks (each = failing repro → fix → test → commit):
       same deadline treatment `kStopOnSysCall` got (`EmSession.cpp:830`);
       every `kCmdWorkerCycle`/`kCmdWorkerRaw` handler returns
       `ERR timeout: …` instead of blocking forever.
-- [ ] **1.3 Proxy honesty** — `pose64-mcp-proxy.cpp`: add `SO_RCVTIMEO`
-      (per-command deadline + margin); never auto-retry non-idempotent
-      commands after reconnect (`install`, `key`, `type`, `poke`, `delete`);
-      surface timeouts as structured tool errors with recovery hints.
+- [x] **1.3 Proxy honesty** — **DONE 2026-06-10, commit `08d8690`** —
+      `SO_RCVTIMEO` added (wedged server → `ERR timeout` instead of hanging
+      every later MCP call); non-idempotent commands are never
+      reconnected-and-resent after a dropped response. Verified repro:
+      `tests/phase1/repro_1_3_proxy.py`.
 - [ ] **1.4 Worker shutdown** — `CPUWorkerThread::shutdown()` must not be
       called unbounded from the main thread (`ReControlCmds_Session.cpp:342`,
       `main.cpp:134-139`): set a stop flag under the mutex, wake, bounded
@@ -173,9 +192,11 @@ Ranked tasks (each = failing repro → fix → test → commit):
 - [ ] **1.7 `fLastPenEvent` race** — two writer threads
       (`EmSession.cpp:1909-1935`); protect with the queue's mutex or an
       atomic.
-- [ ] **1.8 WorkerDirect error reporting** — validate args on the main thread
-      before queueing so `tap banana` returns `ERR usage…`, not `OK`
-      (`ReControl.cpp:212-218, 444-456`).
+- [x] **1.8 WorkerDirect error reporting** — **DONE 2026-06-10, commit
+      `5f5c443`** — args validated on the main thread before queueing
+      (`RcCommandEntry::validate` + `RcValidate_*`); `tap banana`,
+      `tap 5 banana`, `key abc` etc. now return `ERR usage…` immediately.
+      Verified repro: `tests/phase1/repro_1_8_argval.py`.
 
 **GATE 1:** extended `test_recontrol_stress.py` (add scenarios: commands
 while dialog pending; load-during-queue; disconnect storms; 2-client `ERR

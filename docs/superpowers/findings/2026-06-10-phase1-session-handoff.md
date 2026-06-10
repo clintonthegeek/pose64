@@ -1,5 +1,15 @@
 # Phase 1 — session handoff for the plan designer (2026-06-10)
 
+> **SUPERSEDED (same day, commit `5df8c63`):** the replan this handoff asked
+> for is DONE — do not re-derive it from this document. Live verification
+> **disproved Bug A** (the dialog shows ~100 ms after `blocked_on_ui`;
+> `dialog`/`dialog respond` work — §3's "the dialog never actually shows" and
+> §4's "1.1/1.2 cannot be runtime-verified" are wrong) and confirmed Bug B
+> with a second lethal interleaving (reset while the dialog is *showing*).
+> Current state lives in `docs/STATUS.md` (Recovery progress) and the
+> CURRENT POSITION banner in `docs/recovery-plan-2026-06.md`. The next task
+> is 1.0d: `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md`.
+
 **Purpose:** Hand off to whoever revises the recovery plan. Summarizes what this
 session executed, the plan it followed, and — the main point — a precise,
 previously-unknown bug that blocks the two headline Phase 1 fixes and warrants a
