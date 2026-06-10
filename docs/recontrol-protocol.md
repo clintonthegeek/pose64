@@ -235,6 +235,8 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 
 | Command | Response | Description |
 |---------|----------|-------------|
+| `speed [<percent>\|max]` | `OK\n` / `OK <percent>\n` / `OK max\n` | Set or query emulation speed (100 = 1x wall-clock, `max` = unthrottled). Needed for GATE 2 dual-speed runs. |
+
 > **Performance warning:** enabling any DRAM-region check flag
 > (LowMemoryAccess, SystemGlobalAccess, ScreenAccess, MemMgrDataAccess,
 > FreeChunkAccess, UnlockedChunkAccess) re-enables an O(n) heap scan on every

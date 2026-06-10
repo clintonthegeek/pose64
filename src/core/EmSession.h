@@ -703,7 +703,9 @@ class EmSession
 		uint32					fBootKeys;
 
 	public:
-		std::atomic<int>			fEmulationSpeed{1};		// 0=max, 1=1x, 2=2x, 4=4x, 8=8x
+		std::atomic<int>			fEmulationSpeed{1};		// percent: 100=1x, 200=2x, 400=4x, 0=max
+																	// (ctor loads kPrefKeyEmulationSpeed, migrating the
+																	//  legacy 1/2/4/8 multiplier encoding to percent)
 		std::atomic<int32>			fEffectiveClockFreq{0};	// 0 = lazy-init on first throttle call
 
 	private:

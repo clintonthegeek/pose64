@@ -57,6 +57,7 @@ void        RcCmd_Info (ReControlSession* s, const QStringList& args);
 std::string RcCmd_Apps (const QStringList& args);
 void        RcCmd_Dialog (ReControlSession* s, const QStringList& args);
 std::string RcCmd_Delete (const QStringList& args);
+std::string RcCmd_Speed (const QStringList& args);
 
 // Input commands (ReControlCmds_Input.cpp)
 std::string RcCmd_Tap (const QStringList& args);
@@ -118,6 +119,7 @@ static const CommandEntry sCommandTable[] = {
 	{"apps",           kCmdWorkerSysCall, 5000, RcCmd_Apps,       nullptr},
 	{"dialog",         kCmdCustom,        0,    nullptr,          RcCmd_Dialog},
 	{"delete",         kCmdWorkerSysCall, 5000, RcCmd_Delete,     nullptr},
+	{"speed",          kCmdImmediate,     0,    RcCmd_Speed,      nullptr},
 
 	// Input
 	{"tap",            kCmdWorkerDirect,  0,    RcCmd_Tap,        nullptr, RcValidate_Tap},

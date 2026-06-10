@@ -11,6 +11,7 @@
 #include "ReControl.h"
 #include "EmSession.h"
 #include "EmApplication.h"
+#include "PreferenceMgr.h"
 #include "EmDocument.h"
 #include "EmFileImport.h"
 #include "EmStreamFile.h"
@@ -660,4 +661,47 @@ std::string RcCmd_Delete (const QStringList& args)
 	{
 		return "ERR fatal: delete failed - emulator exception during ROM call (recommend reset)\n";
 	}
+}
+
+
+// ============================================================================
+// RcCmd_Speed — Immediate (main thread): set/query emulation speed.
+// Percent semantics match EmApplication::DoSetSpeed: 100 = 1x, 0 = Max
+// (spelled "max" on the wire so a bare 0 can't be sent by accident).
+// ============================================================================
+
+std::string RcCmd_Speed (const QStringList& args)
+{
+	if (!gSession)
+		return "ERR transient: no session\n";
+
+	if (args.size () == 1)
+	{
+		int speed = gSession->fEmulationSpeed.load (std::memory_order_relaxed);
+		if (speed == 0)
+			return "OK max\n";
+		return "OK " + std::to_string (speed) + "\n";
+	}
+
+	if (args.size () != 2)
+		return "ERR usage: speed [<percent>|max]\n";
+
+	long speed;
+	if (args[1].toLower () == "max")
+	{
+		speed = 0;
+	}
+	else
+	{
+		bool ok = false;
+		speed = args[1].toLong (&ok);
+		if (!ok || speed < 1 || speed > 10000)
+			return "ERR usage: speed [<percent 1-10000>|max]\n";
+	}
+
+	Preference<long> p (kPrefKeyEmulationSpeed);
+	p = speed;
+	gSession->fEmulationSpeed.store ((int) speed, std::memory_order_relaxed);
+
+	return "OK\n";
 }
