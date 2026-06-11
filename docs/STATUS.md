@@ -71,8 +71,11 @@ host.
    arg-validation, commit `5f5c443`, still stands: `tap banana` → `ERR usage`.)*
    Verified on master: idle delivery 8/8 100% (p50 234 ms),
    `tests/phase2/test_honest_ack.py` PASS, phase-1 repros 7/7, app-switch repro
-   3/3 clean (2,400 switches). **GATE 2 (200-tap matrix ≥99% at 1x+Max + idle
-   CPU + TSAN race-check) is plan Task 9, not yet run.** Detail: handoff §11–§12
+   3/3 clean (2,400 switches). **GATE 2 TSAN race-check RUN & PASSING 2026-06-11**
+   (delivery machinery + hook TSAN-clean after annotating `omni_condition` waits
+   so TSAN can see through `QWaitCondition::wait`); 200-tap matrix ≥99% at
+   1x+Max, idle-CPU medians, and the grep gate + tag remain (Task 9 Steps
+   1/2/4/5). Detail: handoff §11–§12
    + `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`.
    *(NB: the "one wake mechanism" grep gate means one* input-delivery *wake;
    `EvtWakeup` legitimately appears in Gremlins, app-switch/`launch`,
@@ -183,9 +186,27 @@ host.
   `PrvWakeUpCPU` and the 2026-03-13 poll-always patch are deleted (R2/2.3).
   Landmine #3 is FIXED (see Landmines). Verified on master: honest-ACK + speed
   + phase-1 repros 7/7 PASS, idle delivery 8/8 100% (p50 234 ms), app-switch
-  repro 3/3 clean (2,400 switches). **NOT yet run: GATE 2** (200-tap delivery
-  matrix ≥99% at 1x+Max, idle-CPU medians, TSAN stress of the new delivery
-  machinery) — plan Task 9, next sitting. Execution history below.
+  repro 3/3 clean (2,400 switches). **GATE 2 Step 3 (TSAN race-check of the new
+  delivery machinery) RUN & PASSING (2026-06-11):** the `fDeliveryLock`/condition
+  + `Wait{Key,Pen}Delivery` cross-thread path and the STOP-exit `EvtWakeup` hook
+  are both TSAN-clean (0 implicating reports across 5 stress runs on a
+  freshly-rebuilt `build-tsan`). En route this surfaced — and fixed — a TSAN
+  blind spot: `QWaitCondition::wait` in un-instrumented `libQt6Core` hides the
+  mutex hand-off, so TSAN emitted **4 false** delivery-machinery reports
+  (double-lock + 2× lock-order-inversion + a "race" on `fPenDeliveredSeq` where
+  both threads provably held the same `fDeliveryLock`). Fix: annotate
+  `omni_condition::wait`/`timedwait` with `QtTsan::mutex*` (this commit; no-op
+  outside TSAN — see architecture.md Threading note). Result: delivery-machinery
+  reports **4 → 0** across 3 re-runs, #5/#6 baseline unchanged (67–82/run, in the
+  documented range), `test_honest_ack` PASS + delivery 10/10 100% on the normal
+  build. Residuals (not blockers, not the new code): `load_during_queue` exit-66
+  is the documented libtsan `try_emplace` abort (Qt threadpool JPEG-decode during
+  `load`; see Landmines #11 + `EmSession.cpp:753-757`), flaky ~1/3 → 11/13 when it
+  fires else 13/13; and one pre-existing double-lock in `CPUWorkerThread`'s
+  hand-rolled `QMutex`+`QWaitCondition` (same QWaitCondition class, annotatable
+  later by the same pattern). **Still NOT run — GATE 2 Steps 1/2/4/5:** 200-tap
+  delivery matrix ≥99% at 1x+Max, idle-CPU medians, one-wake-mechanism grep gate,
+  and the `phase-2-complete` tag. Execution history below.
 - **Phase 2 — IN PROGRESS (2026-06-10 execution session).** Task 1 done
   (commit `5cd5c62`: `speed [<percent>|max]` ReControl command + a stale
   `fEmulationSpeed` comment fix). Then the R1 measurements **overturned the

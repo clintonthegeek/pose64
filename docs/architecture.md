@@ -477,6 +477,22 @@ was actually shipped or a fix attempt that failed.
    Session transitions (load, reset) destroy and recreate gSession. A
    queued lambda may fire with a stale pointer.
 
+**TSAN note — annotate condition-variable waits.** `omni_condition::wait`/
+`timedwait` (`omnithread.h`) bracket the underlying `QWaitCondition::wait` with
+`QtTsan::mutex{Pre,Post}{Unlock,Lock}` on the wrapped `QMutex` (the same
+address + flags `QMutex::lock`/`unlock` pass; no-ops outside TSAN builds). This
+is REQUIRED, not optional: `QWaitCondition::wait` lives in un-instrumented
+`libQt6Core` and releases/re-acquires the mutex invisibly to ThreadSanitizer,
+so without the annotation TSAN loses the happens-before across the wait and
+emits **false** data-races, double-locks, and lock-order-inversions on
+everything the condition protects. This masked the GATE 2 TSAN read of the
+delivery counters (`fDeliveryLock` + `Wait{Key,Pen}Delivery`) until it was
+added 2026-06-11 — afterward the four delivery-machinery reports went to zero
+while the unrelated baseline reports were unchanged, proving the code was
+already correct. Any new `omni_condition` inherits this for free; a hand-rolled
+`QMutex`+`QWaitCondition` (e.g. `CPUWorkerThread`'s command queue) must add the
+same brackets or it will generate the same benign-but-noisy reports.
+
 ### Event Delivery
 
 6. **DO NOT fire the pen interrupt (hwrXXXIntHiPen) to deliver pen events.**

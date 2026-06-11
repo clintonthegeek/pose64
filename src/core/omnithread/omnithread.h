@@ -11,6 +11,7 @@
 
 #include <QMutex>
 #include <QWaitCondition>
+#include <QtCore/qtsan_impl.h>   // QtTsan::mutex* — see omni_condition wait paths
 #include <QThread>
 #include <pthread.h>
 #include <sched.h>   // sched_yield
@@ -69,7 +70,21 @@ public:
     omni_condition(omni_mutex* m) : mutex(m) {}
     ~omni_condition() {}
 
-    void wait() { cond.wait(&mutex->m); }
+    void wait() {
+        // TSAN can't see the unlock/relock QWaitCondition::wait performs
+        // inside un-instrumented libQt6Core, so it loses the happens-before
+        // through the mutex across the wait — producing false data-race,
+        // double-lock, and lock-order-inversion reports on anything this
+        // condition protects.  Bracket the wait with explicit TSAN
+        // annotations using the SAME address+flags QMutex::lock/unlock pass
+        // (this == &m, flags 0u).  QtTsan::* are no-ops outside TSAN builds,
+        // so this changes no runtime behavior.
+        QtTsan::mutexPreUnlock(&mutex->m, 0u);
+        QtTsan::mutexPostUnlock(&mutex->m, 0u);
+        cond.wait(&mutex->m);
+        QtTsan::mutexPreLock(&mutex->m, 0u);
+        QtTsan::mutexPostLock(&mutex->m, 0u, 0);
+    }
 
     int timedwait(unsigned long abs_sec, unsigned long abs_nsec = 0) {
         // Convert absolute time to relative milliseconds
@@ -78,7 +93,14 @@ public:
         long long ms = (long long)(abs_sec - now.tv_sec) * 1000
                      + (long long)(abs_nsec - now.tv_nsec) / 1000000;
         if (ms < 0) ms = 0;
-        return cond.wait(&mutex->m, (unsigned long)ms) ? 1 : 0;
+        // See wait() above: annotate the mutex release/reacquire that
+        // QWaitCondition::wait performs invisibly inside libQt6Core.
+        QtTsan::mutexPreUnlock(&mutex->m, 0u);
+        QtTsan::mutexPostUnlock(&mutex->m, 0u);
+        bool signalled = cond.wait(&mutex->m, (unsigned long)ms);
+        QtTsan::mutexPreLock(&mutex->m, 0u);
+        QtTsan::mutexPostLock(&mutex->m, 0u, 0);
+        return signalled ? 1 : 0;
     }
 
     void signal()    { cond.wakeOne(); }

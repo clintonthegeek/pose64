@@ -57,12 +57,23 @@
 > Boxes 2.1–2.4 checked. Landmine #3 FIXED. **Verified:** honest-ACK + speed +
 > phase-1 repros 7/7 PASS; idle delivery 8/8 100% (p50 234 ms); app-switch
 > repro 3/3 clean (2,400 switches); build clean. **NOT yet run.**
-> **NEXT = Task 9 = GATE 2** (the only remaining Phase 2 step): the 200-tap
-> delivery matrix ≥99% at 1x **and** Max (within-app referee + app-switch
-> survival run, un-capped), idle-CPU medians recorded in STATUS, and the
-> **TSAN stress of the new delivery machinery** (the fDeliveryLock/condition +
-> WaitFor*Delivery cross-thread path is new and has NOT been TSAN-verified —
-> the experiment only covered the hook). **Session break here per R6.**
+> **Task 9 = GATE 2 — Step 3 (TSAN race-check) DONE & PASSING (2026-06-11).**
+> The fDeliveryLock/condition + WaitFor*Delivery cross-thread path AND the
+> STOP-exit hook are TSAN-clean (0 implicating reports across 5 stress runs on a
+> rebuilt build-tsan). Caught + fixed a TSAN blind spot first: QWaitCondition::wait
+> in un-instrumented libQt6Core hides the mutex hand-off → 4 FALSE
+> delivery-machinery reports (double-lock + 2× lock-order-inversion + a race on
+> fPenDeliveredSeq with both threads holding the same lock). Fix: annotate
+> `omni_condition::wait/timedwait` with `QtTsan::mutex*` (no-op outside TSAN) →
+> reports 4→0 across 3 re-runs, #5/#6 baseline unchanged, honest-ACK + delivery
+> 10/10 still pass on the normal build. Residuals (not blockers): the
+> `load_during_queue` exit-66 is the documented libtsan try_emplace abort (Qt
+> threadpool, EmSession.cpp:753-757), flaky ~1/3; one pre-existing CPUWorkerThread
+> double-lock (same QWaitCondition class, annotatable later). **REMAINING GATE 2
+> = Steps 1/2/4/5:** 200-tap delivery matrix ≥99% at 1x **and** Max (within-app
+> referee + app-switch survival run, un-capped), idle-CPU medians recorded in
+> STATUS, the one-wake-mechanism grep gate, and the `phase-2-complete` tag.
+> **Session break here per R6.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
