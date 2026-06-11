@@ -15,9 +15,8 @@ class EmSession;
  *
  * Dedicated thread for executing ReControl command handlers that
  * would otherwise block the Qt main thread.  Operations like
- * EmSessionStopper, PostPenEvent, and PostKeyEvent internally call
- * PrvWakeUpCPU which blocks until the CPU reaches a syscall
- * boundary.  Running these handlers here keeps the Qt event loop
+ * EmSessionStopper block until the CPU reaches a cycle/syscall
+ * boundary; running these handlers here keeps the Qt event loop
  * responsive.
  *
  * NOTE: This thread does NOT run the m68k CPU loop.  The CPU

@@ -164,10 +164,13 @@ for events.
 3. If Gremlins or event playback is active, handle those (always set
    `clearTimeout = true`).
 4. Otherwise (interactive mode) — **as actually implemented at HEAD `460449e`**:
-   - If key events queued: dequeue, call `StubAppEnqueueKey()`, then **fall
-     through** (does NOT `kSkipROM`, does NOT set `clearTimeout`).
-   - If pen events queued: dequeue, call `StubAppEnqueuePt()`, then **fall
-     through** (does NOT `kSkipROM`, does NOT set `clearTimeout`).
+   - If key events queued: dequeue, call `StubAppEnqueueKey()`, then
+     `gSession->NotifyKeyEventDelivered()` (bumps the delivery counter the
+     honest ACK blocks on), then **fall through** (does NOT `kSkipROM`, does
+     NOT set `clearTimeout`).
+   - If pen events queued: dequeue, call `StubAppEnqueuePt()`, then
+     `gSession->NotifyPenEventDelivered()`, then **fall through** (does NOT
+     `kSkipROM`, does NOT set `clearTimeout`).
    - If app switch pending: do it, set `clearTimeout = true`.
    - `clearTimeout = true` is set **only** for Replay / Hordes / app-switch —
      **NOT** for plain interactive pen/key delivery, so the real ROM
@@ -177,25 +180,30 @@ for events.
    > 2026-03-13 patch (Phase 2 approach **A**), NOT current behavior. See
    > `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`.
 
-   > **Phase 2 decisions (2026-06-10, handoff §10):** the input-response
-   > contract is decided — `tap`/`pen`/`key`/`type` will block ≤2 s on a
-   > delivery counter and return `OK delivered` / `ERR pending` / `ERR busy`
-   > truthfully (Q-ACK option a; `button` keeps its hardware-ISR contract).
-   > **Mechanism DECIDED 2026-06-10 (2.2 checkpoint): B + C.** The wake
-   > mechanism is robust **B** — a STOP-exit `EvtWakeup` hook on the CPU
-   > thread inside `ExecuteStoppedLoop` (handoff §10 Q-B3, experiment branch
-   > `phase2-experiment-B` @ `a09598d`). Approach **A** (poll-always) is
-   > **rejected/dead** (handoff §11.3): it cannot wake an already-asleep
-   > guest and floods awake apps with nilEvents. The B experiment passed
-   > (handoff §12.1): idle delivery 0→100/100, idle p50 220 ms vs natural
-   > 297 ms, zero measured idle-CPU cost, TSAN clean of any
-   > hook-implicating report. B was chosen over natural-delivery+C — which
-   > also works for the *polling* built-ins — because only B guarantees a
-   > ≤1-tick delivery bound for true-`evtWaitForever` apps, the AI-driving
-   > target the built-ins cannot exhibit. The hook is **landed to master
-   > and all losers deleted (R2) in plan Task 8**; until then it lives only
-   > on the experiment branch. See
-   > `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` Task 5.
+   > **Phase 2 decisions (2026-06-10, handoff §10) — LANDED (plan Tasks
+   > 6–8):** the input-response contract is honest —
+   > `tap`/`tap-id`/`pen`/`key`/`type` block ≤2 s on a per-queue delivery
+   > counter (bumped by `Notify{Key,Pen}EventDelivered` above) and return
+   > `OK delivered` / `ERR pending` / `ERR busy` / `ERR duplicate` truthfully
+   > (Q-ACK option a; `button` keeps its queued hardware contract and reports
+   > `ERR busy` when refused). **Mechanism: B + C.** The wake mechanism is
+   > robust **B** — a STOP-exit `EvtWakeup` hook on the CPU thread at the
+   > bottom of `ExecuteStoppedLoop` (handoff §10 Q-B3): on STOP-exit, if a
+   > pen/key event is pending and the guest is awake with UI initialized,
+   > signal the event group so PuppetString delivers on the next
+   > `EvtGetEvent`. This is the **ONE input-delivery wake mechanism** (R2);
+   > the old `PrvWakeUpCPU` (main-thread `EvtWakeup`-via-stopper) and the
+   > 2026-03-13 poll-always patch (approach **A**, rejected — handoff §11.3:
+   > cannot wake an already-asleep guest, floods awake apps with nilEvents)
+   > were **deleted** when B landed. B was chosen over natural-delivery+C
+   > because only B guarantees a ≤1-tick delivery bound for
+   > true-`evtWaitForever` apps. Verified on master: idle delivery 8/8 100%
+   > (p50 234 ms), honest-ACK + all phase-1 repros pass, app-switch repro
+   > clean. The full GATE 2 referee (200-tap matrix ≥99% + TSAN race-check)
+   > is plan Task 9. NB the grep gate "one wake mechanism" means one
+   > *input-delivery* wake: `EvtWakeup` legitimately appears elsewhere
+   > (Gremlins, app-switch/`launch`, post-reset bootstrap, file import).
+   > See `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`.
 
 **`clearTimeout`:** When true, changes SysEvGroupWait's timeout from 0
 (infinite/wait forever) to -1 (no wait/return immediately). This prevents
@@ -260,14 +268,17 @@ execution continues. For SysEvGroupWait, the ISR typically returns to the
 wait loop inside SysEvGroupWait, which checks if its event group was
 signaled. If not, it re-enters STOP.
 
-**Idle sleep status (corrected 2026-06-10):** Earlier text here claimed the CPU
-"doesn't sleep anymore" because interactive mode always sets `clearTimeout`. That
-is **NOT** current behavior (HEAD `460449e`): interactive pen/key delivery leaves
-`clearTimeout = false`, so `SysEvGroupWait` can take an infinite timeout and the
-CPU can enter STOP — which is precisely the "guest asleep ⇒ event undelivered"
-failure mode Phase 2 must fix. How much the guest actually sleeps at idle is
-unmeasured pending Phase 2's idle-CPU harness. The poll-always "never sleep"
-design is Phase 2 approach **A** (deferred 2026-03-13 patch), not today's code.
+**Idle sleep status (Phase 2 landed, 2026-06-10):** interactive pen/key
+delivery leaves `clearTimeout = false`, so `SysEvGroupWait` can take an
+infinite timeout and the CPU enters STOP — sleep-until-interrupt is
+**preserved** (it is the headline idle feature; approach A's poll-always would
+have destroyed it). The "guest asleep ⇒ event undelivered" failure mode is
+closed not by refusing to sleep but by the STOP-exit `EvtWakeup` hook
+(approach B): when an interrupt wakes the CPU out of STOP with input pending,
+the hook signals the event group so SysEvGroupWait returns and PuppetString
+delivers — worst-case one timer tick. Measured on master: idle delivery 8/8
+100% (p50 234 ms); the approach-B experiment measured ≈0 idle-CPU cost vs the
+natural baseline. The full idle-CPU matrix is recorded at GATE 2 (plan Task 9).
 
 ---
 
@@ -481,19 +492,27 @@ was actually shipped or a fix attempt that failed.
    user calibration. It's not a simple linear scale. The original POSE
    never used this path.
 
-8. **DO NOT call PrvWakeUpCPU / EvtWakeup from the UI thread.** The old
-   implementation used `EmSessionStopper(kStopOnSysCall)` which blocks the
-   main thread. This was removed in commit 7b51f89 for exactly this reason.
+8. **DO NOT call EvtWakeup from the UI/main thread via a stopper.** The old
+   `PrvWakeUpCPU` did this (`EmSessionStopper(kStopOnSysCall)`, which blocks
+   the main thread); it was **deleted in Phase 2** (plan Task 8) when the
+   STOP-exit hook replaced it. EvtWakeup for input delivery is now called only
+   from the CPU thread at the documented-legal interrupt-entry point at the
+   bottom of `ExecuteStoppedLoop`. Do not reintroduce a UI/main-thread input
+   wake. (EvtWakeup still legitimately appears in other subsystems — Gremlins,
+   app-switch/`launch`, post-reset bootstrap, file import — on their own safe
+   paths.)
 
-9. **DO NOT let SysEvGroupWait sleep with an infinite timeout in interactive
-   mode.** If the CPU is sleeping in STOP and a pen event arrives, there's
-   no mechanism to wake it and cause SysEvGroupWait to return. Always set
-   `clearTimeout = true` so SysEvGroupWait returns immediately and
-   PuppetString fires on every EvtGetEvent call.
-   **(Status note 2026-06-10:** this states the *intended* end-state; the current
-   tree does NOT yet implement it for interactive pen/key delivery — see the
-   Event Delivery correction above. "Always set `clearTimeout`" is Phase 2
-   approach **A**, still an open decision vs. approach **B** targeted-wake.)**
+9. **DO NOT add a second input-delivery wake mechanism.** Posted input must
+   not sit undelivered while the guest sleeps in STOP. The ONE wake mechanism
+   is the STOP-exit `EvtWakeup` hook at the bottom of `ExecuteStoppedLoop`
+   (approach B, landed Phase 2 / plan Task 8): when the guest exits STOP on a
+   real interrupt with a pen/key event pending (awake, UI initialized), it
+   signals the event group so SysEvGroupWait returns and PuppetString delivers
+   on the next EvtGetEvent — worst-case one timer tick. The honest ACK
+   (`Wait{Key,Pen}Delivery`) then blocks on the delivery counter PuppetString
+   bumps. The rejected approach A ("always set `clearTimeout`" / poll-always)
+   is NOT in the tree — it cannot wake an already-asleep guest and floods
+   awake apps with nilEvents.
 
 10. **DO NOT inject events when `EmLowMem::GetEvtMgrIdle()` returns false.**
     The event manager is in the middle of processing. PuppetString already
@@ -545,14 +564,22 @@ was actually shipped or a fix attempt that failed.
 ### To deliver user input to Palm OS:
 
 **Pen/key events:** Post to `fPenQueue`/`fKeyQueue` via
-`PostPenEvent()`/`PostKeyEvent()` from any thread. PuppetString will pick
-them up on the next SysEvGroupWait call and inject them via ROM stubs.
-PuppetString handles skipping SysEvGroupWait (`kSkipROM`) and preventing
-sleep (`clearTimeout = true`).
+`PostPenEvent()`/`PostKeyEvent()` from any thread; both return
+`EmPostInputResult` (`kInputPosted` or a drop reason). PuppetString picks them
+up on the next SysEvGroupWait call, injects them via ROM stubs, and calls
+`Notify{Pen,Key}EventDelivered()`. For a truthful ACK, read
+`PenEventsPosted()`/`KeyEventsPosted()` after posting and block on
+`WaitForPenDelivery()`/`WaitForKeyDelivery()` (≤2 s) — exactly what the
+ReControl `tap`/`key`/`type` handlers do. If the guest is asleep in STOP, the
+STOP-exit `EvtWakeup` hook (`ExecuteStoppedLoop`) wakes it so SysEvGroupWait
+returns; interactive delivery does NOT set `clearTimeout`, so the guest keeps
+its idle sleep.
 
 **Hardware buttons:** Use `SetButtonDown()`/`SetButtonUp()`/`SetButtonTap()`
-from any thread. These are atomic state writes. CycleSlowly polls for edge
-transitions and generates hardware interrupts.
+from any thread. These are atomic state writes (CycleSlowly polls for edge
+transitions and generates hardware interrupts). `SetButtonDown`/`SetButtonTap`
+return `false` when input is refused (Gremlins/playback/minimize active) so the
+caller can report it; `SetButtonUp` is unconditional.
 
 ### To stop the CPU briefly:
 

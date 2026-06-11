@@ -54,30 +54,29 @@ host.
    counter as a last-resort safety net (the "Do NOT clear" guard was a
    workaround for this leak, not a correctness requirement).
    Repro (3× PASS): `tests/phase1/repro_1_1_suspend_leak.py`.
-3. **Input is fire-and-forget.** `tap/pen/key/type/button` return `OK` when
-   queued, not when delivered; delivery depends on PuppetString firing inside
-   `SysEvGroupWait`, and events can sit undelivered (guest asleep) or be
-   silently dropped (Gremlins active). Stands until Phase 2 (the 2026-03-13
-   half-finished fix is preserved at
-   `docs/superpowers/patches/2026-03-13-puppetstring-poll-delivery.patch`).
-   *Partially fixed 2026-06-10 (task 1.8, commit `5f5c443`):* argument errors
-   are no longer swallowed — WorkerDirect args are validated on the main
-   thread, so `tap banana` returns `ERR usage…`, not `OK`. Verified:
-   `tests/phase1/repro_1_8_argval.py`.
-   ~~**Quantified 2026-06-10 (Phase 2 execution session, HEAD `5cd5c62`):**
-   delivery to an idle guest is 0%…~~ **CORRECTED later the same day
-   (approach-B experiment, handoff §12):** the 0%-idle measurement was an
-   artifact of a **wedged session file** — the old `m515.psf` was saved with
-   the guest spinning in a supervisor ROM busy-loop, SR interrupt mask 6
-   (timer blocked), never executing STOP — a state NO wake mechanism can
-   reach (see "Session-file baseline" below). **True baseline (master,
-   healthy psf): idle taps DELIVER** (~300 ms p50) because built-in apps
-   poll `EvtGetEvent` with finite timeouts. The honest residual gap: apps
-   that genuinely use `evtWaitForever` get input only when something wakes
-   them — the Phase-2 approach-B hook (experiment passed, branch
-   `phase2-experiment-B`) provides a guaranteed ≤1-tick wake; the 2.2
-   checkpoint decision ("B + C" vs "natural + C") is open. Detail: handoff
-   §11 (measurements) + **§12 (corrections + experiment results)**.
+3. ~~**Input is fire-and-forget.**~~ **FIXED (Phase 2, 2026-06-10 — commit
+   `e177361` honest contract (Tasks 6+7) + the wake-hook commit (Task 8,
+   this commit).** `tap`/`tap-id`/`pen`/`key`/`type` are now delivery-honest:
+   each posts the event and blocks ≤2 s on a per-queue delivery counter that
+   PuppetString increments once the event reaches the Palm OS event queue
+   (`Notify{Key,Pen}EventDelivered`). `OK delivered` means the guest has it; a
+   refused post returns `ERR busy:…` / `ERR duplicate:…`, an undelivered one
+   `ERR pending`. The asleep-guest gap is closed by the **one** input-delivery
+   wake mechanism — a STOP-exit `EvtWakeup` hook at the bottom of
+   `ExecuteStoppedLoop` (approach B): on STOP-exit with input pending (awake,
+   UI initialized) it signals the event group so SysEvGroupWait returns,
+   worst-case one timer tick. The old `PrvWakeUpCPU` and the 2026-03-13
+   poll-always patch (approach A) were **deleted** (R2/2.3). `button` keeps the
+   queued contract and reports `ERR busy` when refused. *(Task 1.8
+   arg-validation, commit `5f5c443`, still stands: `tap banana` → `ERR usage`.)*
+   Verified on master: idle delivery 8/8 100% (p50 234 ms),
+   `tests/phase2/test_honest_ack.py` PASS, phase-1 repros 7/7, app-switch repro
+   3/3 clean (2,400 switches). **GATE 2 (200-tap matrix ≥99% at 1x+Max + idle
+   CPU + TSAN race-check) is plan Task 9, not yet run.** Detail: handoff §11–§12
+   + `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`.
+   *(NB: the "one wake mechanism" grep gate means one* input-delivery *wake;
+   `EvtWakeup` legitimately appears in Gremlins, app-switch/`launch`,
+   post-reset bootstrap, and file import on their own paths.)*
 4. ~~**Untimed stops can wedge the whole control plane.**~~ **FIXED (task 1.2,
    2026-06-10).** `kStopNow`/`kStopOnCycle` stoppers previously had no timeout
    (`EmSession.cpp` — `useTimeout` was gated on `how == kStopOnSysCall`). A CPU
@@ -177,6 +176,16 @@ host.
   `msgBox.exec()`). 1.5/1.6 deferred (TSAN verify requires real display).
   `phase-1-complete` tag now exists (HEAD `460449e`). Repros live in
   `tests/phase1/` (self-launching, offscreen).
+- **Phase 2 — Tasks 6–8 LANDED (2026-06-10); GATE 2 (Task 9) is the only
+  remaining step.** The honest input contract (delivered-ACK + truthful drop
+  errors, commit `e177361`, Tasks 6+7) and the approach-B STOP-exit `EvtWakeup`
+  wake hook + loser deletion (this session, Task 8) are on master;
+  `PrvWakeUpCPU` and the 2026-03-13 poll-always patch are deleted (R2/2.3).
+  Landmine #3 is FIXED (see Landmines). Verified on master: honest-ACK + speed
+  + phase-1 repros 7/7 PASS, idle delivery 8/8 100% (p50 234 ms), app-switch
+  repro 3/3 clean (2,400 switches). **NOT yet run: GATE 2** (200-tap delivery
+  matrix ≥99% at 1x+Max, idle-CPU medians, TSAN stress of the new delivery
+  machinery) — plan Task 9, next sitting. Execution history below.
 - **Phase 2 — IN PROGRESS (2026-06-10 execution session).** Task 1 done
   (commit `5cd5c62`: `speed [<percent>|max]` ReControl command + a stale
   `fEmulationSpeed` comment fix). Then the R1 measurements **overturned the
@@ -239,10 +248,11 @@ plan), which froze a trustworthy baseline:
 - All `fprintf`/timing debug instrumentation stripped (the touched control-plane
   files are back to their committed behavior).
 - The one unverified behavior change — PuppetString's poll-always delivery
-  (`kSkipROM` after enqueue + unconditional `clearTimeout`) — was **deferred to
-  Phase 2**, not adopted. It is preserved at
-  `docs/superpowers/patches/2026-03-13-puppetstring-poll-delivery.patch`
-  (landmine #3 stands until Phase 2 verifies a fix).
+  (`kSkipROM` after enqueue + unconditional `clearTimeout`) — was carried as
+  Phase 2 **approach A**, evaluated, **rejected** (cannot wake an already-asleep
+  guest; floods awake apps with nilEvents), and the preserved patch file was
+  **deleted** when approach **B** (the STOP-exit `EvtWakeup` hook) landed
+  (Phase 2 Task 8). Landmine #3 is now FIXED — see Landmines #3 above.
 - `src/cpp-mcp/` is now a registered submodule (`hkr04/cpp-mcp` @ `dc86c91`);
   `docs/architecture.md` and the audited doc set are committed — a fresh clone
   builds both binaries (verified) and includes the architecture guide.
@@ -276,7 +286,7 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | historical — 1.0d complete |
 | `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | historical — Phase 1 detailed plan (GATE 1 passed) |
 | `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | ACTIVE — Phase 2 handoff; §10 = decisions record |
-| `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` | ACTIVE — Phase 2 implementation plan (next to execute) |
+| `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` | ACTIVE — Phase 2 plan; Tasks 1,6,7,8 done, **Task 9 (GATE 2) remains** |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),

@@ -45,13 +45,24 @@
 > Verified: hot repro 3/6 crashes pre-fix → 0/6 post-fix (4,800 switches);
 > phase-1 repros 7/7; TSAN stress 13/13, report families = master
 > baseline. See STATUS #10 + handoff §12.4 RESOLVED note.
-> **NEXT = plan Task 6** (honesty plumbing in EmSession — C layer +
-> Q-DROP statuses) → Task 7 (honest ACK) → Task 8 (land the B hook +
-> delete losers, R2 — first time the hook touches master; until then it
-> lives only on `phase2-experiment-B`) → Task 9 (GATE 2, BOTH rapid
-> variants: within-app delivery referee + app-switch survival run, now
-> un-capped). **Session break here per R6 — Task 6 opens the next
-> sitting.**
+> **Tasks 6+7+8 DONE (2026-06-10, one sitting, user choice).** Honest input
+> contract landed (commit `e177361`): pen/key posts return `EmPostInputResult`;
+> `tap`/`tap-id`/`pen`/`key`/`type` block ≤2 s on per-queue delivery counters
+> and return `OK delivered` / `ERR pending` / `ERR busy` / `ERR duplicate`;
+> `button → ERR busy` when refused (moved to kCmdWorkerRaw so the drop is not
+> swallowed — deviation from the written plan, see commit body). Approach-B
+> STOP-exit `EvtWakeup` hook landed on master in `ExecuteStoppedLoop`;
+> `PrvWakeUpCPU` + the 2026-03-13 poll-always patch + the `phase2-experiment-B`
+> branch deleted (R2/2.3); `test_delivery.py` preserved to master first.
+> Boxes 2.1–2.4 checked. Landmine #3 FIXED. **Verified:** honest-ACK + speed +
+> phase-1 repros 7/7 PASS; idle delivery 8/8 100% (p50 234 ms); app-switch
+> repro 3/3 clean (2,400 switches); build clean. **NOT yet run.**
+> **NEXT = Task 9 = GATE 2** (the only remaining Phase 2 step): the 200-tap
+> delivery matrix ≥99% at 1x **and** Max (within-app referee + app-switch
+> survival run, un-capped), idle-CPU medians recorded in STATUS, and the
+> **TSAN stress of the new delivery machinery** (the fDeliveryLock/condition +
+> WaitFor*Delivery cross-thread path is new and has NOT been TSAN-verified —
+> the experiment only covered the hook). **Session break here per R6.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -247,10 +258,12 @@ are effect-based (R3).
 **Outcome:** `OK` from `tap`/`key`/`type` means *delivered* (or you get a
 truthful error), with ONE delivery mechanism in the tree.
 
-- [ ] **2.1 Delivery test first** — script: `screen-hash` → `tap` on a known
-      button (e.g. Launcher icon via `tap-id`) → poll `screen-hash`/`ui` ≤2 s
-      → assert change. Run against baseline to characterize today's failure
-      rate. This test is the referee for every option below.
+- [x] **2.1 Delivery test first** — **DONE.** `tests/phase2/test_delivery.py`
+      (revised, effect-based: idle launcher → `tap` Date Book icon → Datebook
+      form confirmed via `ui`; restore with `key 264`). Built on the experiment
+      branch, **brought to master in Task 8** before that branch was deleted.
+      It is the GATE 2 referee (Task 9). Shakeout on master with the landed
+      hook: idle 8/8 100% (p50 234 ms).
 - [x] **2.2 Decide the mechanism** — **DECIDED 2026-06-10: B + C**
       (data-backed; recorded in `architecture.md` "Phase 2 decisions" + handoff
       §10 Q-MECH RESOLVED + §12.3). B = STOP-exit `EvtWakeup` hook; A is
@@ -270,12 +283,18 @@ truthful error), with ONE delivery mechanism in the tree.
         the protocol response reflects truth (`OK delivered` / `ERR pending`).
       Recommendation: **B + C**. A is acceptable as an interim if measured
       idle cost is negligible at 1x.
-- [ ] **2.3 Delete the losers** (R2): remove dead `PrvWakeUpCPU`, stale
-      "bridge thread" comments (`EmSession.cpp:1297`, `EmWindow.cpp:553`),
-      and whichever delivery variant lost.
-- [ ] **2.4 Report drops** — when `PrvCanBotherCPU` rejects an event
-      (Gremlins/minimize active), return `ERR busy: gremlin running`, not
-      `OK`.
+- [x] **2.3 Delete the losers** (R2): **DONE (Task 8).** `PrvWakeUpCPU` (decl,
+      body, dead `ROMStubs.h` include) deleted; the 2026-03-13 poll-always
+      patch file (approach A) `git rm`'d; the `phase2-experiment-B` branch
+      deleted (its unique content — the hook + `test_delivery.py` — landed on
+      master first). Stale "bridge thread" comments reworded to "UI thread"
+      (`EmWindow.cpp`, `CPUWorkerThread.h`). One input-delivery wake mechanism
+      remains (the STOP-exit hook).
+- [x] **2.4 Report drops** — **DONE (commit `e177361`, Tasks 6+7).** Pen/key
+      posts return `EmPostInputResult`; ReControl maps refusals to
+      `ERR busy: gremlin running` / `ERR busy: event playback active` /
+      `ERR busy: minimization active` / `ERR duplicate: …`, never a swallowed
+      `OK`. `button` reports `ERR busy: gremlin or playback active` too.
 
 **GATE 2:** delivery test ≥ 99% over 200 taps at 1x and at Max speed; idle
 CPU% recorded in STATUS.md; exactly one wake mechanism greppable in src/.

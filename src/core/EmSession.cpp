@@ -30,7 +30,6 @@
 #include "Logging.h"			// LogAppendMsg
 #include "Miscellaneous.h"		// EmValueChanger
 #include "PreferenceMgr.h"		// Preference
-#include "ROMStubs.h"			// EvtWakeup
 #include "SessionFile.h"		// SessionFile
 #include "Strings.r.h"			// kStr_EnterPen
 
@@ -58,7 +57,6 @@ Bool	gIterating = false;
 #endif
 
 Bool	PrvCanBotherCPU	(void);
-void	PrvWakeUpCPU	(long strID);
 
 
 /*
@@ -2222,55 +2220,6 @@ Bool PrvCanBotherCPU (void)
 	return true;
 }
 
-
-// ---------------------------------------------------------------------------
-//		� PrvWakeUpCPU
-// ---------------------------------------------------------------------------
-
-void PrvWakeUpCPU (long strID)
-{
-	// Make sure the app's awake.  Normally, we post events on a patch to
-	// SysEvGroupWait.	However, if the Palm device is already waiting,
-	// then that trap will never get called.  By calling EvtWakeup now,
-	// we'll wake up the Palm device from its nap.
-	//
-	// Use a timeout to prevent indefinite blocking.  Events are already
-	// queued in thread-safe queues; if we can't reach a syscall boundary
-	// in time, the CPU will process them on its next natural wakeup.
-	//
-	// IMPORTANT: The EvtWakeup ROM stub calls ExecuteSubroutine, which
-	// runs fCPU->Execute() inline in the calling thread.  The UAE 68K
-	// core uses global mutable state (regs, memory banks) with no
-	// thread safety.  Only the main thread may call EvtWakeup directly.
-	//
-	// From other threads (CPUWorkerThread, etc.), schedule the wakeup
-	// on the main thread via QMetaObject::invokeMethod.  This ensures
-	// EvtWakeup runs safely while still waking the emulated CPU from
-	// sleep (EvtGetEvent blocks indefinitely when no events are pending).
-
-#if HAS_OMNI_THREAD
-	if (gSession && gSession->InCPUThread ())
-		return;
-
-	QCoreApplication* app = QCoreApplication::instance ();
-	if (app && QThread::currentThread () != app->thread ())
-	{
-		// Bounce to main thread — events are already in the queue,
-		// we just need to wake the emulated CPU to process them.
-		QMetaObject::invokeMethod (app, [strID]() {
-			::PrvWakeUpCPU (strID);
-		}, Qt::QueuedConnection);
-		return;
-	}
-#endif
-
-	EmSessionStopper	stopper (gSession, kStopOnSysCall, 2000);
-
-	if (stopper.Stopped ())
-	{
-		Errors::ReportIfPalmError (strID, ::EvtWakeup ());
-	}
-}
 
 #pragma mark -
 

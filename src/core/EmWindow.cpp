@@ -486,7 +486,7 @@ void EmWindow::PaintScreen (Bool drawCase, Bool wholeLCD)
 		// Read hardware state WITHOUT suspending the CPU.
 		// A torn read is acceptable for display — we just want pixels.
 		// This avoids the SuspendThread deadlock that occurs when the
-		// bridge thread tries to pause a CPU in nested subroutine execution.
+		// UI thread tries to pause a CPU in nested subroutine execution.
 
 		// (debug logging removed)
 
