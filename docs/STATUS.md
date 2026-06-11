@@ -40,11 +40,23 @@ host.
 
 ## Landmines (verified, with mechanism)
 
-1. **`break` is passive without an external debugger.** A breakpoint hit only
-   suspends the CPU if a Palm-Debugger SLP client is attached (ports
-   6414/2000); otherwise it silently continues (`DebugMgr.cpp`,
-   `ConditionalBreak`/`EnterDebugger`). No hit notification, no `continue`
-   command. Use `watch`/`spy` instead.
+1. ~~**`break` is passive without an external debugger.**~~ **FIXED (Phase 3b,
+   2026-06-11, task 3.2).** Previously a breakpoint hit only suspended the CPU
+   if a Palm-Debugger SLP client was attached; with none, `EnterDebugger`'s
+   no-debugger fallback just logged "Failed to enter debug mode" and resumed —
+   the hit was silently ignored. **Mechanism:** that fallback now schedules an
+   `EmDeferredErrBreakpoint` (modeled byte-for-byte on `EmDeferredErrWatchpoint`,
+   holding only `(int index, emuptr pc)` by value — no CPU-stack pointers) via
+   `gSession->ScheduleDeferredError(...)`, the same CPU-thread-safe path
+   `DoCheckWatchpoint` uses. `Errors::ReportErrBreakpoint` renders the
+   `kStr_ErrBreakpoint` Continue/Debug/Reset dialog (slot index + hit address +
+   register dump), so the CPU blocks on `blocked_on_ui` and resumes via
+   `dialog respond continue`. With `--slp-debugger`, the external debugger still
+   takes the hit instead. **Evidence:** `tests/phase3/test_break_real.py` 3× PASS
+   (each run 3 rounds: hit → blocked_on_ui → dialog inspected → resume); TSAN
+   spot-check clean (0 reports implicate the new break path; only the documented
+   #5/#6 baseline families); `repro_dialog_subsystem.py` (the 1.0d dialog
+   lifecycle this rides) still PASS.
 2. ~~**Suspend-counter leak ⇒ unrecoverable freeze.**~~ **FIXED (task 1.1,
    2026-06-10).** `SuspendThread(kStopNow/kStopOnCycle)` incremented
    `fSuspendByUIThread` unconditionally in the first switch, then returned

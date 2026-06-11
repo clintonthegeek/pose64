@@ -2375,6 +2375,10 @@ string Hordes::TranslateErrorCode (UInt32 errCode)
 			return "ErrWatchpoint";
 			break;
 
+		case kStr_ErrBreakpoint:
+			return "ErrBreakpoint";
+			break;
+
 		case kStr_ErrSysFatalAlert:
 			return "ErrSysFatalAlert";
 			break;

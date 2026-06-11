@@ -73,7 +73,7 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_delete` | `db` | Delete a database from the device |
 | `palm_speed` | `value` (optional) | Set/query emulation speed: 1-10000 percent or `max`; omit to query |
 | `palm_backtrace` | -- | m68k stack crawl (works in `blocked_on_ui`) |
-| `palm_break` | `action`, `idx`, `addr`, `condition` | Manage 6 breakpoint slots (list/set/clear/enable/disable/clearall) |
+| `palm_break` | `action`, `idx`, `addr`, `condition` | Manage 6 breakpoint slots; on hit the CPU blocks on a dialog (`blocked_on_ui`), resume via `palm_dialog respond=continue` (set/clear/enable/disable/clearall) |
 | `palm_watch` | `action`, `addr`, `nbytes` | Watchpoint: dialog-stop when range is written (set/clear/status) |
 | `palm_spy` | `action`, `addr` | Step spy: dialog-stop when value changes (set/clear/status) |
 | `palm_log` | `action`, `category`, `level` | Event logging: 20 categories, levels 0/1/2 (list/set/dump/clear) |
@@ -307,15 +307,30 @@ palm_dialog respond=continue           # -> resume
 palm_watch action=clear                # -> remove watchpoint
 ```
 
-### Breakpoints — truthful caveat
+### Stop on code address (breakpoint)
 
 `palm_break` lets you list/set/clear/enable/disable the 6 m68k breakpoint slots.
-**WARNING (landmine #1, open until Phase 3b):** a breakpoint hit does NOT stop
-execution on its own. When a breakpoint fires, the emulator only suspends if an
-external Palm-Debugger (SLP protocol) client is attached; otherwise the hit is
-**silently ignored**. For "stop when X happens" workflows use `palm_watch` or
-`palm_spy` instead — they raise an error dialog (`blocked_on_ui`) you can read
-with `palm_dialog` and dismiss with `palm_dialog respond=continue`.
+As of Phase 3b (landmine #1 FIXED) a breakpoint hit blocks the CPU on the same
+Continue/Debug/Reset dialog watchpoints use:
+
+```
+palm_break action=set idx=0 addr="0x10C32A40"   # arm breakpoint
+# ... trigger the code path (e.g. tap, key) ...
+palm_state                              # -> "blocked_on_ui" (breakpoint hit)
+palm_dialog                            # -> "hit breakpoint 0 at address ..." + registers
+palm_backtrace                         # -> stack crawl at the hit
+palm_dialog respond=continue           # -> resume execution
+palm_break action=clearall             # -> remove breakpoints (AFTER resuming)
+```
+
+**Important:** `palm_break`/`palm_watch`/`palm_spy` are WorkerCycle commands and
+cannot run while `blocked_on_ui` (they need a CPU cycle boundary that never
+arrives while parked on the dialog) — clear or modify breakpoints only after
+`palm_dialog respond=continue` has resumed the CPU. If the breakpoint sits on a
+hot address it may re-hit immediately on resume; alternate
+`palm_dialog respond=continue` and `palm_break action=clearall` until it clears.
+With an external SLP debugger attached (`--slp-debugger`), that debugger takes
+the hit instead of the in-emulator dialog.
 
 ## App-Specific Workflows
 

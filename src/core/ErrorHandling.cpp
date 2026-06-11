@@ -1773,6 +1773,34 @@ void Errors::ReportErrWatchpoint (emuptr writeAddress,
 }
 
 
+// ---------------------------------------------------------------------------
+//		� Errors::ReportErrBreakpoint
+// ---------------------------------------------------------------------------
+// A breakpoint (or guest DbgBreak) fired with no external SLP debugger
+// attached.  Phase 3b: surface it as the same Continue/Debug/Reset dialog
+// watchpoints use instead of silently resuming (landmine #1).
+
+void Errors::ReportErrBreakpoint (int index, emuptr pc)
+{
+	// Set the %app message variable.
+
+	Errors::SetStandardParameters ();
+
+	// Set the %bp_index and %bp_addr message variables.
+
+	string	indexStr = index >= 0 ? ::PrvAsDecimal (index) : string ("?");
+	Errors::SetParameter ("%bp_index", indexStr.c_str ());
+
+	string	pcStr (::PrvAsHex8 (pc));
+	Errors::SetParameter ("%bp_addr", pcStr.c_str ());
+
+	// Show the dialog.
+
+	Errors::HandleDialog (kStr_ErrBreakpoint, kException_SoftBreak,
+			kDlgFlags_Continue_DEBUG_Reset, false);
+}
+
+
 #pragma mark -
 
 // ---------------------------------------------------------------------------
@@ -3386,4 +3414,27 @@ EmDeferredErrWatchpoint::~EmDeferredErrWatchpoint (void)
 void EmDeferredErrWatchpoint::Do (void)
 {
 	Errors::ReportErrWatchpoint (fWriteAddress, fWriteBytes, fWatchAddress, fWatchBytes);
+}
+
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		� EmDeferredErrBreakpoint
+// ---------------------------------------------------------------------------
+
+EmDeferredErrBreakpoint::EmDeferredErrBreakpoint (int index, emuptr pc) :
+	EmDeferredErr (),
+	fIndex (index),
+	fPC (pc)
+{
+}
+
+EmDeferredErrBreakpoint::~EmDeferredErrBreakpoint (void)
+{
+}
+
+void EmDeferredErrBreakpoint::Do (void)
+{
+	Errors::ReportErrBreakpoint (fIndex, fPC);
 }

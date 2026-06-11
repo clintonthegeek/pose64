@@ -95,6 +95,7 @@
 #define kStr_ErrWatchpoint				1070
 #define kStr_ErrMemoryLeak				1071
 #define kStr_ErrMemoryLeaks				1072
+#define kStr_ErrBreakpoint				1073
 
 // Palm OS-detected errors
 

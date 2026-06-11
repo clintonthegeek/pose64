@@ -109,6 +109,7 @@ static const struct item _ResStrTable[] = {
 	{ kStr_ErrProscribedFunction, "%App just called Palm OS routine \"%function_name\".\n\nApplications should not call this function because %reason." },
 	{ kStr_ErrStepSpy, "%App just %op memory location %mem, changing it from %old_value to %new_value." },
 	{ kStr_ErrWatchpoint, "%App just %op memory location %mem, which is in the range from %watch_start to %watch_end specified in the Breakpoint dialog box." },
+	{ kStr_ErrBreakpoint, "%App hit breakpoint %bp_index at address %bp_addr. \"Continue\" resumes execution." },
 	{ kStr_ErrMemoryLeak, "Found %num_leaks memory leak for %app. Information concerning the leak can be found in the log file." },
 	{ kStr_ErrMemoryLeaks, "Found %num_leaks memory leaks for %app. Information concerning the leaks can be found in the log file." },
 

@@ -1106,6 +1106,25 @@ Bool Debug::HandleSystemCall (const SystemCallContext& context)
 }
 
 
+// Find which enabled breakpoint slot covers the given PC (dialog text only).
+// -1 when none matches (e.g. an explicit DbgBreak from guest code, or an
+// A-Trap break).
+
+static int PrvBreakpointIndexForPC (emuptr pc)
+{
+	for (int ii = 0; ii < dbgTotalBreakpoints; ++ii)
+	{
+		if (gDebuggerGlobals.bp[ii].enabled &&
+			gDebuggerGlobals.bp[ii].addr == (MemPtr)(uintptr_t) pc)
+		{
+			return ii;
+		}
+	}
+
+	return -1;
+}
+
+
 /***********************************************************************
  *
  * FUNCTION:	Debug::EnterDebugger
@@ -1243,7 +1262,35 @@ ErrCode Debug::EnterDebugger (ExceptionNumber reason, SLP* slp)
 	}
 	else
 	{
-		PRINTF ("Failed to enter debug mode.");
+		// No external SLP debugger is attached.  Pre-Phase-3 the hit was
+		// silently ignored here (landmine #1).  Surface it instead as the
+		// same deferred-error dialog watch/spy use: the CPU blocks on a
+		// Continue/Debug/Reset dialog (blocked_on_ui) that ReControl's
+		// `dialog` / `dialog respond continue` can drive.  Scheduling is
+		// CPU-thread-safe — identical to Debug::DoCheckWatchpoint.
+
+		emuptr	pc = m68k_getpc ();
+
+		EmAssert (gSession);
+
+		// Schedule the breakpoint dialog ONLY for a fresh hit during normal
+		// execution.  If a deferred-error dialog is already being handled
+		// (AreDeferredErrorsBeingHandled) — e.g. the user clicked "Debug" on
+		// this very dialog with no external debugger attached, re-entering us
+		// through HandleDialog → EnterDebugger — scheduling would push onto
+		// the deferred-error queue mid-iteration (asserts under POSE_DEBUG,
+		// mutates the in-flight std::list in release).  Skip it; HandleDialog's
+		// do/while simply re-shows the current dialog, matching the watchpoint
+		// twin's Debug-button behavior.
+
+		if (!EmSession::AreDeferredErrorsBeingHandled ())
+			gSession->ScheduleDeferredError (
+					new EmDeferredErrBreakpoint (::PrvBreakpointIndexForPC (pc), pc));
+
+		PRINTF ("No debugger attached; breakpoint dialog %s.",
+				EmSession::AreDeferredErrorsBeingHandled ()
+						? "already up (re-entrant Debug); re-showing"
+						: "scheduled");
 	}
 
 	PRINTF ("Exiting Debug::EnterDebugger.");

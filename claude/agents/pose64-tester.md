@@ -62,7 +62,7 @@ JSON and require no Bash calls for emulator interaction.
 **Speed:** `palm_speed` (set/query emulation speed: 1-10000 percent or `max`; omit value to query)
 **Debugging (all MCP tools — Phase 3a):**
 - `palm_backtrace` — m68k stack crawl; works in `blocked_on_ui`
-- `palm_break` — manage 6 breakpoint slots (list/set/clear/enable/disable/clearall); **WARNING (landmine #1):** a hit is silently ignored without an external SLP debugger — prefer `palm_watch`/`palm_spy`
+- `palm_break` — manage 6 breakpoint slots (list/set/clear/enable/disable/clearall); on hit the CPU blocks on a Continue/Debug/Reset dialog (`blocked_on_ui`) — inspect with `palm_dialog`/`palm_backtrace`, resume with `palm_dialog respond=continue`, then `palm_break action=clearall` (landmine #1 FIXED Phase 3b). `palm_break` is WorkerCycle: clear/modify only after resuming, not while `blocked_on_ui`
 - `palm_watch` — dialog-stop when a memory range is written (set/clear/status)
 - `palm_spy` — dialog-stop when a single address value changes (set/clear/status)
 - `palm_log` — event logging: 20 categories, levels 0=off/1=gremlin/2=always (list/set/dump/clear)
@@ -87,7 +87,7 @@ Start by calling `palm_ping` to confirm the MCP connection is live.
 
 **Stack trace:** `palm_backtrace` -- works in `blocked_on_ui`
 **Set breakpoint:** `palm_break action=set idx=0 addr=0x12340` / `palm_break action=clearall`
-(passive unless an external SLP debugger is attached — prefer `palm_watch`/`palm_spy`, which raise a dialog)
+(on hit the CPU blocks on a dialog: `palm_state` -> `blocked_on_ui`, inspect with `palm_dialog`/`palm_backtrace`, resume with `palm_dialog respond=continue`, then `palm_break action=clearall` after resuming — `palm_break` cannot run while `blocked_on_ui`)
 **Enable logging:** `palm_log action=set category=SystemCalls level=2` (0=off, 1=gremlin-only, 2=always)
 **Run gremlin:** `palm_gremlin action=new seed=42 events=10000` / `palm_gremlin action=stop`
 **Enable checks:** `palm_check action=set flag=FreeChunkAccess on=true` / `palm_check action=clearall`
@@ -136,8 +136,9 @@ Gremlins are automated random-input stress testers. Use MCP tools directly.
      survive even reset; if `palm_state` stays stuck, restart the emulator.)
    - For stack traces use `palm_backtrace` (works in `blocked_on_ui`)
    - `palm_regs` and `palm_peek` also work in `blocked_on_ui` state for additional crash analysis
-   - For "stop when X happens" debugging use `palm_watch`/`palm_spy` (NOT `palm_break`,
-     which is passive without an attached SLP debugger)
+   - For "stop when X happens" debugging use `palm_watch`/`palm_spy` (memory writes)
+     or `palm_break` (code address) — all three now raise a `blocked_on_ui` dialog
+     resumed via `palm_dialog respond=continue`
    - Verify with `palm_state` that the emulator resumed to `running`
 7. **Report findings**: For each scenario, document steps taken, expected vs actual, and `palm_ui` output
 

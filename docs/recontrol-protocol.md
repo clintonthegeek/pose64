@@ -199,18 +199,20 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 
 All commands in this section (and Logging, Gremlins, Configuration, Profiling below) are exposed as MCP tools (`palm_break`, `palm_watch`, `palm_spy`, `palm_log`, `palm_gremlin`, `palm_check`, `palm_errorhandling`, `palm_profile`, `palm_backtrace`, `palm_speed`) — raw TCP is no longer needed for any of them.
 
-> **`break` does not stop execution on its own.** Setting/listing breakpoints
-> works, but when one hits, `Debug::EnterDebugger` only suspends the CPU if an
-> external Palm-Debugger-protocol (SLP) client is connected. As of Phase 3b
-> those listening sockets (ports 6414/2000) are **off by default** (landmine
-> #8): launch with `--slp-debugger` (or set the `SLPDebugger` preference) to
-> attach an external debugger — otherwise nothing listens there.
-> With no debugger attached the hit is **silently ignored** and execution
-> continues (DebugMgr.cpp, `ConditionalBreak`). There is no hit notification
-> and no `continue`/`resume` command in this protocol. For "stop when X
-> happens" use `watch`/`spy` instead — they raise an error dialog
-> (`blocked_on_ui`) that you can inspect with `dialog` and dismiss with
-> `dialog respond`.
+> **`break` stops execution on hit (Phase 3b, landmine #1 fixed).** When a
+> breakpoint fires, `Debug::EnterDebugger` schedules a deferred-error dialog
+> (the same Continue/Debug/Reset dialog `watch`/`spy` raise): the CPU blocks on
+> it and `state` reports `blocked_on_ui`. Inspect the hit with `dialog` (the
+> message names the slot and hit address, and a register dump is appended),
+> `backtrace`, `peek`, etc., then resume with `dialog respond continue` (or
+> `dialog respond reset`). Note: `break`/`watch`/`spy` are WorkerCycle commands
+> and cannot run while `blocked_on_ui`; clear/modify breakpoints after resuming.
+>
+> If an external Palm-Debugger-protocol (SLP) client is attached instead, that
+> debugger takes the hit. As of Phase 3b the SLP listening sockets (ports
+> 6414/2000) are **off by default** (landmine #8): launch with `--slp-debugger`
+> (or set the `SLPDebugger` preference) to attach an external debugger —
+> otherwise nothing listens there and the in-emulator dialog handles the hit.
 
 | Command | Response | Description |
 |---------|----------|-------------|

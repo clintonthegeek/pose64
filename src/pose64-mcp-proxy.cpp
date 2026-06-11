@@ -762,10 +762,11 @@ static const ToolDef kTools[] = {
   [] (const json&) { return built ("backtrace", true, true); }, nullptr },
 
 { "palm_break", "Manage the 6 m68k breakpoint slots. action=set requires idx+addr (condition "
-  "optional, e.g. 'd0 == 0'); clear/enable/disable require idx. "
-  "WARNING (landmine #1): a hit currently stops execution ONLY when an external SLP "
-  "debugger is attached; with none the hit is silently ignored. Use palm_watch/palm_spy "
-  "to stop on memory writes. (Phase 3b makes hits raise a real dialog.)",
+  "optional, e.g. 'd0 == 0'); clear/enable/disable require idx. On hit the CPU "
+  "blocks on a Continue/Debug/Reset dialog (state=blocked_on_ui): inspect with "
+  "palm_dialog/palm_backtrace/palm_peek, resume with palm_dialog "
+  "respond=continue. With an external SLP debugger attached (--slp-debugger), "
+  "the debugger takes the hit instead.",
   [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "clear",
                                                                 "enable", "disable", "clearall"})},
                             {"idx", int_prop ("Breakpoint slot 0-5")},

@@ -566,6 +566,13 @@ class EmSession
 
 		void					ClearDeferredErrors						(void);
 
+		// True while the deferred-error queue is being iterated (a deferred-
+		// error dialog is up and the CPU thread is parked in it).  Used to
+		// avoid re-entrant ScheduleDeferredError, which would push onto the
+		// list mid-walk.
+
+		static Bool				AreDeferredErrorsBeingHandled			(void);
+
 		// Provide routines that get called when it's appropriate to install an
 		// instruction break, when it's appropriate to remove an instruction break,
 		// or when an instruction break has been reached.  Called by various

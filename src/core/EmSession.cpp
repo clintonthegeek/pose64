@@ -52,9 +52,11 @@ using namespace std;
 
 EmSession*	gSession;
 
-#ifndef NDEBUG
+// True while ExecuteSpecial is walking the deferred-error queue.  Kept in
+// every build (not just asserts-live) so EmSession::AreDeferredErrorsBeingHandled
+// can guard re-entrant scheduling in release as well as debug builds:
+// ScheduleDeferredError must never push onto the list mid-iteration.
 Bool	gIterating = false;
-#endif
 
 Bool	PrvCanBotherCPU	(void);
 
@@ -1462,9 +1464,7 @@ Bool EmSession::ExecuteSpecial (Bool checkForResetOnly)
 
 	if (!fDeferredErrs.empty ())
 	{
-#ifndef NDEBUG
 		gIterating = true;
-#endif
 
 		EmDeferredErrList::iterator	iter = fDeferredErrs.begin ();
 
@@ -1482,9 +1482,7 @@ Bool EmSession::ExecuteSpecial (Bool checkForResetOnly)
 				// Clicking on Reset or Debug will throw an
 				// exception; we need to clean up from that.
 
-#ifndef NDEBUG
 				gIterating = false;
-#endif
 
 				this->ClearDeferredErrors ();
 
@@ -1494,9 +1492,7 @@ Bool EmSession::ExecuteSpecial (Bool checkForResetOnly)
 			++iter;
 		}
 
-#ifndef NDEBUG
 		gIterating = false;
-#endif
 
 		this->ClearDeferredErrors ();
 	}
@@ -2540,6 +2536,17 @@ void EmSession::ScheduleDeferredError (EmDeferredErr* err)
 
 	EmAssert (fCPU);
 	fCPU->CheckAfterCycle ();
+}
+
+
+// True while ExecuteSpecial is iterating the deferred-error queue (and thus
+// while a deferred-error dialog such as a breakpoint/watchpoint is blocking the
+// CPU thread).  Callers use this to avoid re-entrant ScheduleDeferredError,
+// which would push onto the std::list being walked.
+
+Bool EmSession::AreDeferredErrorsBeingHandled (void)
+{
+	return gIterating;
 }
 
 

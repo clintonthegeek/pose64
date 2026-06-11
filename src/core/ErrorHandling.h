@@ -143,6 +143,7 @@ class Errors
 		static void				ReportErrProscribedFunction	(const SystemCallContext&);
 		static void				ReportErrStepSpy			(emuptr writeAddress, int writeBytes, emuptr ssAddress, uint32 ssValue, uint32 newValue);
 		static void				ReportErrWatchpoint			(emuptr writeAddress, int writeBytes, emuptr watchAddress, uint32 watchBytes);
+		static void				ReportErrBreakpoint			(int index, emuptr pc);
 
 			// Palm OS-detected errors
 
@@ -509,6 +510,19 @@ class EmDeferredErrWatchpoint : public EmDeferredErr
 		int						fWriteBytes;
 		emuptr					fWatchAddress;
 		uint32					fWatchBytes;
+};
+
+class EmDeferredErrBreakpoint : public EmDeferredErr
+{
+	public:
+								EmDeferredErrBreakpoint			(int index, emuptr pc);
+		virtual					~EmDeferredErrBreakpoint		(void);
+
+		virtual void			Do								(void);
+
+	protected:
+		int						fIndex;
+		emuptr					fPC;
 };
 
 #endif /* _ERRORHANDLING_H_ */
