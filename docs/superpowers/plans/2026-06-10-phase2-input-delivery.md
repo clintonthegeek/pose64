@@ -1430,6 +1430,16 @@ git commit -m "feat(phase2): land <winner> wake mechanism; delete PrvWakeUpCPU +
 
 ### Task 9: GATE 2
 
+> **PROGRESS (2026-06-11): Step 3 DONE & PASSING (commit `7be99ad`).** Steps
+> 1, 2, 4, 5 remain (next sitting, R6 break taken). The TSAN race-check
+> required a fix first: `omni_condition::{wait,timedwait}` are now annotated
+> with `QtTsan::mutex*` so TSAN can see through `QWaitCondition::wait` (which
+> lives in un-instrumented libQt6Core and hid the `fDeliveryLock` hand-off,
+> producing 4 false delivery-machinery reports). After the fix: delivery
+> machinery + STOP-exit hook TSAN-clean (0 implicating reports, 5 runs);
+> #5/#6 baseline unchanged. See STATUS.md Phase-2 bullet + architecture.md
+> Threading "TSAN note" for the durable lesson.
+
 - [ ] **Step 1: The 200-tap matrix**
 
 ```bash
@@ -1445,8 +1455,15 @@ Pass: ≥ 99% per speed (≤ 2 failures across the 200 taps at each speed).
 (3× at 1x, 3× at Max); record medians in `docs/STATUS.md` next to baseline
 (B should be within noise of baseline; that's the headline-feature check).
 
-- [ ] **Step 3: Race check** — TSAN build + the GATE 1 stress suite
-(13 scenarios), expected 13/13 PASS, no reports.
+- [x] **Step 3: Race check** — **DONE & PASSING 2026-06-11 (commit `7be99ad`).**
+TSAN build (rebuilt at HEAD) + GATE 1 stress suite (13 scenarios), 5 runs.
+13/13 when the flaky libtsan `try_emplace` abort in `load_during_queue` (Qt
+threadpool JPEG-decode, `EmSession.cpp:753-757`) doesn't fire (~⅓ of runs →
+11/13 otherwise; not the new code). **Delivery machinery TSAN-clean: 0
+implicating reports** after annotating `omni_condition` waits (4 false reports
+before — QWaitCondition blindness; vanished while #5/#6 baseline held at
+67–82/run). STOP-exit hook: 0 reports. Normal build: `test_honest_ack` PASS,
+delivery 10/10 100%.
 
 - [ ] **Step 4: The grep gate** — `grep -rn "EvtWakeup\|PrvWakeUpCPU" src/`
 output recorded in STATUS: exactly one wake mechanism (plus the ROMStubs stub
