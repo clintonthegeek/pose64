@@ -122,9 +122,37 @@ host.
    `EmScreen::GetBits` swaps the global `gMemAccessFlags` while the CPU runs
    (`EmWindow.cpp:549-607`, `EmMemory.cpp:630-657`) — a port regression (the
    original stopped the CPU here).
-7. **`check set` re-arms a known freeze.** Any DRAM-region check flag
-   restores an O(n) heap scan per memory access — 100% CPU within ~10 min
-   (bypassed by default in `0bc2a41`, never fixed).
+7. **`check set` re-arms a known freeze (root fix DEFERRED on profile
+   evidence — Phase 3c).** Any DRAM-region check flag (LowMemoryAccess,
+   SystemGlobalAccess, ScreenAccess, MemMgrDataAccess, FreeChunkAccess,
+   UnlockedChunkAccess) re-arms unbounded per-DRAM-access work, pinning CPU
+   to ~100%. Bypassed by default in `0bc2a41` (the `gMetaCheckActive`
+   short-circuit), so it costs nothing with flags off; the underlying scan
+   was never optimized.
+   - **Corrected pre-fix behavior (measured Phase 3c C1 @3edd8b3, ScreenAccess
+     + `gremlin new 42 2000000`):** the freeze is **INSTANT**, not "within
+     ~10 min" (CPU baseline median 39.8% → 94% on the FIRST flagged sample,
+     then pinned 99.9–100%). RSS leaks **~3.1 MB/min** (+31 MB / 10 min), not
+     the historical "~200 KB/min". ReControl latency is unaffected (the freeze
+     is on the CPU worker thread; `state`/`check clearall` still answer).
+   - **Why the planned fix (negative caching + tagged-chunk dedup) was
+     deferred:** it was implemented and measured (Phase 3c C2). It DID cure the
+     first-order bottleneck — `PrvSearchForCodeChunk` (the database×resource
+     re-walk) — and held CPU at baseline ~38% for the first ~5 min. But the
+     freeze **returns** (~5 min in: CPU → 99.9%, RSS → 270 MB). Instrumentation
+     proved `PrvSearchForCodeChunk` is then called <100k times total (the
+     negative cache works), so the residual freeze is a **structurally
+     different, deeper path**: with `InRAMOSComponent` now cheap, `META_CHECK`
+     reaches `EmBankDRAM::ProbableCause → MetaMemory::GetWhatHappened →
+     AllowForBugs → FindFunctionName → EndOfFunctionSequence` (a per-access
+     guest-code function-boundary/CRC scan + full heap/UI-object walk) on every
+     flagged access by gremlin-driven code. The planned fix **relocated** the
+     freeze rather than eliminating it, and acceptance FAILED (cpu_drift and
+     rss both red). Fixing the `GetWhatHappened` per-access cost is out of scope
+     for "negative caching + dedup" and risks the violation-detection
+     correctness these checks exist to provide — so per spec §C3 the fix was
+     reverted and the root fix filed as a named post-v1.0 task (see
+     `docs/recovery-plan-2026-06.md`). `palm_check`'s honest warning stands.
 8. ~~**SLP debugger sockets listen by default** (6414/2000) and connecting
    triggers an untimed main-thread `kStopOnSysCall` stop
    (`Debug::EventCallback`) — a UI hang waiting to happen.~~ **FIXED (Phase

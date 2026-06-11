@@ -396,3 +396,22 @@ fresh clone builds and runs.
 - No multi-client ReControl, no Windows-specific automation work until
   GATE 4.
 - No new MCP features beyond Phase 3 until v1.0.
+- **Landmine #7 root fix is DEFERRED to a named post-v1.0 task (evidence
+  trigger, spec §C3).** Task **POST-V1: MetaMemory check-flag freeze — second
+  layer.** Phase 3c implemented + measured the planned negative-caching +
+  tagged-chunk dedup fix; it cured the first-order `PrvSearchForCodeChunk`
+  re-walk (held CPU at baseline ~38% for ~5 min) but the freeze RELOCATED into
+  `EmBankDRAM::ProbableCause → MetaMemory::GetWhatHappened → AllowForBugs →
+  FindFunctionName → EndOfFunctionSequence` (a per-access guest-code
+  boundary/CRC scan + full heap/UI walk that fires once `InRAMOSComponent` is
+  cheap). Instrumentation confirmed `PrvSearchForCodeChunk` is then called
+  <100k times total, so the residual cost is this distinct error-reporting
+  path. The root fix therefore needs the negative-caching change PLUS a
+  redesign of the `GetWhatHappened`/`AllowForBugs` per-access cost (e.g. cache
+  the function-range/CRC result, or gate it behind a cheaper pre-check) —
+  without regressing the violation-detection correctness those checks exist
+  for. Out of scope for the "negative caching + dedup" task; reverted in
+  Phase 3c. `palm_check` ships with its honest measured warning. Evidence:
+  `docs/STATUS.md` landmine #7; harness `tests/phase3/check_perf_harness.py`
+  (strengthened flagged-vs-baseline CPU gate caught the partial fix's
+  false-pass).

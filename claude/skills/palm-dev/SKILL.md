@@ -433,12 +433,17 @@ palm_gremlin action=resume
 palm_gremlin action=stop
 ```
 
-### Memory Checks (18 flags) — WARNING: DRAM flags are a performance trap
+### Memory Checks (18 flags) — WARNING: DRAM flags are a performance trap (landmine #7)
 
 Enabling any DRAM-region flag (LowMemoryAccess, SystemGlobalAccess,
 ScreenAccess, MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess)
-re-enables an O(n) heap scan on every DRAM access — historically 100% CPU
-within ~10 minutes. Enable briefly for a targeted test, then `action=clearall`.
+re-arms unbounded per-DRAM-access work. **Measured Phase 3c:** CPU pins to
+~100% **instantly** (not "within ~10 min" — that was stale) and RSS leaks
+~3.1 MB/min. The root fix is deferred (the planned negative-caching fix cured
+the first-order re-walk but the freeze relocated into the error-reporting path
+— see `docs/STATUS.md` landmine #7). With flags off the default-off bypass
+makes this cost nothing. Enable briefly for ONE targeted test under no/low
+load, then `action=clearall` immediately.
 
 ```
 palm_check action=list

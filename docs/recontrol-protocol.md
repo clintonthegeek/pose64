@@ -256,12 +256,18 @@ All commands in this section (and Logging, Gremlins, Configuration, Profiling be
 |---------|----------|-------------|
 | `speed [<percent>\|max]` | `OK\n` / `OK <percent>\n` / `OK max\n` | Set or query emulation speed (100 = 1x wall-clock, `max` = unthrottled). Needed for GATE 2 dual-speed runs. |
 
-> **Performance warning:** enabling any DRAM-region check flag
-> (LowMemoryAccess, SystemGlobalAccess, ScreenAccess, MemMgrDataAccess,
-> FreeChunkAccess, UnlockedChunkAccess) re-enables an O(n) heap scan on every
-> DRAM access — known to reach 100% CPU within ~10 minutes (the default-off
-> bypass was added by commit 0bc2a41; the scan itself was never optimized).
-> Enable briefly for a targeted test, then `check clearall`.
+> **Performance warning (landmine #7, root fix deferred — Phase 3c):**
+> enabling any DRAM-region check flag (LowMemoryAccess, SystemGlobalAccess,
+> ScreenAccess, MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess)
+> re-arms unbounded per-DRAM-access work on every checked access. **Measured
+> Phase 3c:** CPU pins to ~100% **instantly** (NOT "within ~10 minutes" — that
+> wording was stale) and RSS leaks **~3.1 MB/min**. The default-off bypass
+> (commit `0bc2a41`, the `gMetaCheckActive` short-circuit) means it costs
+> nothing with flags off; the underlying scan was never optimized. The planned
+> negative-caching fix cured the first-order `PrvSearchForCodeChunk` re-walk but
+> the freeze relocated into `ProbableCause`/`GetWhatHappened`, so the root fix
+> is deferred (see `docs/STATUS.md` landmine #7). Enable briefly for one
+> targeted test under no/low load, then `check clearall` immediately.
 
 | `check list` | Multi-line | List 18 memory-check flags with on/off status |
 | `check set <flag> <on\|off>` | `OK\n` | Toggle individual memory check |
