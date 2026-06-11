@@ -10,78 +10,27 @@
 > Phase 0 **complete** (GATE 0 passed). Phase 1 tasks **1.8, 1.3, 1.0d,
 > 1.1, 1.2, 1.4, 1.7** all done & verified. **GATE 1 PASSED (2026-06-10):**
 > TSAN single-pass 13/13 PASS (verified 3×); ASAN 30-min soak all iterations
-> PASS. Thread-lifecycle root causes fixed: `omni_thread` + `CPUWorkerThread`
-> converted to raw pthreads; `DestroyThread` joins before delete; `RcCmd_Load`
-> two-timer split avoids deadlock when dialog is mid-close. 1.5/1.6 deferred
-> (TSAN verify requires real display). `phase-1-complete` **tag exists** (HEAD
-> `460449e`). **Phase 2 IN PROGRESS (2026-06-10 execution session); plan revised in place.** The hardware-emulation
-> research is done (robust B = STOP-exit `EvtWakeup` hook, verified feasible)
-> and every decidable open question is settled — see handoff §10
-> (`docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md`). The R1
-> measurements (handoff section 11) then found baseline delivery to an idle
-> guest is **0%** and that approach A cannot wake an already-asleep guest, so the
-> A-vs-B choice collapses toward **mandatory robust B**; the plan was revised in
-> place (user choice "re-plan before coding").
-> **Approach-B experiment PASSED (2026-06-10, `phase2-experiment-B` @
-> `ad9d029`):** idle delivery 0%→100/100 at 1x (p50 220 ms), repros 7/7,
-> TSAN clean of hook-implicating reports, idle-CPU cost ≈ 0. **Second
-> baseline correction en route (handoff §12):** the old `m515.psf` was
-> WEDGED (supervisor busy-loop, timer masked — §11's 0% was this, not
-> `evtWaitForever`); the healthy-psf master baseline DELIVERS at idle via
-> app polling (~300 ms p50, Q-B4 resolved). Re-saved healthy psf locally;
-> two NEW pre-existing landmines recorded (STATUS #10 app-switch
-> MemHandleLock crash w/ repro, #11 teardown races).
-> **2.2 CHECKPOINT DECIDED 2026-06-10 (plan Task 5): B + C** (data-backed;
-> A rejected/dead; chosen over natural-delivery-only for the guaranteed
-> ≤1-tick bound on true-`evtWaitForever` apps — handoff §10 Q-MECH RESOLVED,
-> §12.3, architecture.md). **GATE-2 scope REVISED same day (user decision):
-> fix landmine #10 NOW rather than design the gate around it** — the
-> original "stay within one app" deferral narrowed the claim the gate
-> certifies, and app-switch churn is the core AI-driving workload.
-> **Landmine #10 FIXED (2026-06-10, same-day follow-up session,
-> root-caused):** the Qt6 port aborted nested host ROM calls on
-> `kStopNow`/`kStopOnCycle` suspends → stub callers read garbage (upstream
-> defers; deferral restored in `ExecuteSubroutine`/`CheckForBreak`).
-> Verified: hot repro 3/6 crashes pre-fix → 0/6 post-fix (4,800 switches);
-> phase-1 repros 7/7; TSAN stress 13/13, report families = master
-> baseline. See STATUS #10 + handoff §12.4 RESOLVED note.
-> **Tasks 6+7+8 DONE (2026-06-10, one sitting, user choice).** Honest input
-> contract landed (commit `e177361`): pen/key posts return `EmPostInputResult`;
-> `tap`/`tap-id`/`pen`/`key`/`type` block ≤2 s on per-queue delivery counters
-> and return `OK delivered` / `ERR pending` / `ERR busy` / `ERR duplicate`;
-> `button → ERR busy` when refused (moved to kCmdWorkerRaw so the drop is not
-> swallowed — deviation from the written plan, see commit body). Approach-B
-> STOP-exit `EvtWakeup` hook landed on master in `ExecuteStoppedLoop`;
-> `PrvWakeUpCPU` + the 2026-03-13 poll-always patch + the `phase2-experiment-B`
-> branch deleted (R2/2.3); `test_delivery.py` preserved to master first.
-> Boxes 2.1–2.4 checked. Landmine #3 FIXED. **Verified:** honest-ACK + speed +
-> phase-1 repros 7/7 PASS; idle delivery 8/8 100% (p50 234 ms); app-switch
-> repro 3/3 clean (2,400 switches); build clean. **NOT yet run.**
-> **Task 9 = GATE 2 — Step 3 (TSAN race-check) DONE & PASSING (2026-06-11).**
-> The fDeliveryLock/condition + WaitFor*Delivery cross-thread path AND the
-> STOP-exit hook are TSAN-clean (0 implicating reports across 5 stress runs on a
-> rebuilt build-tsan). Caught + fixed a TSAN blind spot first: QWaitCondition::wait
-> in un-instrumented libQt6Core hides the mutex hand-off → 4 FALSE
-> delivery-machinery reports (double-lock + 2× lock-order-inversion + a race on
-> fPenDeliveredSeq with both threads holding the same lock). Fix: annotate
-> `omni_condition::wait/timedwait` with `QtTsan::mutex*` (no-op outside TSAN) →
-> reports 4→0 across 3 re-runs, #5/#6 baseline unchanged, honest-ACK + delivery
-> 10/10 still pass on the normal build. Residuals (not blockers): the
-> `load_during_queue` exit-66 is the documented libtsan try_emplace abort (Qt
-> threadpool, EmSession.cpp:753-757), flaky ~1/3; one pre-existing CPUWorkerThread
-> double-lock (same QWaitCondition class, annotatable later).
-> **GATE 2 PASSED — Phase 2 COMPLETE (2026-06-11, this session).** Steps
-> 1/2/4/5 done on master: 200-tap matrix **200/200 (100%) at both 1x and Max**
-> (0/400 fails); idle CPU 1x median **80.65%** vs baseline 80.50% (hook cost ≈
-> 0), Max 99.92% (pegs a core by design); grep gate clean — one input-delivery
-> wake (`EmCPU68K.cpp:1022`), `PrvWakeUpCPU` deleted. Tagged `phase-2-complete`,
-> pushed; full numbers in the STATUS Phase-2 bullet. **NEXT = Phase 3 (close the
-> tool/doc gap): task 3.1 — expose the 9 debug command groups as MCP tools
-> (prereq: unify the proxy's duplicated schema/dispatch tables into one
-> `{name,schema,template}` table so tool lists can't drift). GATE 3 = a fresh
-> agent does install→launch→crash→inspect→recover with zero "Unknown tool".**
-> Each Phase-3 task still gets its own detailed plan (writing-plans) at execution
-> time. **Session break here per R6.**
+> PASS. `phase-1-complete` **tag exists** (HEAD `460449e`).
+> **Phase 2 COMPLETE — GATE 2 PASSED (2026-06-11).** Honest input contract
+> landed (`e177361`), approach-B STOP-exit `EvtWakeup` hook on master,
+> `PrvWakeUpCPU`/approach-A deleted (R2). 200-tap matrix 200/200 (100%) at 1x
+> and Max (0/400 fails); idle CPU 1x median 80.65% vs baseline 80.50% (hook
+> cost ≈ 0); TSAN-clean (0 implicating reports); grep gate clean — one
+> input-delivery wake (`EmCPU68K.cpp:1022`). Tagged `phase-2-complete`.
+> **Phase 3 IN PROGRESS — expanded scope per**
+> `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md`,
+> **executed as three plans:**
+> - **Plan 3a (MCP surface) — DONE (this commit):** proxy rebuilt around a
+>   single 37-tool source-of-truth table; full debug surface MCP-exposed
+>   (backtrace/break/watch/spy/log/gremlin/check/errorhandling/profile/speed);
+>   central argument validation; drift test-gated. Tasks 3.1 and 3.4 complete.
+> - **Plan 3b (debugger fixes) — NEXT:**
+>   `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md` —
+>   tasks 3.2 (make `break` real) and 3.3 (defuse SLP trap).
+> - **Plan 3c (MetaMemory + GATE 3) — after 3b:**
+>   `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` —
+>   landmine #7 fix + GATE 3 fresh-agent run.
+> **Session break here per R6.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -334,33 +283,43 @@ CPU% recorded in STATUS.md; exactly one wake mechanism greppable in src/.
 
 ---
 
-## Phase 3 — Close the tool/doc gap (1 session)
+## Phase 3 — Close the tool/doc gap (expanded scope; three plans)
 
 **Outcome:** what agents see is what exists. (Docs were already corrected on
 2026-06-09 to describe reality; this phase upgrades reality where it's worth
 it.)
 
-- [ ] **3.1 Expose debug commands as MCP tools** — add the 9 groups
-      (`palm_backtrace`, `palm_break`, `palm_watch`, `palm_spy`, `palm_log`,
-      `palm_gremlin`, `palm_check`, `palm_errorhandling`, `palm_profile`) to
-      the proxy. Prereq: refactor the proxy's duplicated schema/dispatch
-      tables into ONE `{name, schema, command-template}` table
-      (`pose64-mcp-proxy.cpp:336-452` vs `:479-645`) so tool lists can't
-      drift again. Then update SKILL.md/tester/protocol docs in the same
-      commit (R5).
+**Expanded scope:** per `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md`,
+Phase 3 is executed as three plans: **3a** (MCP surface rebuild), **3b**
+(debugger fixes), **3c** (MetaMemory + GATE 3).
+
+- [x] **3.1 Expose debug commands as MCP tools** — **DONE (plan 3a,
+      `docs/superpowers/plans/2026-06-11-phase3a-mcp-surface.md`).** Proxy
+      rebuilt around a single 37-tool source-of-truth `kTools[]` table;
+      10 new debug-surface tools added (`palm_speed`, `palm_backtrace`,
+      `palm_break`, `palm_watch`, `palm_spy`, `palm_log`, `palm_gremlin`,
+      `palm_check`, `palm_errorhandling`, `palm_profile`); `palm_dbs` absorbed
+      into `palm_apps all=true`; central argument validation; SKILL.md drift
+      test-gated (`tests/phase3/test_mcp_surface.py`). SKILL.md +
+      recontrol-protocol.md updated same commit (R5).
 - [ ] **3.2 Make `break` real** — in `Debug::EnterDebugger`'s no-debugger
       fallback, raise the same deferred-error dialog path `watch`/`spy` use
       (→ `blocked_on_ui`, inspectable via `dialog`, register dump included)
       instead of silently continuing. Add `continue` semantics via the
       existing `dialog respond continue`. Alternative if too invasive:
       remove `break` from the protocol surface entirely (R2 — no decoys).
+      **Plan 3b:** `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md`
 - [ ] **3.3 Defuse the SLP trap** — debugger listening sockets (6414/2000)
       off by default behind a pref; bound the `Debug::EventCallback`
       stopper with a timeout.
-- [ ] **3.4 Consolidate Python clients** — `datebook_interaction.py`,
-      `garak_intrigue.py`, `test_cpu_worker_tap.py` all hand-roll TCP
-      clients; move them onto `ReControlClient` (or delete the scratch ones)
-      and move test scripts into `tests/`.
+      **Plan 3b:** `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md`
+- [x] **3.4 Consolidate Python clients** — **DONE (plan 3a).** Scratch scripts
+      (`datebook_interaction.py`, `garak_intrigue.py`, `test_cpu_worker_tap.py`)
+      deleted; `ReControlClient` + harness promoted to `tests/lib`; phase-1
+      repros re-export from there; `tests/test_cpu_worker_tap.py` ported.
+- [ ] **3.5 Landmine #7 fix + GATE 3** — MetaMemory negative caching to
+      defuse the O(n) heap-scan freeze; GATE 3 fresh-agent run.
+      **Plan 3c:** `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md`
 
 **GATE 3:** a fresh agent given only SKILL.md completes install → launch →
 crash → inspect (backtrace via MCP) → recover, with zero "Unknown tool" and

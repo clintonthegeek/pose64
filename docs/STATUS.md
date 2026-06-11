@@ -23,8 +23,13 @@ host.
 - **ReControl**: 36 commands via a table-driven dispatcher with explicit
   threading categories (`ReControl.cpp:101`). The dispatch-category
   assignments were audited command-by-command and are correct.
-- **MCP proxy**: exactly **28** `palm_*` tools (no debugging tools — see
-  Landmines). Out-of-process design is sound.
+- **MCP proxy**: **37** `palm_*` tools served from a single source-of-truth
+  table (tools/list, dispatch, and reconnect/idempotency policy all derive
+  from it — Phase 3a). Central argument validation: a missing/invalid
+  argument is `ERR usage`, never a silent default. The full debug surface
+  (backtrace/break/watch/spy/log/gremlin/check/errorhandling/profile/speed)
+  is MCP-exposed; drift between proxy and SKILL.md is test-gated
+  (`tests/phase3/test_mcp_surface.py`).
 - **Debug surface that works today**: `peek/poke/regs/backtrace`,
   `screenshot` (+scale/grid/annotate/crosshair overlays), `screen-hash`,
   `ui`, `watch`/`spy` (raise dialogs), `log` (20 categories), `gremlin`,

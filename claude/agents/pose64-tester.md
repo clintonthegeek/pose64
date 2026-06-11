@@ -51,19 +51,25 @@ When you discover new workflows or correct existing ones, update that file.
 Use the native MCP tools to interact with the emulator. These return structured
 JSON and require no Bash calls for emulator interaction.
 
-**Orientation:** `palm_ping`, `palm_state`, `palm_apps`, `palm_dbs`, `palm_ui`
+**Orientation:** `palm_ping`, `palm_state`, `palm_apps` (`all=true` lists every database), `palm_ui`
 **Input:** `palm_tap`, `palm_tap_id`, `palm_pen`, `palm_key`, `palm_type`, `palm_button`
 **Batch:** `palm_run` (execute multiple commands in one call, with `repeat` loops)
 **Menus:** `palm_menu` (trigger menu items by title -- no coordinate guessing)
 **Memory:** `palm_peek`, `palm_poke`, `palm_regs` (inspect/modify device memory and CPU registers)
 **Screen:** `palm_screenshot` (supports `scale`, `grid`, `annotate`, `crosshair` overlays), `palm_screen_hash`
 **Dialogs:** `palm_dialog` (query or dismiss modal error/warning dialogs)
-**Session:** `palm_launch`, `palm_install`, `palm_delete`, `palm_export`, `palm_save`, `palm_load`, `palm_reset`, `palm_sleep`
-**Debugging (raw TCP only — NOT MCP tools):** `backtrace`, `break`, `watch`,
-`spy`, `log`, `gremlin`, `check`, `errorhandling`, `profile` — send via Bash:
-`printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`. See
-`claude/skills/palm-dev/SKILL.md` § Debugging Commands. Caution: `break` only
-stops execution if an external SLP debugger is attached — prefer `watch`/`spy`.
+**Session:** `palm_launch`, `palm_install`, `palm_delete`, `palm_export`, `palm_save`, `palm_load`, `palm_reset`, `palm_sleep`, `palm_quit`
+**Speed:** `palm_speed` (set/query emulation speed: 1-10000 percent or `max`; omit value to query)
+**Debugging (all MCP tools — Phase 3a):**
+- `palm_backtrace` — m68k stack crawl; works in `blocked_on_ui`
+- `palm_break` — manage 6 breakpoint slots (list/set/clear/enable/disable/clearall); **WARNING (landmine #1):** a hit is silently ignored without an external SLP debugger — prefer `palm_watch`/`palm_spy`
+- `palm_watch` — dialog-stop when a memory range is written (set/clear/status)
+- `palm_spy` — dialog-stop when a single address value changes (set/clear/status)
+- `palm_log` — event logging: 20 categories, levels 0=off/1=gremlin/2=always (list/set/dump/clear)
+- `palm_gremlin` — Hordes random-event stress testing (new/status/suspend/step/resume/stop)
+- `palm_check` — MetaMemory access-check flags; **WARNING (landmine #7):** DRAM-region flags cause 100% CPU in ~10 min — enable briefly, then `action=clearall`
+- `palm_errorhandling` — guest error/warning behavior per setting (get/set)
+- `palm_profile` — CPU profiler: init→start→stop→dump (writes .mwp + .txt)
 
 Start by calling `palm_ping` to confirm the MCP connection is live.
 
@@ -79,39 +85,35 @@ Start by calling `palm_ping` to confirm the MCP connection is live.
 **Batch actions:** `palm_run script="tap 44 153; sleep 500; type Hello; sleep 300"`
 (`tap_id` is NOT valid inside `run` — only tap/pen/key/type/button/sleep)
 
-The following are **raw TCP commands, not MCP tools** — send with
-`printf '<cmd>\n' | socat -t5 - TCP:localhost:6416`:
-
-**Stack trace:** `backtrace` (or `bt`) -- works in `blocked_on_ui`
-**Set breakpoint:** `break set 0 0x12340` / `break clearall` (passive unless an
-external SLP debugger is attached — prefer `watch`/`spy`, which raise a dialog)
-**Enable logging:** `log set SystemCalls 2` (0=off, 1=gremlin-only, 2=always)
-**Run gremlin:** `gremlin new 42 10000` / `gremlin stop`
-**Enable checks:** `check set FreeChunkAccess on` / `check clearall` (DRAM
-flags are a known performance trap — enable briefly, then clear)
-**Profiling:** `profile init` then `profile start` then `profile stop` then `profile dump /tmp/profile.mwp`
+**Stack trace:** `palm_backtrace` -- works in `blocked_on_ui`
+**Set breakpoint:** `palm_break action=set idx=0 addr=0x12340` / `palm_break action=clearall`
+(passive unless an external SLP debugger is attached — prefer `palm_watch`/`palm_spy`, which raise a dialog)
+**Enable logging:** `palm_log action=set category=SystemCalls level=2` (0=off, 1=gremlin-only, 2=always)
+**Run gremlin:** `palm_gremlin action=new seed=42 events=10000` / `palm_gremlin action=stop`
+**Enable checks:** `palm_check action=set flag=FreeChunkAccess on=true` / `palm_check action=clearall`
+(DRAM flags are a known performance trap — enable briefly, then clear)
+**Profiling:** `palm_profile action=init` then `palm_profile action=start` then `palm_profile action=stop`
+then `palm_profile action=dump path=/tmp/profile.mwp`
 
 ## Crash Debugging Workflow
 
 When the emulator enters `blocked_on_ui` state (crash or error dialog):
 
 1. `palm_dialog` -- read the error message and register dump (includes PC, A7/SP, etc.)
-2. `printf 'backtrace\n' | socat -t5 - TCP:localhost:6416` (Bash) -- full call
-   stack; there is no `palm_backtrace` MCP tool
+2. `palm_backtrace` -- full m68k call stack (works in `blocked_on_ui`)
 3. `palm_peek addr="0x<PC>" nbytes=16` -- examine opcodes at the crash site
 4. `palm_dialog respond=reset` -- dismiss the dialog and recover the emulator
 
 ## Gremlin Testing Workflow
 
-Gremlins are automated random-input stress testers. They are driven over raw
-TCP (no MCP tools). One-liner form: `printf '<cmd>\n' | socat -t5 - TCP:localhost:6416`
+Gremlins are automated random-input stress testers. Use MCP tools directly.
 
-1. `errorhandling set ErrorOn continue` -- auto-dismiss error dialogs so gremlins aren't blocked
-2. `log set SystemCalls 2` -- enable syscall tracing to capture what the app does
-3. `gremlin new 42 1000` -- start a gremlin with seed 42, 1000 random events
-4. `gremlin status` -- poll progress (events remaining, current app)
-5. `gremlin stop` -- stop early if needed
-6. `log dump` -- save the accumulated log to disk for analysis
+1. `palm_errorhandling action=set setting=ErrorOn behavior=continue` -- auto-dismiss error dialogs so gremlins aren't blocked
+2. `palm_log action=set category=SystemCalls level=2` -- enable syscall tracing to capture what the app does
+3. `palm_gremlin action=new seed=42 events=1000` -- start a gremlin with seed 42, 1000 random events
+4. `palm_gremlin action=status` -- poll progress (events remaining, current app)
+5. `palm_gremlin action=stop` -- stop early if needed
+6. `palm_log action=dump` -- save the accumulated log to disk for analysis
 
 ## Workflow
 
@@ -132,9 +134,9 @@ TCP (no MCP tools). One-liner form: `printf '<cmd>\n' | socat -t5 - TCP:localhos
    - If dismiss doesn't work, try `palm_reset type=hard` — it force-dismisses
      the dialog and resets. (Known issue: a rare suspend-counter leak can
      survive even reset; if `palm_state` stays stuck, restart the emulator.)
-   - For stack traces use raw TCP: `printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`
+   - For stack traces use `palm_backtrace` (works in `blocked_on_ui`)
    - `palm_regs` and `palm_peek` also work in `blocked_on_ui` state for additional crash analysis
-   - For "stop when X happens" debugging use TCP `watch`/`spy` (NOT `break`,
+   - For "stop when X happens" debugging use `palm_watch`/`palm_spy` (NOT `palm_break`,
      which is passive without an attached SLP debugger)
    - Verify with `palm_state` that the emulator resumed to `running`
 7. **Report findings**: For each scenario, document steps taken, expected vs actual, and `palm_ui` output
