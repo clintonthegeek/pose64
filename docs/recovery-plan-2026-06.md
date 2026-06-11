@@ -17,24 +17,41 @@
 > and Max (0/400 fails); idle CPU 1x median 80.65% vs baseline 80.50% (hook
 > cost ≈ 0); TSAN-clean (0 implicating reports); grep gate clean — one
 > input-delivery wake (`EmCPU68K.cpp:1022`). Tagged `phase-2-complete`.
-> **Phase 3 IN PROGRESS — expanded scope per**
+> **Phase 3 IN PROGRESS (NOT yet certified complete) — expanded scope per**
 > `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md`,
-> **executed as three plans:**
-> - **Plan 3a (MCP surface) — DONE:** proxy rebuilt around a single 37-tool
->   source-of-truth table; full debug surface MCP-exposed
+> **executed as three plans (checkpoint HEAD `abdb074`):**
+> - **Plan 3a (MCP surface) — COMPLETE:** proxy rebuilt around a single
+>   37-tool source-of-truth table; full debug surface MCP-exposed
 >   (backtrace/break/watch/spy/log/gremlin/check/errorhandling/profile/speed);
 >   central argument validation; drift test-gated. Tasks 3.1 and 3.4 complete.
-> - **Plan 3b (debugger fixes) — DONE:** tasks 3.2 (`break` real — landmine
+>   Final commit `239fe22`.
+> - **Plan 3b (debugger fixes) — COMPLETE:** tasks 3.2 (`break` real — landmine
 >   #1 FIXED: `EnterDebugger` fallback schedules `EmDeferredErrBreakpoint` →
->   Continue/Debug/Reset dialog; repro `tests/phase3/test_break_real.py` 3x
+>   Continue/Debug/Reset dialog; repro `tests/phase3/test_break_real.py` 3×
 >   PASS) and 3.3 (SLP trap — landmine #8 FIXED: `CreateListeningSockets`
 >   gated behind `SLPDebugger` pref + `--slp-debugger` flag; both
 >   `EventCallback` stoppers bounded at 5000ms; repro
->   `tests/phase3/repro_slp_trap.py` ALL PASS).
-> - **Plan 3c (MetaMemory + GATE 3) — NEXT:**
->   `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` —
->   landmine #7 root fix + GATE 3 fresh-agent run.
-> **Session break here per R6.**
+>   `tests/phase3/repro_slp_trap.py` ALL PASS). Final commit `1d4d54b`.
+> - **Plan 3c (MetaMemory + GATE 3) — PARTIAL; landmine #7 root fix DEFERRED
+>   (spec §C3 fallback):** freeze measured at R1 (`3edd8b3`: CPU pinned ~100%
+>   instantly, RSS ~3.1 MB/min). Negative-caching+dedup fix implemented and
+>   tested, but cures only the first-order `PrvSearchForCodeChunk` re-walk;
+>   freeze relocates to `GetWhatHappened/AllowForBugs/FindFunctionName` (per-
+>   access guest-code boundary/CRC scan). Acceptance FAILED (cpu_drift + rss
+>   both red). Fix reverted per spec §C3; `palm_check` ships with truthful
+>   measured warning; root fix filed as named POST-V1 task. Final commit
+>   `abdb074`.
+> - **GATE 3 — PENDING/DEFERRED.** The fresh-agent MCP gate (SKILL.md-only
+>   install → launch → crash → inspect → recover) was not run this session:
+>   the MCP server disconnected mid-session and references the old 28-tool
+>   proxy; the rebuilt 37-tool proxy + emulator were pre-flight-verified but
+>   the live GATE 3 run was deferred. **Phase 3 is NOT certified complete.**
+>
+> **NEXT ACTION:** reconnect the pose64 MCP server to the rebuilt 37-tool proxy
+> + running emulator on port 6416, then run GATE 3 (fresh-agent: SKILL.md only,
+> install → launch → crash → backtrace → recover, zero "Unknown tool", zero
+> raw-TCP fallbacks). On PASS: tag `phase-3-complete` and proceed to Phase 4.
+> Do NOT tag before the live GATE 3 run passes.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -327,9 +344,15 @@ Phase 3 is executed as three plans: **3a** (MCP surface rebuild), **3b**
       (`datebook_interaction.py`, `garak_intrigue.py`, `test_cpu_worker_tap.py`)
       deleted; `ReControlClient` + harness promoted to `tests/lib`; phase-1
       repros re-export from there; `tests/test_cpu_worker_tap.py` ported.
-- [ ] **3.5 Landmine #7 fix + GATE 3** — MetaMemory negative caching to
-      defuse the O(n) heap-scan freeze; GATE 3 fresh-agent run.
+- [ ] **3.5a Landmine #7 root fix** — DEFERRED to POST-V1 (spec §C3 fallback;
+      see "What we are explicitly NOT doing" below and STATUS.md #7 for full
+      evidence). `palm_check` ships with a truthful measured warning.
       **Plan 3c:** `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md`
+- [ ] **3.5b GATE 3 — PENDING** — fresh-agent MCP run: SKILL.md only, install
+      → launch → crash → inspect (backtrace via MCP) → recover, zero "Unknown
+      tool", zero raw-TCP fallbacks. Prerequisite: pose64 MCP server reconnected
+      to the rebuilt 37-tool proxy + emulator on port 6416. **On PASS: tag
+      `phase-3-complete` and proceed to Phase 4.**
 
 **GATE 3:** a fresh agent given only SKILL.md completes install → launch →
 crash → inspect (backtrace via MCP) → recover, with zero "Unknown tool" and

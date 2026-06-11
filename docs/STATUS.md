@@ -1,7 +1,9 @@
 # POSE64 — Project Status
 
 **Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03);
-Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**
+Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**;
+**Phase 3 IN PROGRESS — plans 3a+3b COMPLETE, landmine #7 root fix DEFERRED
+(spec §C3), GATE 3 PENDING — Phase 3 NOT yet certified complete.**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -333,9 +335,7 @@ host.
       app-switch path (`ReControlCmds_Session.cpp:283`, `kCmdWorkerSysCall`,
       worker thread, ROM-syscall-safe) — none a competing pen/key wake. The
       `src/Emulator_Src_3.5/` hits are the reference tree (not compiled).
-    Tagged `phase-2-complete`. **NEXT: Phase 3 (close the tool/doc gap) — task
-    3.1, expose the 9 debug command groups as MCP tools (prereq: unify the
-    proxy's duplicated schema/dispatch tables).**
+    Tagged `phase-2-complete`. **Phase 3 IN PROGRESS — see below.**
   - **Session-file baseline (2026-06-10):** the old machine-local `m515.psf`
     (Feb 20) was saved WEDGED — guest in a supervisor ROM busy-loop near
     `HwrIRQ5Handler`, SR intmask=6 (timer interrupt masked), STOP never
@@ -345,6 +345,39 @@ host.
     `m515.psf` re-saved healthy (launcher, All category, calibrated). Cause
     of the wedge = open question. **Other machines must re-create a healthy
     psf** (boot ROM → calibrate → save) — psf files do not travel via git.
+
+- **Phase 3 — IN PROGRESS (checkpoint 2026-06-11, HEAD `abdb074`). NOT yet
+  certified complete; GATE 3 PENDING.**
+  - **Plan 3a COMPLETE** (tasks 3.1 + 3.4, final commit `239fe22`): proxy
+    rebuilt around a single 37-tool source-of-truth `kTools[]` table; full
+    debug surface MCP-exposed; central argument validation (missing/bad arg →
+    `ERR usage`, never silent default); Python test infra consolidated into
+    `tests/lib`; SKILL.md drift test-gated. Regression sweep: surface 3/3,
+    dispatch 37/37.
+  - **Plan 3b COMPLETE** (tasks 3.2 + 3.3, final commit `1d4d54b`): landmine
+    #1 FIXED (`break` real — `EnterDebugger` fallback raises
+    Continue/Debug/Reset dialog, `test_break_real.py` 3× PASS); landmine #8
+    FIXED (SLP sockets off by default, `EventCallback` stoppers bounded at
+    5000ms, `repro_slp_trap.py` ALL PASS).
+  - **Plan 3c PARTIAL — landmine #7 root fix DEFERRED (spec §C3 fallback),
+    final commit `abdb074`.** Freeze was R1-measured (instant CPU pin ~100%,
+    RSS ~3.1 MB/min). Negative-caching+dedup fix implemented and tested, but
+    cures only `PrvSearchForCodeChunk`; freeze relocates to
+    `GetWhatHappened/AllowForBugs/FindFunctionName` — a structurally different,
+    deeper error-reporting path. Acceptance FAILED (cpu_drift + rss red). Fix
+    reverted per spec §C3; `palm_check` ships with truthful measured warning;
+    root fix filed as named POST-V1 task (see "What we are explicitly NOT
+    doing" in recovery-plan). See Landmines #7 above for full evidence.
+  - **GATE 3 — PENDING/DEFERRED.** The fresh-agent MCP gate was not run this
+    session (MCP server disconnected mid-session; rebuilt 37-tool proxy +
+    emulator pre-flight-verified but live GATE 3 run deferred). **Phase 3 is
+    NOT certified complete and has NOT been tagged.** NEXT ACTION: reconnect
+    pose64 MCP server to rebuilt proxy + running emulator on port 6416, then
+    run GATE 3. On PASS: tag `phase-3-complete`, update this file.
+  - Full regression sweep at checkpoint (2026-06-11 `abdb074`): phase-1
+    repros **7/7 PASS**; honest-ack **PASS**; surface **3/3**; dispatch
+    **37/37**; repro_slp_trap **ALL PASS**; test_break_real **ALL PASS** (3
+    rounds). No red.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -390,15 +423,19 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/recovery-plan-2026-06.md` | The active roadmap + current-position banner |
 | `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | historical — 1.0d complete |
 | `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | historical — Phase 1 detailed plan (GATE 1 passed) |
-| `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | ACTIVE — Phase 2 handoff; §10 = decisions record |
-| `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` | ACTIVE — Phase 2 plan; Tasks 1,6,7,8 done, **Task 9 (GATE 2) remains** |
+| `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | historical — Phase 2 handoff; §10 = decisions record |
+| `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` | historical — Phase 2 plan (GATE 2 PASSED) |
+| `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md` | historical — Phase 3 approved spec |
+| `docs/superpowers/plans/2026-06-11-phase3a-mcp-surface.md` | historical — Plan 3a complete |
+| `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md` | historical — Plan 3b complete |
+| `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` | ACTIVE — Plan 3c; #7 fix deferred, **GATE 3 PENDING** |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),
 `docs/plans/`, plus `docs/debugging-infrastructure.md`
 and `docs/qt-port-architectural-review.md` (banner-annotated in place),
 timer/benchmark/winuae docs (accurate but point-in-time).
-`docs/superpowers/` is mixed: the **2026-06-10 plans listed above are ACTIVE**;
-findings are dated records (the 2026-06-10 dialog finding carries a
-verification addendum that corrects its hang claim); everything older is
-historical.
+`docs/superpowers/` is mixed: the **2026-06-11-phase3c plan is ACTIVE**;
+the 2026-06-10 and earlier 2026-06-11 plans are historical records; the
+2026-06-10 dialog finding carries a verification addendum that corrects its
+hang claim; everything older is historical.
