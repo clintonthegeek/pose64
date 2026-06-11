@@ -736,6 +736,208 @@ static const ToolDef kTools[] = {
   [] { return make_schema ({{"db", str_prop ("Database name to delete")}}, {"db"}); },
   [] (const json& a) { return built ("delete " + sstr (a["db"])); }, nullptr },
 
+// ============================================================================
+// Debug-surface tools (Task A5) — 10 entries, completing the 37-tool catalog
+// ============================================================================
+
+{ "palm_speed", "Set or query emulation speed. '100' = 1x wall-clock, '200' = 2x, 'max' = "
+  "unthrottled (pegs a host core by design — use briefly). Omit value to query.",
+  [] { return make_schema ({{"value", str_prop ("Percent 1-10000, or 'max'. Omit to query.")}}); },
+  [] (const json& a) -> BuiltCmd {
+      if (!a.contains ("value"))
+          return built ("speed", false, true);
+      std::string v = sstr (a["value"]);
+      if (v == "max")
+          return built ("speed max");
+      char* end = nullptr;
+      long pct = strtol (v.c_str (), &end, 10);
+      if (end == v.c_str () || *end != '\0' || pct < 1 || pct > 10000)
+          return usage_err ("value must be 1-10000 or 'max'");
+      return built ("speed " + std::to_string (pct));
+  }, nullptr },
+
+{ "palm_backtrace", "Stack crawl of the emulated m68k CPU: PC and A6 per frame. Works in "
+  "blocked_on_ui (frozen CPU) — the first tool to reach for after a crash dialog.",
+  [] { return make_schema (); },
+  [] (const json&) { return built ("backtrace", true, true); }, nullptr },
+
+{ "palm_break", "Manage the 6 m68k breakpoint slots. action=set requires idx+addr (condition "
+  "optional, e.g. 'd0 == 0'); clear/enable/disable require idx. "
+  "WARNING (landmine #1): a hit currently stops execution ONLY when an external SLP "
+  "debugger is attached; with none the hit is silently ignored. Use palm_watch/palm_spy "
+  "to stop on memory writes. (Phase 3b makes hits raise a real dialog.)",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "clear",
+                                                                "enable", "disable", "clearall"})},
+                            {"idx", int_prop ("Breakpoint slot 0-5")},
+                            {"addr", str_prop ("Code address, e.g. '0x10C32A40' (set)")},
+                            {"condition", str_prop ("Optional condition (set), e.g. 'd0 == 0'")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "list")
+          return built ("break list", true, true);
+      if (act == "clearall")
+          return built ("break clearall");
+      if (act == "set")
+      {
+          if (!a.contains ("idx") || !a.contains ("addr"))
+              return usage_err ("action 'set' requires 'idx' and 'addr'");
+          std::string cmd = "break set " + istr (a["idx"]) + " " + sstr (a["addr"]);
+          if (a.contains ("condition"))
+              cmd += " " + sstr (a["condition"]);
+          return built (cmd);
+      }
+      if (!a.contains ("idx"))
+          return usage_err ("action '" + act + "' requires 'idx'");
+      return built ("break " + act + " " + istr (a["idx"]));
+  }, nullptr },
+
+{ "palm_watch", "Watchpoint: stop when the guest WRITES the address range. On hit the CPU "
+  "blocks on a Continue/Debug/Reset dialog (state=blocked_on_ui): inspect with "
+  "palm_dialog/palm_backtrace, resume with palm_dialog respond=continue. One at a time.",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"set", "clear", "status"})},
+                            {"addr", str_prop ("Start address (set)")},
+                            {"nbytes", int_prop ("Range length 1-65536 (set)")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "status")
+          return built ("watch status", false, true);
+      if (act == "clear")
+          return built ("watch clear");
+      if (!a.contains ("addr") || !a.contains ("nbytes"))
+          return usage_err ("action 'set' requires 'addr' and 'nbytes'");
+      return built ("watch set " + sstr (a["addr"]) + " " + istr (a["nbytes"]));
+  }, nullptr },
+
+{ "palm_spy", "Step spy: stop when the VALUE at a single address changes. Raises the same "
+  "Continue/Debug/Reset dialog as palm_watch on hit. One at a time.",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"set", "clear", "status"})},
+                            {"addr", str_prop ("Address to monitor (set)")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "status")
+          return built ("spy status", false, true);
+      if (act == "clear")
+          return built ("spy clear");
+      if (!a.contains ("addr"))
+          return usage_err ("action 'set' requires 'addr'");
+      return built ("spy set " + sstr (a["addr"]));
+  }, nullptr },
+
+{ "palm_log", "Emulator event logging: 20 categories (action=list shows them), levels "
+  "0=off 1=during-gremlins 2=always. dump flushes the buffer to file, clear empties it.",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "dump", "clear"})},
+                            {"category", str_prop ("Category name from action=list (set)")},
+                            {"level", int_prop ("0=off, 1=gremlin, 2=always (set)")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "list")
+          return built ("log list", true, true);
+      if (act == "set")
+      {
+          if (!a.contains ("category") || !a.contains ("level"))
+              return usage_err ("action 'set' requires 'category' and 'level'");
+          return built ("log set " + sstr (a["category"]) + " " + istr (a["level"]));
+      }
+      return built ("log " + act);
+  }, nullptr },
+
+{ "palm_gremlin", "Automated random-event stress testing (Hordes). action=new requires "
+  "seed+events. WARNING: while a gremlin runs, normal input tools return "
+  "'ERR busy: gremlin running' — stop the gremlin first.",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"new", "status", "suspend",
+                                                                "step", "resume", "stop"})},
+                            {"seed", int_prop ("Random seed (new)")},
+                            {"events", int_prop ("Number of events to post (new)")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "status")
+          return built ("gremlin status", false, true);
+      if (act == "new")
+      {
+          if (!a.contains ("seed") || !a.contains ("events"))
+              return usage_err ("action 'new' requires 'seed' and 'events'");
+          return built ("gremlin new " + istr (a["seed"]) + " " + istr (a["events"]));
+      }
+      return built ("gremlin " + act);
+  }, nullptr },
+
+{ "palm_check", "MetaMemory access-check flags (18; action=list shows them). "
+  "WARNING (landmine #7): enabling any DRAM-region flag (LowMemoryAccess, "
+  "SystemGlobalAccess, ScreenAccess, MemMgrDataAccess, FreeChunkAccess, "
+  "UnlockedChunkAccess) re-arms an O(n) heap scan per memory access — 100% CPU within "
+  "~10 minutes. Enable briefly for a targeted test, then action=clearall.",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "set-all", "clearall"})},
+                            {"flag", str_prop ("Flag name from action=list (set)")},
+                            {"on", bool_prop ("true=on, false=off (set/set-all)")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "list")
+          return built ("check list", true, true);
+      if (act == "clearall")
+          return built ("check clearall");
+      if (!a.contains ("on"))
+          return usage_err ("action '" + act + "' requires 'on'");
+      std::string onoff = a["on"].get<bool> () ? "on" : "off";
+      if (act == "set-all")
+          return built ("check set-all " + onoff);
+      if (!a.contains ("flag"))
+          return usage_err ("action 'set' requires 'flag' and 'on'");
+      return built ("check set " + sstr (a["flag"]) + " " + onoff);
+  }, nullptr },
+
+{ "palm_errorhandling", "Query or set how the emulator responds to guest errors/warnings "
+  "(per-setting behavior: show dialog, auto-continue, quit, or switch).",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"get", "set"})},
+                            {"setting", enum_prop ("Which setting (set)",
+                                                   {"WarningOff", "ErrorOff", "WarningOn", "ErrorOn"})},
+                            {"behavior", enum_prop ("Behavior (set)",
+                                                    {"show", "continue", "quit", "switch"})}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      if (sstr (a["action"]) == "get")
+          return built ("errorhandling get", true, true);
+      if (!a.contains ("setting") || !a.contains ("behavior"))
+          return usage_err ("action 'set' requires 'setting' and 'behavior'");
+      return built ("errorhandling set " + sstr (a["setting"]) + " " + sstr (a["behavior"]));
+  }, nullptr },
+
+{ "palm_profile", "Metrowerks-format CPU profiler. Order matters: init -> start -> stop -> "
+  "dump (requires path; writes .mwp plus a .txt sibling). cycles queries raw counters. "
+  "cleanup frees profiler memory.",
+  [] { return make_schema ({{"action", enum_prop ("Operation", {"init", "start", "stop", "dump",
+                                                                "print", "cleanup", "cycles"})},
+                            {"max", int_prop ("Max functions (init, optional; requires depth)")},
+                            {"depth", int_prop ("Max stack depth (init, optional)")},
+                            {"path", str_prop ("Output file path (dump/print)")}},
+                           {"action"}); },
+  [] (const json& a) -> BuiltCmd {
+      std::string act = sstr (a["action"]);
+      if (act == "cycles")
+          return built ("profile cycles", false, true);
+      if (act == "init")
+      {
+          std::string cmd = "profile init";
+          if (a.contains ("max") && a.contains ("depth"))
+              cmd += " " + istr (a["max"]) + " " + istr (a["depth"]);
+          else if (a.contains ("max") || a.contains ("depth"))
+              return usage_err ("action 'init' takes 'max' and 'depth' together");
+          return built (cmd);
+      }
+      if (act == "dump" || act == "print")
+      {
+          if (!a.contains ("path"))
+              return usage_err ("action '" + act + "' requires 'path'");
+          return built ("profile " + act + " " + sstr (a["path"]));
+      }
+      return built ("profile " + act);
+  }, nullptr },
+
 };  // kTools
 
 static const ToolDef* find_tool (const std::string& name)

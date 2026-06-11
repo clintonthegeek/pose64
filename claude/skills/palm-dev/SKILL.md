@@ -71,6 +71,16 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_regs` | -- | Read m68k CPU registers (D0-D7, A0-A7, PC, SR) |
 | `palm_menu` | `menu`, `item` | Trigger a menu item by menu and item title |
 | `palm_delete` | `db` | Delete a database from the device |
+| `palm_speed` | `value` (optional) | Set/query emulation speed: 1-10000 percent or `max`; omit to query |
+| `palm_backtrace` | -- | m68k stack crawl (works in `blocked_on_ui`) |
+| `palm_break` | `action`, `idx`, `addr`, `condition` | Manage 6 breakpoint slots (list/set/clear/enable/disable/clearall) |
+| `palm_watch` | `action`, `addr`, `nbytes` | Watchpoint: dialog-stop when range is written (set/clear/status) |
+| `palm_spy` | `action`, `addr` | Step spy: dialog-stop when value changes (set/clear/status) |
+| `palm_log` | `action`, `category`, `level` | Event logging: 20 categories, levels 0/1/2 (list/set/dump/clear) |
+| `palm_gremlin` | `action`, `seed`, `events` | Hordes stress testing (new/status/suspend/step/resume/stop) |
+| `palm_check` | `action`, `flag`, `on` | MetaMemory access checks — see landmine #7 warning in description |
+| `palm_errorhandling` | `action`, `setting`, `behavior` | Guest error/warning behavior (get/set) |
+| `palm_profile` | `action`, `max`, `depth`, `path` | CPU profiler: init→start→stop→dump |
 
 All tools return structured text. No Bash calls needed for emulator interaction.
 
@@ -214,25 +224,23 @@ palm_state              -> "running"
 When your app crashes (illegal instruction, bus error, etc.):
 
 1. `palm_dialog` — read the crash message and CPU registers (including PC)
-2. `backtrace` over raw TCP (no `palm_backtrace` MCP tool yet — A5 adds it):
-   `printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`
+2. `palm_backtrace` — stack crawl from the frozen CPU
 3. `palm_peek addr="0x<PC>" nbytes=16` — examine the code at the crash site
 4. `palm_dialog respond=reset` — dismiss the dialog and recover
 
 Example flow:
 
 ```
-palm_state                           # -> "blocked_on_ui"
-palm_dialog                          # -> crash message + regs (note the PC)
-printf 'backtrace\n' | socat -t5 - TCP:localhost:6416   # (Bash) stack frames
+palm_state                             # -> "blocked_on_ui"
+palm_dialog                            # -> crash message + regs (note the PC)
+palm_backtrace                         # -> stack frames with A6/PC per frame
 palm_peek addr="0x00012340" nbytes=16  # -> hex bytes at crash PC
-palm_dialog respond=reset            # -> dismiss dialog, device resets
-palm_state                           # -> "running" again
+palm_dialog respond=reset              # -> dismiss dialog, device resets
+palm_state                             # -> "running" again
 ```
 
-All inspection paths (`palm_dialog`, `palm_regs`, `palm_peek`, and TCP
-`backtrace`) work while the CPU is blocked because the CPU state is frozen
-and stable.
+All inspection paths (`palm_dialog`, `palm_regs`, `palm_peek`, `palm_backtrace`)
+work while the CPU is blocked because the CPU state is frozen and stable.
 Use `palm_dialog respond=reset` for a clean recovery (this answers the dialog
 normally and is safe). If the device needs a full hard reset, do it AFTER the
 dialog is dismissed and `palm_state` is `running` — see the landmine #9
@@ -265,6 +273,49 @@ palm_load path="/path/to/session.psf"   -> opens session, starts CPU
 
 This is essential for automated workflows where the emulator is restarted
 without human intervention to open a session via the GUI.
+
+## Debugging Workflows
+
+### Crash triage
+
+When your app crashes (illegal instruction, bus error, etc.):
+
+1. `palm_state` — confirm `blocked_on_ui`
+2. `palm_dialog` — read crash message + CPU registers (PC, SR, D0-D7, A0-A7)
+3. `palm_backtrace` — stack crawl from the frozen CPU (works in `blocked_on_ui`)
+4. `palm_peek addr="0x<PC>" nbytes=16` — examine the code at the crash site
+5. `palm_dialog respond=reset` (or `continue`) — dismiss dialog and recover
+
+```
+palm_state                              # -> "blocked_on_ui"
+palm_dialog                            # -> crash message + regs (note the PC)
+palm_backtrace                         # -> stack frames with A6/PC per frame
+palm_peek addr="0x00012340" nbytes=16  # -> hex bytes at crash PC
+palm_dialog respond=reset              # -> dismiss dialog, device resets
+palm_state                             # -> "running" again
+```
+
+### Stop on memory write (watchpoint)
+
+```
+palm_watch action=set addr="0x12340" nbytes=4   # arm watchpoint
+# ... run app until it writes the address ...
+palm_state                              # -> "blocked_on_ui" (watchpoint hit)
+palm_dialog                            # -> hit message + registers
+palm_backtrace                         # -> who wrote it
+palm_dialog respond=continue           # -> resume
+palm_watch action=clear                # -> remove watchpoint
+```
+
+### Breakpoints — truthful caveat
+
+`palm_break` lets you list/set/clear/enable/disable the 6 m68k breakpoint slots.
+**WARNING (landmine #1, open until Phase 3b):** a breakpoint hit does NOT stop
+execution on its own. When a breakpoint fires, the emulator only suspends if an
+external Palm-Debugger (SLP protocol) client is attached; otherwise the hit is
+**silently ignored**. For "stop when X happens" workflows use `palm_watch` or
+`palm_spy` instead — they raise an error dialog (`blocked_on_ui`) you can read
+with `palm_dialog` and dismiss with `palm_dialog respond=continue`.
 
 ## App-Specific Workflows
 
@@ -309,70 +360,62 @@ palm_regs                               # dump all CPU registers
 
 Max 256 bytes per peek/poke. Data is hex-encoded.
 
-## Debugging Commands (raw TCP — 10 debug-surface MCP tools land in the next commit)
+## Debugging Commands
 
-The debugging command groups below exist in the ReControl TCP protocol but
-are **not yet exposed as MCP tools** — the proxy currently implements 27 core
-tools. Calling `palm_break`, `palm_backtrace`, `palm_log`, etc.
-will fail with "Unknown tool" until Task A5 lands. Drive these over raw TCP instead:
-
-```bash
-printf 'backtrace\n' | socat -t5 - TCP:localhost:6416
-printf 'log set SystemCalls 2\n' | socat -t5 - TCP:localhost:6416
-```
-
-or use the `ReControlClient` class from `test_recontrol.py`. Full syntax for
-every command: `docs/recontrol-protocol.md`.
+All debugging commands are exposed as MCP tools (`palm_break`, `palm_watch`,
+`palm_spy`, `palm_log`, `palm_gremlin`, `palm_check`, `palm_errorhandling`,
+`palm_profile`, `palm_backtrace`, `palm_speed`) — raw TCP is no longer needed
+for any of them. Full TCP syntax: `docs/recontrol-protocol.md`.
 
 ### Stack Trace
 
 ```
-backtrace            # or bt — stack crawl; works in blocked_on_ui
+palm_backtrace     # stack crawl; works in blocked_on_ui
 ```
 
 ### Breakpoints (6 slots, indices 0-5) — WARNING: passive without a debugger
 
-**A breakpoint hit does NOT stop execution on its own.** When a breakpoint
-fires, the emulator only suspends if an external Palm-Debugger (SLP protocol,
-port 6414/2000) client is attached; otherwise the hit is silently ignored and
-execution continues. There is no hit notification and no `continue` command
-in ReControl. For "stop when X happens" workflows, use watchpoints/step-spy
-instead (below) — they raise an error dialog (`blocked_on_ui`) you can read
-with `dialog` and dismiss with `dialog respond`.
+See the landmine #1 warning in the "Debugging Workflows" section above.
 
 ```
-break list                       # show all breakpoint slots
-break set 0 0x12340              # set breakpoint at address
-break set 0 0x12340 d5.w==0x1234 # with condition
-break clear 0 / break clearall
-break enable 0 / break disable 0
+palm_break action=list
+palm_break action=set idx=0 addr="0x12340"
+palm_break action=set idx=0 addr="0x12340" condition="d5.w==0x1234"
+palm_break action=clear idx=0
+palm_break action=clearall
+palm_break action=enable idx=0
+palm_break action=disable idx=0
 ```
 
 ### Data Watchpoints (these DO stop — via error dialog)
 
 ```
-watch set 0x12340 16             # watch 16 bytes; a write raises an error
-                                 # dialog -> blocked_on_ui
-watch clear / watch status
-spy set 0x12340                  # monitor single address for changes
-spy clear / spy status
+palm_watch action=set addr="0x12340" nbytes=16
+palm_watch action=clear
+palm_watch action=status
+palm_spy action=set addr="0x12340"
+palm_spy action=clear
+palm_spy action=status
 ```
 
 ### Logging (20 categories)
 
 ```
-log list                         # show categories with levels
-log set SystemCalls 2            # 0=off, 1=gremlin-only, 2=always
-log dump                         # flush buffer to file
-log clear                        # clear buffer
+palm_log action=list
+palm_log action=set category="SystemCalls" level=2   # 0=off, 1=gremlin, 2=always
+palm_log action=dump
+palm_log action=clear
 ```
 
 ### Gremlins (Automated Stress Testing)
 
 ```
-gremlin new 42 10000             # seed=42, run 10000 events
-gremlin status                   # query progress
-gremlin suspend / gremlin step / gremlin resume / gremlin stop
+palm_gremlin action=new seed=42 events=10000
+palm_gremlin action=status
+palm_gremlin action=suspend
+palm_gremlin action=step
+palm_gremlin action=resume
+palm_gremlin action=stop
 ```
 
 ### Memory Checks (18 flags) — WARNING: DRAM flags are a performance trap
@@ -380,40 +423,40 @@ gremlin suspend / gremlin step / gremlin resume / gremlin stop
 Enabling any DRAM-region flag (LowMemoryAccess, SystemGlobalAccess,
 ScreenAccess, MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess)
 re-enables an O(n) heap scan on every DRAM access — historically 100% CPU
-within ~10 minutes. Enable briefly for a targeted test, then `check clearall`.
+within ~10 minutes. Enable briefly for a targeted test, then `action=clearall`.
 
 ```
-check list                       # show all flags
-check set FreeChunkAccess on     # enable specific check
-check set-all on                 # enable all checks
-check clearall                   # turn off all flags at once
+palm_check action=list
+palm_check action=set flag="FreeChunkAccess" on=true
+palm_check action=set-all on=true
+palm_check action=clearall
 ```
 
 ### Error Handling
 
 ```
-errorhandling get                        # show behavior settings (or: list)
-errorhandling set WarningOff continue    # auto-continue warnings
+palm_errorhandling action=get
+palm_errorhandling action=set setting="WarningOff" behavior="continue"
 ```
 
 Settings: `WarningOff`, `ErrorOff`, `WarningOn`, `ErrorOn`.
-Options: `show`, `continue`, `quit`, `switch`.
+Behaviors: `show`, `continue`, `quit`, `switch`.
 
 ### Profiling
 
 ```
-profile init                     # initialize (optional: maxcalls maxdepth)
-profile start                    # begin collecting
-profile stop                     # pause collecting
-profile dump /tmp/profile.mwp    # write Metrowerks profile (+ .txt sibling)
-profile print /tmp/profile.txt   # write text report
-profile cleanup                  # free profiler
-profile cycles                   # read cycle counters
+palm_profile action=init max=30000 depth=20   # optional args
+palm_profile action=start
+palm_profile action=stop
+palm_profile action=dump path="/tmp/profile.mwp"   # also writes .txt sibling
+palm_profile action=print path="/tmp/profile.txt"
+palm_profile action=cleanup
+palm_profile action=cycles
 ```
 
 **Safety notes:**
-- You must call `profile init` then `profile start` before `dump` or `print`.
-- You must call `profile stop` before `dump` or `print`.
+- You must call `palm_profile action=init` then `action=start` before `dump` or `print`.
+- You must call `action=stop` before `dump` or `print`.
 - If no profiling data has been collected, `dump`/`print` return an error (they
   will not crash the emulator).
 
