@@ -291,6 +291,24 @@ if (stopper.Stopped()) {
   false (no-op) when the CPU is `kBlockedOnUI` — the failure path is
   side-effect-free (task 1.1 fix; prior to that, `fSuspendByUIThread` leaked
   permanently on this path).
+
+  **Deferral during nested subroutines (landmine #10 fix, 2026-06-10):**
+  if the CPU thread is inside a nested `ExecuteSubroutine` (a host-initiated
+  ROM call — tailpatches, PuppetString, ROM stubs) when a
+  `kStopNow`/`kStopOnCycle` request arrives, the request is DEFERRED: the
+  ROM call always runs to completion (`CheckForBreak` masks
+  `fSuspendByUIThread` while `IsNested()`), and the stop takes effect at
+  the outer Execute loop right after the trap dispatch finishes
+  (`ExecuteSubroutine` re-arms `CheckAfterCycle` on exit). The counter
+  stays live throughout, so stopper timeouts and `ResumeThread` accounting
+  remain correct. The previous behavior — breaking out of the nested call —
+  made ROM stubs return garbage register values to their host callers
+  (landmine #10: intermittent `MemoryMgr.c` fatal alerts under app-switch
+  churn with concurrent polling). The deferral wait is bounded: ROM stubs
+  are short, timers advance at every nesting depth (a nested STOP always
+  clears), and a nested dialog flips `fState` off `kRunning`, which
+  satisfies waiting stoppers. This restores the upstream POSE 3.5
+  semantics.
 - `kStopOnSysCall` — suspend at the next system call boundary. **BLOCKS
   the calling thread** until the CPU reaches a syscall. Can deadlock if
   the CPU never reaches one (e.g., tight loop, sleeping in STOP with no

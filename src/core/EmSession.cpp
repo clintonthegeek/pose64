@@ -810,8 +810,10 @@ Bool EmSession::SuspendThread (EmStopMethod how, int timeoutMs)
 			break;
 	}
 
-	// Force the CPU to check spcflags so it notices the suspend request,
-	// even if it's currently in a nested subroutine (where CYCLE is skipped).
+	// Force the CPU to check spcflags so it notices the suspend request.
+	// If it's currently in a nested subroutine, the request is deferred —
+	// the subroutine runs to completion (CheckForBreak masks the counter
+	// while nested) and ExecuteSubroutine re-arms this check on exit.
 	EmAssert (fCPU);
 	fCPU->CheckAfterCycle ();
 
@@ -1262,6 +1264,21 @@ void EmSession::ExecuteIncremental (void)
 
 
 // ---------------------------------------------------------------------------
+//		� PrvPendingNonUISuspend
+// ---------------------------------------------------------------------------
+// True if any suspend counter other than fSuspendByUIThread is pending.
+// Live UI-thread suspends are deferred (masked) for the duration of a
+// nested subroutine — see ExecuteSubroutine and CheckForBreak.
+
+static inline Bool PrvPendingNonUISuspend (const EmSuspendState& state)
+{
+	EmSuspendState	tmp = state;
+	tmp.fCounters.fSuspendByUIThread = 0;
+	return tmp.fAllCounters != 0;
+}
+
+
+// ---------------------------------------------------------------------------
 //		� EmSession::ExecuteSubroutine
 // ---------------------------------------------------------------------------
 
@@ -1282,12 +1299,38 @@ void EmSession::ExecuteSubroutine (void)
 		EmAssert ((fNestLevel == 0 && fState != kRunning) || (fNestLevel > 0 && fState == kRunning));
 #endif
 
+	// Save and clear the suspend counters for the duration of the nested
+	// call — EXCEPT fSuspendByUIThread, which stays LIVE (and is zeroed in
+	// the saved copy so the exit restore can't double-count it).
+	//
+	// fSuspendByUIThread is raised by EmSessionStopper(kStopNow/kStopOnCycle)
+	// — paint, screen-hash, ui, peek, ... — from other threads at any time.
+	// It must never be absorbed into this local: SuspendThread's timeout
+	// path undoes its own increment on the live counter, and ResumeThread
+	// decrements it there too.  Hiding it here would let a timed-out
+	// stopper leak a phantom count that parks the CPU with no waiter.
+	//
+	// While the subroutine runs, nested execution MASKS the live counter
+	// (CheckForBreak ignores it when IsNested()), so a host-initiated ROM
+	// call always runs to completion; the suspend takes effect at the
+	// outer Execute loop once the trap dispatch finishes (re-armed below).
+	// The previous design instead ABORTED the subroutine mid-call, which
+	// left the stub's caller reading garbage out of D0/A0 — landmine #10:
+	// intermittent MemoryMgr.c fatal alerts (NULL/Free/Invalid handle)
+	// under app-switch churn with concurrent polling.  The deferral wait
+	// is bounded: host-called ROM functions are short, timers advance at
+	// every nesting depth (a nested STOP always clears within a tick), and
+	// a nested dialog flips fState off kRunning, satisfying any waiter.
+
 	EmSuspendCounters	oldState = fSuspendState.fCounters;
+	int					entryUIThread = oldState.fSuspendByUIThread;
 	fSuspendState.fAllCounters = 0;
+	fSuspendState.fCounters.fSuspendByUIThread = entryUIThread;
+	oldState.fSuspendByUIThread = 0;
 
 	try
 	{
-		while (fSuspendState.fAllCounters == 0)
+		while (!::PrvPendingNonUISuspend (fSuspendState))
 		{
 			// Enter new scope so that the omni_mutex_unlock will re-lock
 			// the mutex before we look at fSuspendState, etc.
@@ -1306,7 +1349,6 @@ void EmSession::ExecuteSubroutine (void)
 			/*
 				Check the reason for EmCPU::Execute returning:
 
-				fSuspendByUIThread
 				fSuspendByExternal
 				fSuspendByTimeout
 				fSuspendBySysCall
@@ -1319,21 +1361,14 @@ void EmSession::ExecuteSubroutine (void)
 
 				fSuspendBySubroutineReturn
 					Could happen.  Let it make this function exit.
-			*/
 
-			/*
-				If fSuspendByUIThread is set, the bridge thread's PaintScreen
-				is trying to suspend us.  DON'T clear it here — let it stay
-				set so the while loop exits.  The counter will remain in the
-				live state where ResumeThread can find and decrement it.
-				We break immediately so Run() can set fState=kSuspended.
+				fSuspendByUIThread
+					Never breaks the nested loop: CheckForBreak masks it
+					while IsNested(), so Execute doesn't return for it at
+					all.  It stays live for SuspendThread/ResumeThread
+					accounting and takes effect after the subroutine
+					completes (see the entry comment above).
 			*/
-
-			if (fSuspendState.fCounters.fSuspendByUIThread)
-			{
-				// Leave fSuspendByUIThread in the live state — don't touch it
-				break;
-			}
 
 			oldState.fSuspendByDebugger += fSuspendState.fCounters.fSuspendByDebugger;
 
@@ -1348,13 +1383,14 @@ void EmSession::ExecuteSubroutine (void)
 	}
 	catch (...)
 	{
-		// Restore saved suspend state before propagating.
-		// Preserve any live fSuspendByUIThread that arrived during
-		// the nested call (the UI thread's ResumeThread expects to
-		// find it in the live state, not in oldState).
+		// Restore saved suspend state before propagating.  The live
+		// fSuspendByUIThread (entry value plus any arrivals, minus any
+		// timeout-undos/resumes) was never saved or cleared — keep it
+		// as-is.  oldState's copy was zeroed at entry, so plain
+		// assignment cannot double-count.
 		int liveUIThread = fSuspendState.fCounters.fSuspendByUIThread;
 		fSuspendState.fCounters = oldState;
-		fSuspendState.fCounters.fSuspendByUIThread += liveUIThread;
+		fSuspendState.fCounters.fSuspendByUIThread = liveUIThread;
 
 #if HAS_OMNI_THREAD
 		fSharedCondition.broadcast ();
@@ -1362,11 +1398,12 @@ void EmSession::ExecuteSubroutine (void)
 		throw;
 	}
 
-	// Preserve any live fSuspendByUIThread before restoring old state
+	// Restore the saved counters.  The live fSuspendByUIThread was never
+	// saved or cleared — keep it as-is (oldState's copy was zeroed at
+	// entry, so plain assignment cannot double-count).
 	int liveUIThread = fSuspendState.fCounters.fSuspendByUIThread;
 	fSuspendState.fCounters = oldState;
-	// Re-add any pending UI thread suspend that arrived during this subroutine
-	fSuspendState.fCounters.fSuspendByUIThread += liveUIThread;
+	fSuspendState.fCounters.fSuspendByUIThread = liveUIThread;
 
 	// This could have gone negative..._HostSignalWait will decrement the
 	// counter as a courtesy.
@@ -1374,6 +1411,17 @@ void EmSession::ExecuteSubroutine (void)
 	if (fSuspendState.fCounters.fSuspendByExternal < 0)
 	{
 		fSuspendState.fCounters.fSuspendByExternal = 0;
+	}
+
+	// If any suspend became pending while we were nested (a deferred
+	// kStopNow/kStopOnCycle, a re-established external, ...), the outer
+	// Execute loop must notice it promptly: SPCFLAG_END_OF_CYCLE may have
+	// been consumed during nesting, so re-arm it.
+
+	if (fSuspendState.fAllCounters)
+	{
+		EmAssert (fCPU);
+		fCPU->CheckAfterCycle ();
 	}
 
 	EmAssert (fNestLevel >= 0);
@@ -1574,15 +1622,27 @@ Bool EmSession::CheckForBreak (void)
 	// resume the thread will decrement it to -1.  We need to preserve those
 	// values so that they can be integrated into the the state that was
 	// saved in EmSession::ExecuteSubroutine.
+	//
+	// fSuspendByUIThread is likewise ignored while nested, but unlike
+	// fSuspendByExternal it is left live rather than saved/cleared by
+	// ExecuteSubroutine (it must stay visible to SuspendThread's timeout
+	// undo and to ResumeThread).  Masking it here means a nested ROM call
+	// always runs to completion; the suspend takes effect at the outer
+	// Execute loop, re-armed by ExecuteSubroutine on exit.  Breaking out
+	// of the nested call instead made the stub's caller read garbage
+	// results — landmine #10 (MemoryMgr fatal alerts under churn).
 
 	if (this->IsNested ())
 	{
-		int	old = fSuspendState.fCounters.fSuspendByExternal;
+		int	oldExternal = fSuspendState.fCounters.fSuspendByExternal;
+		int	oldUIThread = fSuspendState.fCounters.fSuspendByUIThread;
 		fSuspendState.fCounters.fSuspendByExternal = 0;
+		fSuspendState.fCounters.fSuspendByUIThread = 0;
 
 		Bool result = fSuspendState.fAllCounters != 0;
 
-		fSuspendState.fCounters.fSuspendByExternal = old;
+		fSuspendState.fCounters.fSuspendByExternal = oldExternal;
+		fSuspendState.fCounters.fSuspendByUIThread = oldUIThread;
 
 		return result;
 	}

@@ -38,13 +38,20 @@
 > fix landmine #10 NOW rather than design the gate around it** — the
 > original "stay within one app" deferral narrowed the claim the gate
 > certifies, and app-switch churn is the core AI-driving workload.
-> **NEXT = the #10 fix** (R1 already satisfied: repro
-> `tests/phase2/repro_appswitch_memmgr.py` committed, attribution strong —
-> root-cause first, no symptom patches), then plan Task 6 (honesty
-> plumbing) → Task 7 (honest ACK) → Task 8 (land the B hook + delete
-> losers, R2 — first time the hook touches master; until then it lives
-> only on `phase2-experiment-B`) → Task 9 (GATE 2, BOTH rapid variants:
-> within-app delivery referee + app-switch survival run).
+> **Landmine #10 FIXED (2026-06-10, same-day follow-up session,
+> root-caused):** the Qt6 port aborted nested host ROM calls on
+> `kStopNow`/`kStopOnCycle` suspends → stub callers read garbage (upstream
+> defers; deferral restored in `ExecuteSubroutine`/`CheckForBreak`).
+> Verified: hot repro 3/6 crashes pre-fix → 0/6 post-fix (4,800 switches);
+> phase-1 repros 7/7; TSAN stress 13/13, report families = master
+> baseline. See STATUS #10 + handoff §12.4 RESOLVED note.
+> **NEXT = plan Task 6** (honesty plumbing in EmSession — C layer +
+> Q-DROP statuses) → Task 7 (honest ACK) → Task 8 (land the B hook +
+> delete losers, R2 — first time the hook touches master; until then it
+> lives only on `phase2-experiment-B`) → Task 9 (GATE 2, BOTH rapid
+> variants: within-app delivery referee + app-switch survival run, now
+> un-capped). **Session break here per R6 — Task 6 opens the next
+> sitting.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -276,7 +283,9 @@ CPU% recorded in STATUS.md; exactly one wake mechanism greppable in src/.
 > **GATE-2 test scope (decided 2026-06-10, REVISED same day):** landmine
 > #10 (app-switch churn → `MemoryMgr` fatal alert; STATUS #10, repro
 > `tests/phase2/repro_appswitch_memmgr.py`) is **fixed in-path, before
-> Task 6** — the user rejected designing the gate around a known crash;
+> Task 6** (**DONE 2026-06-10** — root cause was nested-ROM-call abortion
+> on `kStopNow`-family suspends, not the tailpatch itself; see STATUS #10)
+> — the user rejected designing the gate around a known crash;
 > certifying "stable under automation" while a known guest-killer sits in
 > the agent workload would narrow the claim. GATE 2 runs BOTH rapid
 > variants: the within-app Datebook Go-To/Cancel toggle (pure delivery

@@ -645,6 +645,21 @@ mechanism", ideally with a true-`evtWaitForever` test app as evidence.
 
 ### 12.4 NEW pre-existing landmine: app-switch churn → MemoryMgr fatal alert (STATUS #10)
 
+> **RESOLVED 2026-06-10 (same day, follow-up session; user re-sequenced the
+> fix ahead of plan Task 6).** Root cause was NOT app-switch-specific and NOT
+> a stale handle in the tailpatch: the Qt6 port made
+> `EmSession::ExecuteSubroutine` ABORT a nested host-initiated ROM call when
+> a `kStopNow`/`kStopOnCycle` suspend (`fSuspendByUIThread` — screen-hash/
+> ui/peek/paint) arrived mid-call, so the stub's caller read garbage from
+> D0/A0; app switches make ~10 such calls each (CollectCurrentAppInfo
+> family). Upstream POSE 3.5 defers the suspend instead (verified against
+> the vendored source). Fix = deferral restored (mask while nested, counter
+> stays live, re-arm on exit). Instrumented proof + verification numbers:
+> `docs/STATUS.md` #10. The repro now exits 0=no-crash (phase-1 convention)
+> and has a `--hammer N` hot mode (pre-fix: 3/6 runs crashed; post-fix: 0/6
+> over 4,800 switches). The §12.1 matrix's `rapid/1x` 90/100 truncation and
+> the predicted GATE-2 rapid-run cap are both lifted.
+
 Sustained app switching kills the guest into `blocked_on_ui`:
 `SysFatalAlert "MemoryMgr.c, Line:4384, Free handle"` (or `:4415,
 Invalid handle`) raised **while the emulator was calling

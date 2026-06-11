@@ -123,18 +123,31 @@ host.
    Repro (3× PASS, ASAN-clean): `tests/phase1/repro_dialog_subsystem.py`.
    *Dialog-show latency confirmed:* the dialog shows one idle tick (~100 ms)
    after `blocked_on_ui`; the earlier "never shows" report was a mis-observation.
-10. **App-switch churn kills the guest (pre-existing, found 2026-06-10).**
-   Sustained app switching (every ~100–800 switches, intermittent) raises
-   `SysFatalAlert "MemoryMgr.c, Line:4384, Free handle"` (or `:4415, Invalid
-   handle`) **while the emulator calls `MemHandleLock`** — the app-switch
-   tailpatch path (`CollectCurrentAppInfo` family, `EmPatchState.cpp`) locks
-   `tAIN`/`tver` resource handles on every switch and intermittently uses a
-   stale one. Guest lands in `blocked_on_ui`; only recovery is
-   `dialog respond=reset`. **Hook-independent** (reproduced via
-   hardware-button-only churn with the Phase-2 hook dormant AND on a pure
-   master binary); unreachable before Phase 2 only because the wedged psf
-   delivered nothing. Repro: `tests/phase2/repro_appswitch_memmgr.py`.
-   Caps rapid-mode GATE-2 runs until fixed. Detail: handoff §12.4.
+10. **App-switch churn killed the guest — FIXED 2026-06-10 (root-caused).**
+   Symptom: sustained app switching intermittently raised
+   `SysFatalAlert "MemoryMgr.c"` line 4365 `NULL handle` / 4384 `Free
+   handle` / 4415 `Invalid handle` → `blocked_on_ui`. **Root cause (not
+   app-switch-specific):** the Qt6 port made `EmSession::ExecuteSubroutine`
+   BREAK OUT of a nested host-initiated ROM call when a
+   `kStopNow`/`kStopOnCycle` suspend (`screen-hash`, `ui`, `peek`, paint —
+   anything raising `fSuspendByUIThread`) arrived mid-call; `ATrap::DoCall`
+   /`EmSubroutine` never check the exit reason, so the stub's caller read
+   garbage out of D0/A0 (upstream POSE 3.5 instead DEFERS the suspend until
+   the subroutine completes — verified against vendored source). App
+   switches make ~10 host ROM calls each (`CollectCurrentAppInfo` family),
+   so churn + polling maximized the collision odds. Instrumented proof:
+   every crash had a nested-abort logged 0–2 lines before the fatal alert;
+   clean runs had none (or one benign). **Fix:** deferral restored —
+   `CheckForBreak` masks `fSuspendByUIThread` while `IsNested()` (counter
+   stays live for timeout-undo/`ResumeThread` accounting),
+   `ExecuteSubroutine` re-arms `CheckAfterCycle` on exit. **Verified:** hot
+   repro (`--hammer 3`, crashed 3/6 runs pre-fix at switches 33–438) →
+   **0/6 crashes post-fix (4,800 switches)**; phase-1 repros 7/7 PASS;
+   `test_speed_cmd` PASS; TSAN stress 13/13 PASS with report families
+   matching the master baseline (zero reports implicate the suspend
+   machinery). Repro: `tests/phase2/repro_appswitch_memmgr.py` (now exits
+   0 = no crash, phase-1 convention; `--hammer N` = hot mode). Un-caps
+   rapid-mode GATE-2 runs. Detail: handoff §12.4 (RESOLVED note).
 11. **Teardown/lifecycle crashes, observed-once each (2026-06-10, recorded
    not chased).** (a) Quit-path SIGSEGV: CPU thread in
    `EmRegsVZ::CycleSlowly → EmUARTDragonball::GetTransport →
