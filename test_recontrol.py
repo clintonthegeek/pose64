@@ -16,70 +16,12 @@ import argparse
 from pathlib import Path
 
 
-class ReControlClient:
-    """Simple TCP client for ReControl protocol."""
+import os
+import sys
 
-    def __init__(self, host='localhost', port=6425, timeout=5):
-        self.host = host
-        self.port = port
-        self.timeout = timeout
-        self.socket = None
-        self.connected = False
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-    def connect(self):
-        """Connect to ReControl server."""
-        try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(self.timeout)
-            self.socket.connect((self.host, self.port))
-            self.connected = True
-            return True
-        except socket.error as e:
-            print(f"Connection failed: {e}")
-            return False
-
-    def disconnect(self):
-        """Disconnect from server."""
-        if self.socket:
-            self.socket.close()
-            self.connected = False
-
-    def send_command(self, cmd):
-        """Send command and read response."""
-        if not self.connected:
-            print(f"Not connected")
-            return None
-
-        try:
-            # Send command
-            self.socket.sendall((cmd + '\n').encode())
-
-            # Read response line
-            response = self.socket.recv(4096).decode()
-            return response
-        except socket.timeout:
-            print(f"Command '{cmd}' timed out")
-            return None
-        except socket.error as e:
-            print(f"Error sending command: {e}")
-            return None
-
-    def read_multiline_response(self):
-        """Read multi-line response terminated by period."""
-        lines = []
-        try:
-            while True:
-                chunk = self.socket.recv(4096).decode()
-                if not chunk:
-                    break
-                for line in chunk.split('\n'):
-                    if line:
-                        lines.append(line)
-                        if line.strip() == '.':
-                            return '\n'.join(lines)
-        except socket.timeout:
-            pass
-        return '\n'.join(lines)
+from tests.lib.recontrol_client import ReControlClient  # noqa: E402,F401  (re-export)
 
 
 def test_basic_connection(client, tests_passed, tests_failed):
