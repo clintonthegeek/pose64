@@ -34,14 +34,17 @@
 > **2.2 CHECKPOINT DECIDED 2026-06-10 (plan Task 5): B + C** (data-backed;
 > A rejected/dead; chosen over natural-delivery-only for the guaranteed
 > ≤1-tick bound on true-`evtWaitForever` apps — handoff §10 Q-MECH RESOLVED,
-> §12.3, architecture.md). **GATE-2 test scope decided: stay within one app**
-> (within-app Datebook Go-To/Cancel toggle), deferring the landmine-#10 fix.
-> **NEXT = Phase 2 implementation, plan Task 6** (honesty plumbing in
-> EmSession — C layer + Q-DROP statuses), then Task 7 (honest ACK), Task 8
-> (land the B hook to master + delete all wake-mechanism losers, R2), Task 9
-> (GATE 2). Task 8 is the first time the hook touches master; until then it
-> lives only on `phase2-experiment-B`. **Session break here per R6 — Task 6 is
-> threading-sensitive code and opens the next sitting (strongest model).**
+> §12.3, architecture.md). **GATE-2 scope REVISED same day (user decision):
+> fix landmine #10 NOW rather than design the gate around it** — the
+> original "stay within one app" deferral narrowed the claim the gate
+> certifies, and app-switch churn is the core AI-driving workload.
+> **NEXT = the #10 fix** (R1 already satisfied: repro
+> `tests/phase2/repro_appswitch_memmgr.py` committed, attribution strong —
+> root-cause first, no symptom patches), then plan Task 6 (honesty
+> plumbing) → Task 7 (honest ACK) → Task 8 (land the B hook + delete
+> losers, R2 — first time the hook touches master; until then it lives
+> only on `phase2-experiment-B`) → Task 9 (GATE 2, BOTH rapid variants:
+> within-app delivery referee + app-switch survival run).
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -270,15 +273,17 @@ truthful error), with ONE delivery mechanism in the tree.
 **GATE 2:** delivery test ≥ 99% over 200 taps at 1x and at Max speed; idle
 CPU% recorded in STATUS.md; exactly one wake mechanism greppable in src/.
 
-> **GATE-2 test scope DECIDED 2026-06-10: stay within one app.** The rapid
-> run uses the within-app Datebook Go-To/Cancel toggle (the `test_delivery.py`
-> referee design), NOT launcher↔app switching — this sidesteps pre-existing
-> landmine #10 (app-switch churn → `MemoryMgr` fatal alert; STATUS #10, repro
-> `tests/phase2/repro_appswitch_memmgr.py`). The #10 fix is **deferred**; it
-> stays a documented landmine with a checked-in repro. Executor must confirm
-> the within-app rapid run completes the full 200 taps without tripping #10
-> (handoff §12.4 asserts it does); if it still trips, escalate rather than
-> silently truncate.
+> **GATE-2 test scope (decided 2026-06-10, REVISED same day):** landmine
+> #10 (app-switch churn → `MemoryMgr` fatal alert; STATUS #10, repro
+> `tests/phase2/repro_appswitch_memmgr.py`) is **fixed in-path, before
+> Task 6** — the user rejected designing the gate around a known crash;
+> certifying "stable under automation" while a known guest-killer sits in
+> the agent workload would narrow the claim. GATE 2 runs BOTH rapid
+> variants: the within-app Datebook Go-To/Cancel toggle (pure delivery
+> referee — isolates delivery failures from survival failures) AND an
+> app-switch churn run (survival under the real agent workload). Pass bar
+> unchanged (≥99% delivery); the survival run must complete with no guest
+> fatal alert.
 
 ---
 
