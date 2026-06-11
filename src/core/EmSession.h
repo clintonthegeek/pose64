@@ -282,6 +282,18 @@ typedef std::vector<EmDeferredErr*>	EmDeferredErrList;
 class EmSession;
 extern EmSession*	gSession;
 
+// Result of posting host input toward the guest.  Anything but kInputPosted
+// means the event was NOT queued — callers that promised honesty (ReControl)
+// must surface it (recovery-plan task 2.4).
+enum EmPostInputResult
+{
+	kInputPosted,
+	kInputDroppedGremlins,
+	kInputDroppedReplay,
+	kInputDroppedMinimize,
+	kInputDroppedDuplicate		// pen-down identical to the previous one
+};
+
 class EmSession
 {
 	public:
@@ -468,22 +480,35 @@ class EmSession
 			uint32 released;	// bits that transitioned 1 → 0
 		};
 
-		void					SetButtonDown		(SkinElementType);
+		Bool					SetButtonDown		(SkinElementType);
 		void					SetButtonUp			(SkinElementType);
-		void					SetButtonTap		(SkinElementType);
+		Bool					SetButtonTap		(SkinElementType);
 		ButtonChanges			PollButtonChanges	(void);
 		Bool					HasButtonActivity	(void);
 		void					ClearButtonState	(void);
 
-		void					PostKeyEvent		(const EmKeyEvent&);
+		EmPostInputResult		PostKeyEvent		(const EmKeyEvent&);
 		Bool					HasKeyEvent			(void);
 		EmKeyEvent				PeekKeyEvent		(void);
 		EmKeyEvent				GetKeyEvent			(void);
 
-		void					PostPenEvent		(const EmPenEvent&);
+		EmPostInputResult		PostPenEvent		(const EmPenEvent&);
 		Bool					HasPenEvent			(void);
 		EmPenEvent				PeekPenEvent		(void);
 		EmPenEvent				GetPenEvent			(void);
+
+		// Phase 2 delivery accounting (handoff §10 Q-SYNC).  "Delivered" =
+		// PuppetString handed the event to the Palm OS event queue
+		// (StubAppEnqueueKey/Pt returned) — the same guarantee real hardware
+		// gives.  Per-queue counters: keys and pens are separate FIFOs in
+		// PuppetString, and a shared counter could be satisfied by the other
+		// queue's traffic.
+		void					NotifyKeyEventDelivered	(void);	// CPU thread
+		void					NotifyPenEventDelivered	(void);	// CPU thread
+		uint64					KeyEventsPosted		(void);
+		uint64					PenEventsPosted		(void);
+		Bool					WaitForKeyDelivery	(uint64 targetSeq, int timeoutMs);
+		Bool					WaitForPenDelivery	(uint64 targetSeq, int timeoutMs);
 
 		void					ReleaseBootKeys		(void);
 
@@ -614,6 +639,17 @@ class EmSession
 
 		omni_mutex				fSleepLock;
 		omni_condition			fSleepCondition;
+
+		// Delivery accounting (Phase 2 honest ACK).  Dedicated lock — do NOT
+		// fold into fSharedLock (lock-ordering risk vs. the suspend machinery).
+		// "Delivered" = PuppetString handed the event to the Palm OS event
+		// queue.  Keys and pens are separate FIFOs → separate counters.
+		omni_mutex				fDeliveryLock;
+		omni_condition			fDeliveryCondition;
+		uint64					fKeyPostedSeq{0};
+		uint64					fKeyDeliveredSeq{0};
+		uint64					fPenPostedSeq{0};
+		uint64					fPenDeliveredSeq{0};
 #endif
 
 		// ----------------------------------------------------------------------

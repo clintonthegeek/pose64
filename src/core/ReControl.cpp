@@ -122,12 +122,12 @@ static const CommandEntry sCommandTable[] = {
 	{"speed",          kCmdImmediate,     0,    RcCmd_Speed,      nullptr},
 
 	// Input
-	{"tap",            kCmdWorkerDirect,  0,    RcCmd_Tap,        nullptr, RcValidate_Tap},
-	{"tap-id",         kCmdWorkerCycle,   0,    RcCmd_TapId,      nullptr},
-	{"pen",            kCmdWorkerDirect,  0,    RcCmd_Pen,        nullptr, RcValidate_Pen},
-	{"key",            kCmdWorkerDirect,  0,    RcCmd_Key,        nullptr, RcValidate_Key},
-	{"type",           kCmdWorkerDirect,  0,    RcCmd_Type,       nullptr, RcValidate_Type},
-	{"button",         kCmdWorkerDirect,  0,    RcCmd_Button,     nullptr, RcValidate_Button},
+	{"tap",            kCmdWorkerRaw,     0,    RcCmd_Tap,        nullptr, RcValidate_Tap},
+	{"tap-id",         kCmdWorkerRaw,     0,    RcCmd_TapId,      nullptr, nullptr},
+	{"pen",            kCmdWorkerRaw,     0,    RcCmd_Pen,        nullptr, RcValidate_Pen},
+	{"key",            kCmdWorkerRaw,     0,    RcCmd_Key,        nullptr, RcValidate_Key},
+	{"type",           kCmdWorkerRaw,     0,    RcCmd_Type,       nullptr, RcValidate_Type},
+	{"button",         kCmdWorkerRaw,     0,    RcCmd_Button,     nullptr, RcValidate_Button},
 	{"menu",           kCmdCustom,        0,    nullptr,          RcCmd_Menu},
 	{"run",            kCmdCustom,        0,    nullptr,          RcCmd_Run},
 
@@ -503,6 +503,14 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 		case kCmdWorkerRaw:
 		{
 			if (!gSession) { SendErr ("transient", "no session"); return; }
+			// Validate args on the MAIN thread before queueing so malformed
+			// input returns ERR usage immediately instead of a swallowed OK
+			// (preserves the task-1.8 guarantee for the input commands).
+			if (entry->validate)
+			{
+				std::string verr = entry->validate (parts);
+				if (!verr.empty ()) { Send (verr); return; }
+			}
 			auto handler = entry->handler;
 			QueueWorkResult ([handler, parts]() -> std::string {
 				if (!gSession) return "ERR transient: no session\n";

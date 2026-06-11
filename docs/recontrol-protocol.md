@@ -65,12 +65,29 @@ ERR timeout: CPU did not reach a cycle boundary within 5000ms. Recovery: dismiss
 
 | Command | Response | Description |
 |---------|----------|-------------|
-| `tap <x> <y>` | `OK\n` | Pen down + up at display coordinates (0-159) |
-| `tap-id <id>` | `OK <x> <y>\n` | Tap center of form object by Palm OS object ID |
-| `pen <down\|up> <x> <y>` | `OK\n` | Separate pen down or up event |
-| `key <charcode>` | `OK\n` | Single key event (decimal character code) |
-| `type <text>` | `OK\n` | Bulk text entry (UTF-8 in, converted to Latin-1) |
-| `button <name> <action>` | `OK\n` | Hardware button: power/up/down/app1-4/cradle/contrast, down/up/tap |
+| `tap <x> <y>` | `OK delivered\n` | Pen down + up at display coordinates (0-159); blocks ≤2 s until the guest's event queue has it |
+| `tap-id <id>` | `OK delivered <x> <y>\n` | Tap center of form object by Palm OS object ID; blocks ≤2 s on delivery |
+| `pen <down\|up> <x> <y>` | `OK delivered\n` | Separate pen down or up event |
+| `key <charcode>` | `OK delivered\n` | Single key event (decimal character code) |
+| `type <text>` | `OK delivered\n` | Bulk text entry (UTF-8 in, converted to Latin-1) |
+| `button <name> <action>` | `OK\n` | Hardware button (queued, not delivery-confirmed): power/up/down/app1-4/cradle/contrast, down/up/tap |
+
+`tap`/`tap-id`/`pen`/`key`/`type` are **delivery-honest** (Phase 2): `OK delivered`
+means PuppetString handed the event to the Palm OS event queue.  If the guest
+cannot take it within 2 s the response is `ERR pending: queued, not delivered
+within 2000ms`.  A refused post is reported, never swallowed as `OK`:
+
+| Response | Meaning |
+|----------|---------|
+| `ERR busy: gremlin running` | Gremlins (Hordes) active — input is suppressed |
+| `ERR busy: event playback active` | Event playback in progress |
+| `ERR busy: minimization active` | Minimization in progress |
+| `ERR duplicate: pen already down at that point` | Identical pen-down to the previous one (invisible to the guest) |
+| `ERR pending: queued, not delivered within 2000ms` | Posted, but the guest did not consume it in time |
+
+`button` keeps the queued contract (`OK` = enqueued to the hardware-button
+state, not delivery-confirmed) and returns `ERR busy: gremlin or playback
+active` when refused.
 
 ### Screen
 
@@ -348,10 +365,13 @@ python3 test_recontrol_stress.py --no-launch --port 6416
   commands dispatch to `CPUWorkerThread` via `QueueWork`/`QueueWorkResult`.
 - **Thread safety:** QPointer guards all response lambdas against
   session-destroyed races.  See `docs/stability-findings.md` for full analysis.
-- **Known limitation:** `kCmdWorkerDirect` commands (`tap`, `pen`, `key`,
-  `type`, `button`) are fire-and-forget — the `OK` confirms queueing, not
-  delivery to the emulated app (delivery honesty is Phase 2). Argument errors,
-  however, are no longer swallowed: each is validated on the **main thread**
-  before queueing, so malformed input (wrong arg count, non-numeric
-  coordinates, unknown button name) returns `ERR usage` immediately rather than
-  a misleading `OK`.
+- **Input delivery (Phase 2):** `tap`/`tap-id`/`pen`/`key`/`type` are
+  `kCmdWorkerRaw` and **delivery-honest** — the handler posts the event, then
+  blocks ≤2 s on a per-queue delivery counter that PuppetString increments once
+  the event reaches the Palm OS event queue.  `OK delivered` means the guest has
+  it; otherwise the response is a truthful `ERR pending`/`ERR busy`/`ERR
+  duplicate` (see the Input table).  `button` stays queued (`OK` = enqueued to
+  the hardware-button state).  Argument errors are still validated on the
+  **main thread** before queueing, so malformed input (wrong arg count,
+  non-numeric coordinates, unknown button name) returns `ERR usage`
+  immediately rather than a misleading `OK`.

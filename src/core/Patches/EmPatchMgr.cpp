@@ -1054,6 +1054,8 @@ void EmPatchMgr::PuppetString (CallROMType& callROM, Bool& clearTimeout)
 				modifiers |= 0;	// no bit defined for this
 
 			::StubAppEnqueueKey (event.fKey, 0, modifiers);
+
+			gSession->NotifyKeyEventDelivered ();
 		}
 
 		// No key events, let's see if there are pen events.
@@ -1069,6 +1071,8 @@ void EmPatchMgr::PuppetString (CallROMType& callROM, Bool& clearTimeout)
 
 			PointType	palmPen = pen;
 			StubAppEnqueuePt (&palmPen);
+
+			gSession->NotifyPenEventDelivered ();
 		}
 
 		// E. None of the above.  Let's see if there's an app

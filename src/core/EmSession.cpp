@@ -112,6 +112,8 @@ EmSession::EmSession (void) :
 	fSharedCondition (&fSharedLock),
 	fSleepLock (),
 	fSleepCondition (&fSleepLock),
+	fDeliveryLock (),
+	fDeliveryCondition (&fDeliveryLock),
 	fStop (false),
 	fDialogActionState (kDlgActionNone),
 	fDialogAction (NULL),
@@ -1838,13 +1840,14 @@ void EmSession::EndDialogAction (void)
 // ---------------------------------------------------------------------------
 // Called by the UI thread when a skin button is pressed (mouse down).
 
-void EmSession::SetButtonDown (SkinElementType button)
+Bool EmSession::SetButtonDown (SkinElementType button)
 {
 	if (!::PrvCanBotherCPU())
-		return;
+		return false;
 
 	uint32	mask = 1U << (int) button;
 	fButtonState.fetch_or (mask, std::memory_order_release);
+	return true;
 }
 
 
@@ -1867,14 +1870,15 @@ void EmSession::SetButtonUp (SkinElementType button)
 // (HotSync).  Sets the button pressed and marks it for auto-release so that
 // a quick press/release pair isn't lost between CycleSlowly polls.
 
-void EmSession::SetButtonTap (SkinElementType button)
+Bool EmSession::SetButtonTap (SkinElementType button)
 {
 	if (!::PrvCanBotherCPU())
-		return;
+		return false;
 
 	uint32	mask = 1U << (int) button;
 	fButtonTaps.fetch_or (mask, std::memory_order_release);
 	fButtonState.fetch_or (mask, std::memory_order_release);
+	return true;
 }
 
 
@@ -2011,19 +2015,27 @@ void EmSession::ClearButtonState (void)
 //		� EmSession::GetKeyEvent
 // ---------------------------------------------------------------------------
 
-void EmSession::PostKeyEvent (const EmKeyEvent& event)
+EmPostInputResult EmSession::PostKeyEvent (const EmKeyEvent& event)
 {
-	if (!::PrvCanBotherCPU())
-		return;
+	if (Hordes::IsOn ())
+		return kInputDroppedGremlins;
+	if (EmEventPlayback::ReplayingEvents ())
+		return kInputDroppedReplay;
+	if (EmMinimize::IsOn ())
+		return kInputDroppedMinimize;
 
 	fKeyQueue.Put (event);
 
-	// Events are picked up by the SysEvGroupWait headpatch in
-	// EmPatchMgr.  No need to call PrvWakeUpCPU here — doing so
-	// blocks the main thread via EmSessionStopper, which deadlocks
-	// when the CPU is inside ExecuteSubroutine (e.g. after loading
-	// a .psf mid-syscall).  The CPU will process the event at its
-	// next natural SysEvGroupWait or timer interrupt (~10 ms).
+	{
+		omni_mutex_lock	lock (fDeliveryLock);
+		++fKeyPostedSeq;
+	}
+
+	// Events are picked up by the SysEvGroupWait headpatch in EmPatchMgr;
+	// if the guest is asleep in STOP, the wake mechanism (see
+	// ExecuteStoppedLoop) gets it moving.
+
+	return kInputPosted;
 }
 
 
@@ -2052,35 +2064,38 @@ EmKeyEvent EmSession::GetKeyEvent (void)
 //		� EmSession::GetPenEvent
 // ---------------------------------------------------------------------------
 
-void EmSession::PostPenEvent (const EmPenEvent& event)
+EmPostInputResult EmSession::PostPenEvent (const EmPenEvent& event)
 {
-	if (!::PrvCanBotherCPU())
-		return;
+	if (Hordes::IsOn ())
+		return kInputDroppedGremlins;
+	if (EmEventPlayback::ReplayingEvents ())
+		return kInputDroppedReplay;
+	if (EmMinimize::IsOn ())
+		return kInputDroppedMinimize;
 
 	omni_mutex_lock	lock (fPenEventLock);
 
-	// If this pen-down event is the same as the last pen-down
-	// event, do nothing.
+	// If this pen-down event is the same as the last pen-down event,
+	// it would be invisible to the guest — report it instead of lying.
 
 	if (event.fPenIsDown && event == fLastPenEvent)
-	{
-		return;
-	}
+		return kInputDroppedDuplicate;
 
-	// Add the event to our queue.
+	// Add the event to our queue and remember it for next time.
 
 	fPenQueue.Put (event);
-
-	// Remember this event for the next time.
-
 	fLastPenEvent = event;
 
-	// Events are picked up by the SysEvGroupWait headpatch in
-	// EmPatchMgr.  No need to call PrvWakeUpCPU here — doing so
-	// blocks the main thread via EmSessionStopper, which deadlocks
-	// when the CPU is inside ExecuteSubroutine (e.g. after loading
-	// a .psf mid-syscall).  The CPU will process the event at its
-	// next natural SysEvGroupWait or timer interrupt (~10 ms).
+	{
+		omni_mutex_lock	dlock (fDeliveryLock);
+		++fPenPostedSeq;
+	}
+
+	// Events are picked up by the SysEvGroupWait headpatch in EmPatchMgr;
+	// if the guest is asleep in STOP, the wake mechanism (see
+	// ExecuteStoppedLoop) gets it moving.
+
+	return kInputPosted;
 }
 
 
@@ -2099,6 +2114,69 @@ EmPenEvent EmSession::PeekPenEvent (void)
 EmPenEvent EmSession::GetPenEvent (void)
 {
 	return fPenQueue.Get ();
+}
+
+
+// ---------------------------------------------------------------------------
+//		� EmSession delivery accounting (Phase 2)
+// ---------------------------------------------------------------------------
+// Notify* run on the CPU thread (PuppetString, after the ROM enqueue stub
+// returned).  Wait* run on the CPUWorkerThread (ReControl handlers).  The
+// deadline is computed ONCE before the wait loop (architecture Do-Not-Do #3).
+
+void EmSession::NotifyKeyEventDelivered (void)
+{
+	omni_mutex_lock	lock (fDeliveryLock);
+	++fKeyDeliveredSeq;
+	fDeliveryCondition.broadcast ();
+}
+
+void EmSession::NotifyPenEventDelivered (void)
+{
+	omni_mutex_lock	lock (fDeliveryLock);
+	++fPenDeliveredSeq;
+	fDeliveryCondition.broadcast ();
+}
+
+uint64 EmSession::KeyEventsPosted (void)
+{
+	omni_mutex_lock	lock (fDeliveryLock);
+	return fKeyPostedSeq;
+}
+
+uint64 EmSession::PenEventsPosted (void)
+{
+	omni_mutex_lock	lock (fDeliveryLock);
+	return fPenPostedSeq;
+}
+
+static Bool PrvWaitForSeq (omni_mutex& mutex, omni_condition& cond,
+						   uint64& seq, uint64 targetSeq, int timeoutMs)
+{
+	unsigned long deadline_sec = 0, deadline_nsec = 0;
+	omni_thread::get_time (&deadline_sec, &deadline_nsec,
+						   timeoutMs / 1000,
+						   (timeoutMs % 1000) * 1000000UL);
+
+	omni_mutex_lock	lock (mutex);
+	while (seq < targetSeq)
+	{
+		if (cond.timedwait (deadline_sec, deadline_nsec) == 0)	// 0 = timeout
+			return seq >= targetSeq;
+	}
+	return true;
+}
+
+Bool EmSession::WaitForKeyDelivery (uint64 targetSeq, int timeoutMs)
+{
+	return ::PrvWaitForSeq (fDeliveryLock, fDeliveryCondition,
+							fKeyDeliveredSeq, targetSeq, timeoutMs);
+}
+
+Bool EmSession::WaitForPenDelivery (uint64 targetSeq, int timeoutMs)
+{
+	return ::PrvWaitForSeq (fDeliveryLock, fDeliveryCondition,
+							fPenDeliveredSeq, targetSeq, timeoutMs);
 }
 
 

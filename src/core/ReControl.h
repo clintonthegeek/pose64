@@ -24,10 +24,10 @@ extern CPUWorkerThread* gCPUWorker;
 
 enum CommandCategory {
 	kCmdImmediate,       // main thread, no stopper
-	kCmdWorkerDirect,    // worker thread, no stopper, always sends OK
+	kCmdWorkerDirect,    // worker thread, no stopper, always sends OK (hardware-path input only)
 	kCmdWorkerCycle,     // worker thread, kStopOnCycle, returns result
 	kCmdWorkerSysCall,   // worker thread, kStopOnSysCall + timeout
-	kCmdWorkerRaw,       // worker thread, no stopper (handler creates own)
+	kCmdWorkerRaw,       // worker thread, no stopper (handler creates own); runs main-thread validate if present
 	kCmdAdaptive,        // direct if blocked_on_ui, else kStopOnCycle
 	kCmdCustom           // handler manages own threading
 };
@@ -48,7 +48,7 @@ struct CommandEntry {
 	CmdHandler       handler;        // non-null for standard categories
 	CustomCmdHandler customHandler;  // non-null for kCmdCustom
 	CmdHandler       validate = nullptr;  // optional main-thread arg validator
-	                                      // (kCmdWorkerDirect); returns "" if OK
+	                                      // (kCmdWorkerDirect/kCmdWorkerRaw); returns "" if OK
 };
 
 // ---------------------------------------------------------------------------

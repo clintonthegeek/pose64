@@ -48,19 +48,22 @@ def main():
             if not r.startswith("ERR usage"):
                 failures.append((cmd, r))
 
-        # No regression: well-formed input is still accepted (OK).  (Whether the
-        # event is *delivered* to the app is landmine #3 / Phase 2, not 1.8.)
-        good = {
-            "tap 80 80": "OK",
-            "tap 130 8": "OK",
-            "key 65": "OK",
-            "pen down 40 40": "OK",
-            "pen up 40 40": "OK",
-            "button power tap": "OK",
-            "type hello": "OK",
-        }
+        # No regression: well-formed input is still accepted.  Post-Phase-2 the
+        # contract is honest — tap/pen/key/type return "OK delivered" (landmine
+        # #3 closed); button keeps the queued "OK" (hardware-ISR path).  Ordered
+        # list: "button power tap" is LAST because it sleeps the device, after
+        # which anything queued would honestly be "ERR pending".
+        good = [
+            ("tap 80 80", "OK delivered"),
+            ("tap 130 8", "OK delivered"),
+            ("key 65", "OK delivered"),
+            ("pen down 40 40", "OK delivered"),
+            ("pen up 40 40", "OK delivered"),
+            ("type hello", "OK delivered"),
+            ("button power tap", "OK"),
+        ]
         regressions = []
-        for cmd, want in good.items():
+        for cmd, want in good:
             r = (c.send_command(cmd) or "").strip()
             if r != want:
                 regressions.append((cmd, r))

@@ -75,6 +75,14 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 
 All tools return structured text. No Bash calls needed for emulator interaction.
 
+**Input is delivery-honest (Phase 2).** `palm_tap`, `palm_tap_id`, `palm_pen`,
+`palm_key`, and `palm_type` block up to 2 s and return `OK delivered` only once
+the guest's event queue actually has the event — so a successful call means the
+input landed, not merely that it was queued. A refused or undelivered event is
+reported truthfully (`ERR pending` / `ERR busy: gremlin running` / `ERR
+duplicate: …`) instead of a misleading `OK`. `palm_button` and `palm_run` keep
+the older queued contract (`OK` = enqueued, not delivery-confirmed).
+
 ## Efficiency Patterns
 
 ### Use `palm_ui` first, `palm_screenshot` second

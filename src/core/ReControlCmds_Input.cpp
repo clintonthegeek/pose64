@@ -88,7 +88,37 @@ std::string RcValidate_Button (const QStringList& a)
 }
 
 // ============================================================================
-// RcCmd_Tap — WorkerDirect (posts pen down + up)
+// Honest input contract (Phase 2, recovery-plan 2.4 + Q-ACK).  tap/tap-id/
+// pen/key/type post toward the guest and then block up to kDeliveryTimeoutMs
+// on the per-queue delivery counter (incremented by PuppetString once the
+// event reaches the Palm OS event queue).  "OK delivered" means the guest
+// has it; a refused post is surfaced, never swallowed as OK.
+// ============================================================================
+
+// Map a refused post to the honest protocol error (recovery-plan 2.4).
+static std::string PrvInputDropError (EmPostInputResult r)
+{
+	switch (r)
+	{
+		case kInputDroppedGremlins:
+			return "ERR busy: gremlin running\n";
+		case kInputDroppedReplay:
+			return "ERR busy: event playback active\n";
+		case kInputDroppedMinimize:
+			return "ERR busy: minimization active\n";
+		case kInputDroppedDuplicate:
+			return "ERR duplicate: pen already down at that point\n";
+		default:
+			return "ERR transient: event not posted\n";
+	}
+}
+
+static const int kDeliveryTimeoutMs = 2000;
+static const char* kPendingError =
+	"ERR pending: queued, not delivered within 2000ms\n";
+
+// ============================================================================
+// RcCmd_Tap — WorkerRaw (posts pen down + up, waits for delivery)
 // ============================================================================
 
 std::string RcCmd_Tap (const QStringList& args)
@@ -100,16 +130,24 @@ std::string RcCmd_Tap (const QStringList& args)
 	int y = args[2].toInt ();
 
 	EmPenEvent penDown (EmPoint (x, y), true);
-	gSession->PostPenEvent (penDown);
+	EmPostInputResult r = gSession->PostPenEvent (penDown);
+	if (r != kInputPosted)
+		return ::PrvInputDropError (r);
 
 	EmPenEvent penUp (EmPoint (-1, -1), false);
-	gSession->PostPenEvent (penUp);
+	r = gSession->PostPenEvent (penUp);
+	if (r != kInputPosted)
+		return ::PrvInputDropError (r);
 
-	return "OK\n";
+	uint64 target = gSession->PenEventsPosted ();
+	if (gSession->WaitForPenDelivery (target, kDeliveryTimeoutMs))
+		return "OK delivered\n";
+	return kPendingError;
 }
 
 // ============================================================================
-// RcCmd_TapId — WorkerCycle (stopper created by dispatch loop)
+// RcCmd_TapId — WorkerRaw (handler creates its own stopper for the guest-
+// memory lookup; the stopper is released before waiting for delivery)
 // ============================================================================
 
 std::string RcCmd_TapId (const QStringList& args)
@@ -118,6 +156,16 @@ std::string RcCmd_TapId (const QStringList& args)
 		return "ERR usage: tap-id <object_id>\n";
 
 	int targetId = args[1].toInt ();
+	int cx = -1, cy = -1;
+
+	// Stop the CPU only while reading guest memory.  This scope MUST close
+	// (releasing the stopper) before WaitForPenDelivery below, or delivery
+	// could never happen and we would always time out.
+	{
+	EmSessionStopper stopper (gSession, kStopOnCycle, 5000);
+	if (!stopper.Stopped ())
+		return "ERR timeout: CPU did not reach a cycle boundary within 5000ms. "
+		       "Recovery: dismiss any dialog (dialog respond) or palm_reset.\n";
 
 	CEnableFullAccess munge;
 
@@ -200,18 +248,28 @@ std::string RcCmd_TapId (const QStringList& args)
 
 		if ((int) objId != targetId) continue;
 
-		int cx = winX + bx + bw / 2;
-		int cy = winY + by + bh / 2;
-
-		EmPenEvent penDown (EmPoint (cx, cy), true);
-		gSession->PostPenEvent (penDown);
-		EmPenEvent penUp (EmPoint (-1, -1), false);
-		gSession->PostPenEvent (penUp);
-
-		return "OK " + std::to_string (cx) + " " + std::to_string (cy) + "\n";
+		cx = winX + bx + bw / 2;
+		cy = winY + by + bh / 2;
+		break;
 	}
+	}  // end stopper scope — CPU resumes here, so delivery can occur
 
-	return "ERR usage: object " + std::to_string (targetId) + " not found\n";
+	if (cx < 0)
+		return "ERR usage: object " + std::to_string (targetId) + " not found\n";
+
+	EmPenEvent penDown (EmPoint (cx, cy), true);
+	EmPostInputResult r = gSession->PostPenEvent (penDown);
+	if (r != kInputPosted)
+		return ::PrvInputDropError (r);
+	EmPenEvent penUp (EmPoint (-1, -1), false);
+	r = gSession->PostPenEvent (penUp);
+	if (r != kInputPosted)
+		return ::PrvInputDropError (r);
+
+	uint64 target = gSession->PenEventsPosted ();
+	if (gSession->WaitForPenDelivery (target, kDeliveryTimeoutMs))
+		return "OK delivered " + std::to_string (cx) + " " + std::to_string (cy) + "\n";
+	return kPendingError;
 }
 
 // ============================================================================
@@ -232,13 +290,18 @@ std::string RcCmd_Pen (const QStringList& args)
 	int y = args[3].toInt ();
 
 	EmPenEvent penEvent (EmPoint (x, y), isDown);
-	gSession->PostPenEvent (penEvent);
+	EmPostInputResult r = gSession->PostPenEvent (penEvent);
+	if (r != kInputPosted)
+		return ::PrvInputDropError (r);
 
-	return "OK\n";
+	uint64 target = gSession->PenEventsPosted ();
+	if (gSession->WaitForPenDelivery (target, kDeliveryTimeoutMs))
+		return "OK delivered\n";
+	return kPendingError;
 }
 
 // ============================================================================
-// RcCmd_Key — WorkerDirect (single key event)
+// RcCmd_Key — WorkerRaw (single key event, waits for delivery)
 // ============================================================================
 
 std::string RcCmd_Key (const QStringList& args)
@@ -248,13 +311,18 @@ std::string RcCmd_Key (const QStringList& args)
 
 	int charcode = args[1].toInt ();
 	EmKeyEvent keyEvent (charcode);
-	gSession->PostKeyEvent (keyEvent);
+	EmPostInputResult r = gSession->PostKeyEvent (keyEvent);
+	if (r != kInputPosted)
+		return ::PrvInputDropError (r);
 
-	return "OK\n";
+	uint64 target = gSession->KeyEventsPosted ();
+	if (gSession->WaitForKeyDelivery (target, kDeliveryTimeoutMs))
+		return "OK delivered\n";
+	return kPendingError;
 }
 
 // ============================================================================
-// RcCmd_Type — WorkerDirect (multi-key sequence)
+// RcCmd_Type — WorkerRaw (multi-key sequence, waits for delivery)
 // ============================================================================
 
 std::string RcCmd_Type (const QStringList& args)
@@ -274,14 +342,19 @@ std::string RcCmd_Type (const QStringList& args)
 	{
 		unsigned char ch = (unsigned char) latin1[i];
 		EmKeyEvent keyEvent (ch);
-		gSession->PostKeyEvent (keyEvent);
+		EmPostInputResult r = gSession->PostKeyEvent (keyEvent);
+		if (r != kInputPosted)
+			return ::PrvInputDropError (r);
 	}
 
-	return "OK\n";
+	uint64 target = gSession->KeyEventsPosted ();
+	if (gSession->WaitForKeyDelivery (target, kDeliveryTimeoutMs))
+		return "OK delivered\n";
+	return kPendingError;
 }
 
 // ============================================================================
-// RcCmd_Button — WorkerDirect (skin button press)
+// RcCmd_Button — WorkerRaw (skin button press; queued, honest drop on refusal)
 // ============================================================================
 
 std::string RcCmd_Button (const QStringList& args)
@@ -307,9 +380,20 @@ std::string RcCmd_Button (const QStringList& args)
 	if (action != "down" && action != "up" && action != "tap")
 		return "ERR usage: button <name> <down|up|tap>\n";
 
-	if (action == "down")      gSession->SetButtonDown (button);
-	else if (action == "up")   gSession->SetButtonUp (button);
-	else if (action == "tap")  gSession->SetButtonTap (button);
+	if (action == "down")
+	{
+		if (!gSession->SetButtonDown (button))
+			return "ERR busy: gremlin or playback active\n";
+	}
+	else if (action == "up")
+	{
+		gSession->SetButtonUp (button);
+	}
+	else // tap
+	{
+		if (!gSession->SetButtonTap (button))
+			return "ERR busy: gremlin or playback active\n";
+	}
 
 	return "OK\n";
 }
