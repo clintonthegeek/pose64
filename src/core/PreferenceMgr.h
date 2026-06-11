@@ -364,6 +364,7 @@ extern EmulatorPreferences* gEmuPrefs;
 	DO_TO_PREF(LogDefaultDir,		EmDirRef,			())						\
 																				\
 	DO_TO_PREF(DebuggerSocketPort,	long,				(6414))					\
+	DO_TO_PREF(SLPDebugger,			bool,				(false))				\
 	DO_TO_PREF(RPCSocketPort,		long,				(6415))					\
 																				\
 	DO_TO_PREF(WarnAboutSkinsDir,	bool,				(true))					\

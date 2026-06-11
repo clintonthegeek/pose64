@@ -201,7 +201,10 @@ All commands in this section (and Logging, Gremlins, Configuration, Profiling be
 
 > **`break` does not stop execution on its own.** Setting/listing breakpoints
 > works, but when one hits, `Debug::EnterDebugger` only suspends the CPU if an
-> external Palm-Debugger-protocol (SLP) client is connected on port 6414/2000.
+> external Palm-Debugger-protocol (SLP) client is connected. As of Phase 3b
+> those listening sockets (ports 6414/2000) are **off by default** (landmine
+> #8): launch with `--slp-debugger` (or set the `SLPDebugger` preference) to
+> attach an external debugger — otherwise nothing listens there.
 > With no debugger attached the hit is **silently ignored** and execution
 > continues (DebugMgr.cpp, `ConditionalBreak`). There is no hit notification
 > and no `continue`/`resume` command in this protocol. For "stop when X

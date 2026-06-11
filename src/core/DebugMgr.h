@@ -149,6 +149,7 @@ class Debug
 
 		static void 			Startup 				(void);
 		static void 			Shutdown				(void);
+		static void 			ForceSocketsThisRun 	(void);
 		static Bool 			ConnectedToTCPDebugger	(void);
 		static CTCPSocket*		GetTCPDebuggerSocket	(void);
 		static CSocket*			GetDebuggerSocket		(void);

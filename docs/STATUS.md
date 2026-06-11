@@ -113,9 +113,21 @@ host.
 7. **`check set` re-arms a known freeze.** Any DRAM-region check flag
    restores an O(n) heap scan per memory access — 100% CPU within ~10 min
    (bypassed by default in `0bc2a41`, never fixed).
-8. **SLP debugger sockets listen by default** (6414/2000) and connecting
+8. ~~**SLP debugger sockets listen by default** (6414/2000) and connecting
    triggers an untimed main-thread `kStopOnSysCall` stop
-   (`Debug::EventCallback`) — a UI hang waiting to happen.
+   (`Debug::EventCallback`) — a UI hang waiting to happen.~~ **FIXED (Phase
+   3b, 2026-06-11).** Two-part defuse: (1) `Debug::CreateListeningSockets`
+   now early-returns unless the default-false `SLPDebugger` preference is set
+   or the `--slp-debugger` CLI flag forced sockets on this run
+   (`gForceDebuggerSockets` via `Debug::ForceSocketsThisRun`) — by default
+   nothing listens on 6414/2000, so the connect path is never armed; (2) both
+   `Debug::EventCallback` stoppers (the `kConnected` FtrSet and `kDisconnected`
+   FtrUnregister) are now bounded at 5000 ms (task-1.2 pattern) with a graceful
+   `else` skip if the CPU does not stop — so even when opted in, a connect can
+   no longer wedge the UI thread indefinitely. Repro (3× `ALL PASS`):
+   `tests/phase3/repro_slp_trap.py` — part 1 asserts default-off refusal,
+   part 2 drives a >5 s connect/disconnect probe proving the control plane
+   stays responsive.
 9. ~~**`reset` during a deferred-error dialog crashes the process.**~~ **FIXED
    (task 1.0d, 2026-06-10).** A scheduled `EmActionDialog` referenced the CPU
    thread's stack-local dialog data (`RunDialogParameters` + `EditCommonDialogData`).

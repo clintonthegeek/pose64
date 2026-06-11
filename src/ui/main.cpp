@@ -17,6 +17,7 @@
 #include "EmCommon.h"
 #include "EmApplicationQt.h"
 #include "EmDocument.h"
+#include "DebugMgr.h"
 #include "PreferenceMgr.h"
 #include "ReControl.h"
 #include "CPUWorkerThread.h"
@@ -67,6 +68,14 @@ int main (int argc, char** argv)
 		else if (strcmp (argv[i], "--no-recontrol") == 0)
 		{
 			recontrolPort = 0;
+			for (int j = i; j < argc - 1; j++)
+				argv[j] = argv[j + 1];
+			argc -= 1;
+			i--;
+		}
+		else if (strcmp (argv[i], "--slp-debugger") == 0)
+		{
+			Debug::ForceSocketsThisRun ();
 			for (int j = i; j < argc - 1; j++)
 				argv[j] = argv[j + 1];
 			argc -= 1;

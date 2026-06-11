@@ -123,6 +123,8 @@ static CSocket*			gDebuggerSocket1;	 // TCP socket on user-defined port
 static CSocket*			gDebuggerSocket2;	 // TCP socket on port 2000
 static CSocket*			gDebuggerSocket3;	 // Platform-specific socket
 static CTCPSocket*		gConnectedDebugSocket;
+static Bool				gForceDebuggerSockets;	// --slp-debugger CLI flag (this run only,
+												// never persisted to preferences)
 
 
 #pragma mark -
@@ -1934,13 +1936,25 @@ static void PrvFireUpSocket (CSocket*& s)
 	}
 }
 
+void Debug::ForceSocketsThisRun (void)
+{
+	gForceDebuggerSockets = true;
+}
+
 void Debug::CreateListeningSockets (void)
 {
+	// Phase 3b (landmine #8): the SLP debugger sockets are OFF by default.
+	// Opt in with the SLPDebugger preference or the --slp-debugger CLI flag.
+	// (Off also disarms the EventCallback stop-on-connect path entirely.)
+	Preference<bool>	enabledPref (kPrefKeySLPDebugger);
 	Preference<long>	portPref (kPrefKeyDebuggerSocketPort);
 
 	EmAssert (gDebuggerSocket1 == NULL);
 	EmAssert (gDebuggerSocket2 == NULL);
 	EmAssert (gDebuggerSocket3 == NULL);
+
+	if (!*enabledPref && !gForceDebuggerSockets)
+		return;
 
 	if (*portPref != 0)
 	{
@@ -2052,10 +2066,19 @@ void Debug::EventCallback (CSocket* s, int event)
 
 			if (EmPatchState::UIInitialized ())
 			{
-				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				// Bounded (Phase 3b): an unstoppable CPU must not wedge the
+				// UI thread on a debugger connect (landmine #8).  The 'gdbS'
+				// feature is best-effort; skipping it degrades prc-tools
+				// auto-break, nothing else.
+				EmSessionStopper	stopper (gSession, kStopOnSysCall, 5000);
 				if (stopper.Stopped ())
 				{
 					::FtrSet ('gdbS', 0, 0x12BEEF34);
+				}
+				else
+				{
+					fprintf (stderr, "POSE64: SLP connect: CPU did not stop "
+							 "within 5000ms; skipping gdbS feature set\n");
 				}
 			}
 			break;
@@ -2082,10 +2105,19 @@ void Debug::EventCallback (CSocket* s, int event)
 
 			if (EmPatchState::UIInitialized ())
 			{
-				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				// Bounded (Phase 3b): an unstoppable CPU must not wedge the
+				// UI thread on a debugger disconnect (landmine #8).  The 'gdbS'
+				// feature is best-effort; skipping it degrades prc-tools
+				// auto-break, nothing else.
+				EmSessionStopper	stopper (gSession, kStopOnSysCall, 5000);
 				if (stopper.Stopped ())
 				{
 					::FtrUnregister ('gdbS', 0);
+				}
+				else
+				{
+					fprintf (stderr, "POSE64: SLP disconnect: CPU did not stop "
+							 "within 5000ms; skipping gdbS feature unregister\n");
 				}
 			}
 
