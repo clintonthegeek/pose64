@@ -20,16 +20,20 @@
 > **Phase 3 IN PROGRESS — expanded scope per**
 > `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md`,
 > **executed as three plans:**
-> - **Plan 3a (MCP surface) — DONE (this commit):** proxy rebuilt around a
->   single 37-tool source-of-truth table; full debug surface MCP-exposed
+> - **Plan 3a (MCP surface) — DONE:** proxy rebuilt around a single 37-tool
+>   source-of-truth table; full debug surface MCP-exposed
 >   (backtrace/break/watch/spy/log/gremlin/check/errorhandling/profile/speed);
 >   central argument validation; drift test-gated. Tasks 3.1 and 3.4 complete.
-> - **Plan 3b (debugger fixes) — NEXT:**
->   `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md` —
->   tasks 3.2 (make `break` real) and 3.3 (defuse SLP trap).
-> - **Plan 3c (MetaMemory + GATE 3) — after 3b:**
+> - **Plan 3b (debugger fixes) — DONE:** tasks 3.2 (`break` real — landmine
+>   #1 FIXED: `EnterDebugger` fallback schedules `EmDeferredErrBreakpoint` →
+>   Continue/Debug/Reset dialog; repro `tests/phase3/test_break_real.py` 3x
+>   PASS) and 3.3 (SLP trap — landmine #8 FIXED: `CreateListeningSockets`
+>   gated behind `SLPDebugger` pref + `--slp-debugger` flag; both
+>   `EventCallback` stoppers bounded at 5000ms; repro
+>   `tests/phase3/repro_slp_trap.py` ALL PASS).
+> - **Plan 3c (MetaMemory + GATE 3) — NEXT:**
 >   `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` —
->   landmine #7 fix + GATE 3 fresh-agent run.
+>   landmine #7 root fix + GATE 3 fresh-agent run.
 > **Session break here per R6.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
@@ -302,17 +306,23 @@ Phase 3 is executed as three plans: **3a** (MCP surface rebuild), **3b**
       into `palm_apps all=true`; central argument validation; SKILL.md drift
       test-gated (`tests/phase3/test_mcp_surface.py`). SKILL.md +
       recontrol-protocol.md updated same commit (R5).
-- [ ] **3.2 Make `break` real** — in `Debug::EnterDebugger`'s no-debugger
-      fallback, raise the same deferred-error dialog path `watch`/`spy` use
-      (→ `blocked_on_ui`, inspectable via `dialog`, register dump included)
-      instead of silently continuing. Add `continue` semantics via the
-      existing `dialog respond continue`. Alternative if too invasive:
-      remove `break` from the protocol surface entirely (R2 — no decoys).
-      **Plan 3b:** `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md`
-- [ ] **3.3 Defuse the SLP trap** — debugger listening sockets (6414/2000)
-      off by default behind a pref; bound the `Debug::EventCallback`
-      stopper with a timeout.
-      **Plan 3b:** `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md`
+- [x] **3.2 Make `break` real** — **DONE (plan 3b, landmine #1 FIXED).**
+      `EnterDebugger`'s no-debugger fallback now schedules
+      `EmDeferredErrBreakpoint` → `Errors::ReportErrBreakpoint` →
+      Continue/Debug/Reset dialog (`blocked_on_ui`), inspectable via `dialog`
+      and `backtrace`, resumable via `dialog respond continue`. Same deferred-
+      error path `watch`/`spy` use. Repro: `tests/phase3/test_break_real.py`
+      3x PASS (each run = 3 rounds). **Plan 3b:**
+      `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md`
+- [x] **3.3 Defuse the SLP trap** — **DONE (plan 3b, landmine #8 FIXED).**
+      Debugger sockets (6414/2000) off by default; `CreateListeningSockets`
+      gated behind `SLPDebugger` bool pref (default false) and
+      `--slp-debugger` CLI flag. Both `EventCallback` stoppers bounded at
+      5000ms with graceful skip log. Repro:
+      `tests/phase3/repro_slp_trap.py` ALL PASS (default-off + opt-in
+      port-accepts + control-plane survival through connect/disconnect).
+      **Plan 3b:**
+      `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md`
 - [x] **3.4 Consolidate Python clients** — **DONE (plan 3a).** Scratch scripts
       (`datebook_interaction.py`, `garak_intrigue.py`, `test_cpu_worker_tap.py`)
       deleted; `ReControlClient` + harness promoted to `tests/lib`; phase-1
