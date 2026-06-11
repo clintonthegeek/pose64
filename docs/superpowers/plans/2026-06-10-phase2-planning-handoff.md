@@ -361,15 +361,29 @@ Note the tension to resolve: taps demonstrably work today, so either idle
 apps poll with finite timeouts (asleep gap rare) or something else re-enters
 the trap.
 
-### Q-MECH — still at the checkpoint, with one added criterion
+### Q-MECH — RESOLVED 2026-06-10: B + C
 
-Research adds a **guest-visible-behavior criterion** beyond idle CPU%: A
-floods apps with nilEvents (`SysEvGroupWait` never blocks), distorting
-nilEvent-cadence timing, auto-off, battery sim. B preserves guest timing at
-the cost of ≤1 tick latency. **Decision rule:** if B's focused experiment
-passes (tap delivered to a verified-asleep guest, TSAN-clean), pick **B+C**
-even if A's idle cost measures small; **A+C** is the fallback if the
-experiment surfaces kernel-state surprises.
+**Decision: B + C** (2.2 checkpoint, plan Task 5; user choice this session).
+The §10 decision table had two rows go true at once after the §12 baseline
+correction — "B experiment passed" AND "baseline never fails" — because the
+healthy-psf built-ins poll and so deliver naturally. The tie was broken for
+**B** on the criterion the built-ins cannot test: only B bounds delivery to
+≤1 tick for a true-`evtWaitForever` guest, which is the AI-driving target.
+Supporting data (handoff §12.1): idle delivery 0→100/100, idle p50 220 ms vs
+natural 297 ms, zero measured idle-CPU cost, TSAN clean of any
+hook-implicating report; the demoted/dead status of A stands (§11.3). The
+losing path (natural-delivery-only) is not carried forward; the hook lands and
+all wake-mechanism losers are deleted in plan Task 8 (R2). Architecture.md
+"Phase 2 decisions" blockquote updated to match.
+
+Original framing (kept for the reasoning trail): Research adds a
+**guest-visible-behavior criterion** beyond idle CPU%: A floods apps with
+nilEvents (`SysEvGroupWait` never blocks), distorting nilEvent-cadence timing,
+auto-off, battery sim. B preserves guest timing at the cost of ≤1 tick
+latency. **Decision rule:** if B's focused experiment passes (tap delivered to
+a verified-asleep guest, TSAN-clean), pick **B+C** even if A's idle cost
+measures small; **A+C** is the fallback if the experiment surfaces
+kernel-state surprises.
 
 ### Q-ACK — DECIDED: (a) change the default contract
 

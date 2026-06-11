@@ -181,11 +181,21 @@ for events.
    > contract is decided — `tap`/`pen`/`key`/`type` will block ≤2 s on a
    > delivery counter and return `OK delivered` / `ERR pending` / `ERR busy`
    > truthfully (Q-ACK option a; `button` keeps its hardware-ISR contract).
-   > The wake mechanism (A poll-always vs B targeted-wake) is still at the
-   > measure-first checkpoint, but robust B now has a verified-feasible
-   > design: a STOP-exit `EvtWakeup` hook on the CPU thread inside
-   > `ExecuteStoppedLoop` — see handoff §10 Q-B3. Decision rule: B+C if its
-   > focused experiment passes; A+C fallback.
+   > **Mechanism DECIDED 2026-06-10 (2.2 checkpoint): B + C.** The wake
+   > mechanism is robust **B** — a STOP-exit `EvtWakeup` hook on the CPU
+   > thread inside `ExecuteStoppedLoop` (handoff §10 Q-B3, experiment branch
+   > `phase2-experiment-B` @ `a09598d`). Approach **A** (poll-always) is
+   > **rejected/dead** (handoff §11.3): it cannot wake an already-asleep
+   > guest and floods awake apps with nilEvents. The B experiment passed
+   > (handoff §12.1): idle delivery 0→100/100, idle p50 220 ms vs natural
+   > 297 ms, zero measured idle-CPU cost, TSAN clean of any
+   > hook-implicating report. B was chosen over natural-delivery+C — which
+   > also works for the *polling* built-ins — because only B guarantees a
+   > ≤1-tick delivery bound for true-`evtWaitForever` apps, the AI-driving
+   > target the built-ins cannot exhibit. The hook is **landed to master
+   > and all losers deleted (R2) in plan Task 8**; until then it lives only
+   > on the experiment branch. See
+   > `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md` Task 5.
 
 **`clearTimeout`:** When true, changes SysEvGroupWait's timeout from 0
 (infinite/wait forever) to -1 (no wait/return immediately). This prevents

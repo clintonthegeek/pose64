@@ -31,12 +31,17 @@
 > app polling (~300 ms p50, Q-B4 resolved). Re-saved healthy psf locally;
 > two NEW pre-existing landmines recorded (STATUS #10 app-switch
 > MemHandleLock crash w/ repro, #11 teardown races).
-> **NEXT: the 2.2 CHECKPOINT (plan Task 5), decision now "B + C" vs
-> "natural-delivery + C"** (A stays dead; the old decision table's rows
-> conflict under the corrected data — bring the §12 numbers). Then Tasks
-> 6–9 (honesty plumbing → honest ACK → land winner + delete losers →
-> GATE 2; GATE 2 rapid runs need landmine #10 fixed or a within-app rapid
-> test). **Session break NOW (R6) — checkpoint opens the next session.**
+> **2.2 CHECKPOINT DECIDED 2026-06-10 (plan Task 5): B + C** (data-backed;
+> A rejected/dead; chosen over natural-delivery-only for the guaranteed
+> ≤1-tick bound on true-`evtWaitForever` apps — handoff §10 Q-MECH RESOLVED,
+> §12.3, architecture.md). **GATE-2 test scope decided: stay within one app**
+> (within-app Datebook Go-To/Cancel toggle), deferring the landmine-#10 fix.
+> **NEXT = Phase 2 implementation, plan Task 6** (honesty plumbing in
+> EmSession — C layer + Q-DROP statuses), then Task 7 (honest ACK), Task 8
+> (land the B hook to master + delete all wake-mechanism losers, R2), Task 9
+> (GATE 2). Task 8 is the first time the hook touches master; until then it
+> lives only on `phase2-experiment-B`. **Session break here per R6 — Task 6 is
+> threading-sensitive code and opens the next sitting (strongest model).**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -236,8 +241,13 @@ truthful error), with ONE delivery mechanism in the tree.
       button (e.g. Launcher icon via `tap-id`) → poll `screen-hash`/`ui` ≤2 s
       → assert change. Run against baseline to characterize today's failure
       rate. This test is the referee for every option below.
-- [ ] **2.2 Decide the mechanism** (single decision, recorded in
-      architecture.md):
+- [x] **2.2 Decide the mechanism** — **DECIDED 2026-06-10: B + C**
+      (data-backed; recorded in `architecture.md` "Phase 2 decisions" + handoff
+      §10 Q-MECH RESOLVED + §12.3). B = STOP-exit `EvtWakeup` hook; A is
+      rejected/dead (handoff §11.3); chosen over natural-delivery-only because
+      only B bounds delivery to ≤1 tick for true-`evtWaitForever` apps. Hook
+      lands + losers deleted (R2) in plan Task 8. *(single decision, recorded
+      in architecture.md):*
       - **A. Poll-always** (the uncommitted PuppetString approach):
         guest never sleeps on infinite timeout; simplest; costs idle CPU —
         measure it (the sleep-until-interrupt work was a headline feature;
@@ -259,6 +269,16 @@ truthful error), with ONE delivery mechanism in the tree.
 
 **GATE 2:** delivery test ≥ 99% over 200 taps at 1x and at Max speed; idle
 CPU% recorded in STATUS.md; exactly one wake mechanism greppable in src/.
+
+> **GATE-2 test scope DECIDED 2026-06-10: stay within one app.** The rapid
+> run uses the within-app Datebook Go-To/Cancel toggle (the `test_delivery.py`
+> referee design), NOT launcher↔app switching — this sidesteps pre-existing
+> landmine #10 (app-switch churn → `MemoryMgr` fatal alert; STATUS #10, repro
+> `tests/phase2/repro_appswitch_memmgr.py`). The #10 fix is **deferred**; it
+> stays a documented landmine with a checked-in repro. Executor must confirm
+> the within-app rapid run completes the full 200 taps without tripping #10
+> (handoff §12.4 asserts it does); if it still trips, escalate rather than
+> silently truncate.
 
 ---
 
