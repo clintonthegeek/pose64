@@ -6,7 +6,7 @@
 > session has the live code in context. Do not execute phases out of order;
 > the gates exist because this project previously died of skipped gates.
 
-> **CURRENT POSITION (updated 2026-06-10 — keep this banner current, R5):**
+> **CURRENT POSITION (updated 2026-06-11 — keep this banner current, R5):**
 > Phase 0 **complete** (GATE 0 passed). Phase 1 tasks **1.8, 1.3, 1.0d,
 > 1.1, 1.2, 1.4, 1.7** all done & verified. **GATE 1 PASSED (2026-06-10):**
 > TSAN single-pass 13/13 PASS (verified 3×); ASAN 30-min soak all iterations
@@ -69,11 +69,19 @@
 > 10/10 still pass on the normal build. Residuals (not blockers): the
 > `load_during_queue` exit-66 is the documented libtsan try_emplace abort (Qt
 > threadpool, EmSession.cpp:753-757), flaky ~1/3; one pre-existing CPUWorkerThread
-> double-lock (same QWaitCondition class, annotatable later). **REMAINING GATE 2
-> = Steps 1/2/4/5:** 200-tap delivery matrix ≥99% at 1x **and** Max (within-app
-> referee + app-switch survival run, un-capped), idle-CPU medians recorded in
-> STATUS, the one-wake-mechanism grep gate, and the `phase-2-complete` tag.
-> **Session break here per R6.**
+> double-lock (same QWaitCondition class, annotatable later).
+> **GATE 2 PASSED — Phase 2 COMPLETE (2026-06-11, this session).** Steps
+> 1/2/4/5 done on master: 200-tap matrix **200/200 (100%) at both 1x and Max**
+> (0/400 fails); idle CPU 1x median **80.65%** vs baseline 80.50% (hook cost ≈
+> 0), Max 99.92% (pegs a core by design); grep gate clean — one input-delivery
+> wake (`EmCPU68K.cpp:1022`), `PrvWakeUpCPU` deleted. Tagged `phase-2-complete`,
+> pushed; full numbers in the STATUS Phase-2 bullet. **NEXT = Phase 3 (close the
+> tool/doc gap): task 3.1 — expose the 9 debug command groups as MCP tools
+> (prereq: unify the proxy's duplicated schema/dispatch tables into one
+> `{name,schema,template}` table so tool lists can't drift). GATE 3 = a fresh
+> agent does install→launch→crash→inspect→recover with zero "Unknown tool".**
+> Each Phase-3 task still gets its own detailed plan (writing-plans) at execution
+> time. **Session break here per R6.**
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one

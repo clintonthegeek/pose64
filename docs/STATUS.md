@@ -1,7 +1,7 @@
 # POSE64 — Project Status
 
 **Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03);
-Phase 1 progress updates 2026-06-10
+Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -73,9 +73,10 @@ host.
    `tests/phase2/test_honest_ack.py` PASS, phase-1 repros 7/7, app-switch repro
    3/3 clean (2,400 switches). **GATE 2 TSAN race-check RUN & PASSING 2026-06-11**
    (delivery machinery + hook TSAN-clean after annotating `omni_condition` waits
-   so TSAN can see through `QWaitCondition::wait`); 200-tap matrix ≥99% at
-   1x+Max, idle-CPU medians, and the grep gate + tag remain (Task 9 Steps
-   1/2/4/5). Detail: handoff §11–§12
+   so TSAN can see through `QWaitCondition::wait`). **GATE 2 PASSED 2026-06-11**
+   (Task 9 all steps): 200-tap matrix **200/200 (100%)** at 1x+Max (0/400 fails),
+   idle-CPU 1x median **80.65%** (baseline 80.50%, hook cost ≈ 0), grep gate
+   clean (one input-delivery wake), tagged `phase-2-complete`. Detail: handoff §11–§12
    + `docs/superpowers/plans/2026-06-10-phase2-input-delivery.md`.
    *(NB: the "one wake mechanism" grep gate means one* input-delivery *wake;
    `EvtWakeup` legitimately appears in Gremlins, app-switch/`launch`,
@@ -207,7 +208,7 @@ host.
   later by the same pattern). **Still NOT run — GATE 2 Steps 1/2/4/5:** 200-tap
   delivery matrix ≥99% at 1x+Max, idle-CPU medians, one-wake-mechanism grep gate,
   and the `phase-2-complete` tag. Execution history below.
-- **Phase 2 — IN PROGRESS (2026-06-10 execution session).** Task 1 done
+- **Phase 2 — COMPLETE (GATE 2 PASSED 2026-06-11).** Task 1 done
   (commit `5cd5c62`: `speed [<percent>|max]` ReControl command + a stale
   `fEmulationSpeed` comment fix). Then the R1 measurements **overturned the
   plan's central assumption** and the plan was **revised in place** (user
@@ -252,6 +253,32 @@ host.
     "natural-delivery + C"** (A stays dead): B = guaranteed ≤1-tick bound +
     measured latency win + zero measured cost; natural = no new mechanism,
     relies on apps polling. Session break here (R6).
+  - **GATE 2 PASSED (2026-06-11) — Phase 2 COMPLETE.** Task 9 all steps green on
+    master (HEAD has the landed approach-B hook, healthy `m515.psf`):
+    - **Step 1 — 200-tap delivery matrix:** 1x **200/200 (100%)**, Max
+      **200/200 (100%)** — 0 failures across all 400 taps, every response
+      `OK delivered`. End-to-end latency p50 225 ms @1x, 68 ms @Max (Max ≈3.3×
+      faster confirms `speed` drives the throttle, not just accepted). Well
+      above the ≥99% bar at both speeds.
+    - **Step 2 — idle CPU, landed mechanism (3× each):** 1x median **80.65%**
+      (81.02/80.65/80.62) vs baseline 80.50% → hook cost ≈ +0.15%, within noise
+      (the ~80% is the healthy psf's app-polling idle, not the hook). Max median
+      **99.92%** (99.92/99.92/99.70) — pegs a core by design (STOP-loop sleep is
+      `speed>0`-gated; offscreen platform). Documented caveat, not a regression.
+    - **Step 3 — TSAN race-check:** DONE & PASSING `7be99ad` (0 implicating
+      reports across 5 stress runs).
+    - **Step 4 — grep gate:** exactly one *input-delivery* wake mechanism,
+      `EmCPU68K.cpp:1022` (STOP-exit `EvtWakeup`, `HasPenEvent`/`HasKeyEvent`-
+      gated, CPU thread). `PrvWakeUpCPU` **deleted** — survives only as the
+      comment at `EmCPU68K.cpp:1011`. Remaining `EvtWakeup` calls are the
+      ROMStubs stub def + pre-existing upstream paths (file import,
+      UI-interrupt, HostControl, post-load reset, gremlins) and the `launch`
+      app-switch path (`ReControlCmds_Session.cpp:283`, `kCmdWorkerSysCall`,
+      worker thread, ROM-syscall-safe) — none a competing pen/key wake. The
+      `src/Emulator_Src_3.5/` hits are the reference tree (not compiled).
+    Tagged `phase-2-complete`. **NEXT: Phase 3 (close the tool/doc gap) — task
+    3.1, expose the 9 debug command groups as MCP tools (prereq: unify the
+    proxy's duplicated schema/dispatch tables).**
   - **Session-file baseline (2026-06-10):** the old machine-local `m515.psf`
     (Feb 20) was saved WEDGED — guest in a supervisor ROM busy-loop near
     `HwrIRQ5Handler`, SR intmask=6 (timer interrupt masked), STOP never

@@ -1430,8 +1430,15 @@ git commit -m "feat(phase2): land <winner> wake mechanism; delete PrvWakeUpCPU +
 
 ### Task 9: GATE 2
 
-> **PROGRESS (2026-06-11): Step 3 DONE & PASSING (commit `7be99ad`).** Steps
-> 1, 2, 4, 5 remain (next sitting, R6 break taken). The TSAN race-check
+> **GATE 2 PASSED 2026-06-11 — Phase 2 COMPLETE. All steps (1–5) done.**
+> Step 1: 200-tap matrix 200/200 (100%) at both 1x and Max (0/400 fails),
+> p50 225 ms @1x / 68 ms @Max. Step 2: idle CPU 1x median 80.65% (baseline
+> 80.50%, hook cost ≈ 0), Max 99.92% (by-design core peg). Step 4: grep gate
+> clean — one input-delivery wake (`EmCPU68K.cpp:1022`), `PrvWakeUpCPU` deleted.
+> Step 5: STATUS + banner updated, tagged `phase-2-complete`, pushed. NEXT =
+> Phase 3 (tool/doc gap, task 3.1). Step 3 detail below.
+>
+> **Step 3 DONE & PASSING (commit `7be99ad`).** The TSAN race-check
 > required a fix first: `omni_condition::{wait,timedwait}` are now annotated
 > with `QtTsan::mutex*` so TSAN can see through `QWaitCondition::wait` (which
 > lives in un-instrumented libQt6Core and hid the `fDeliveryLock` hand-off,
@@ -1440,7 +1447,8 @@ git commit -m "feat(phase2): land <winner> wake mechanism; delete PrvWakeUpCPU +
 > #5/#6 baseline unchanged. See STATUS.md Phase-2 bullet + architecture.md
 > Threading "TSAN note" for the durable lesson.
 
-- [ ] **Step 1: The 200-tap matrix**
+- [x] **Step 1: The 200-tap matrix** — DONE 2026-06-11: 1x 200/200 (100%),
+Max 200/200 (100%), 0/400 fails.
 
 ```bash
 python3 tests/phase2/test_delivery.py --mode rapid --count 100 --speed 100
@@ -1451,9 +1459,11 @@ python3 tests/phase2/test_delivery.py --mode idle  --count 100 --speed max
 
 Pass: ≥ 99% per speed (≤ 2 failures across the 200 taps at each speed).
 
-- [ ] **Step 2: Idle CPU with the landed mechanism** — rerun Task 3 Step 2
+- [x] **Step 2: Idle CPU with the landed mechanism** — rerun Task 3 Step 2
 (3× at 1x, 3× at Max); record medians in `docs/STATUS.md` next to baseline
 (B should be within noise of baseline; that's the headline-feature check).
+**DONE 2026-06-11:** 1x median 80.65% (81.02/80.65/80.62) vs baseline 80.50%
+— hook cost ≈ 0; Max median 99.92% (by-design core peg, `speed>0`-gated).
 
 - [x] **Step 3: Race check** — **DONE & PASSING 2026-06-11 (commit `7be99ad`).**
 TSAN build (rebuilt at HEAD) + GATE 1 stress suite (13 scenarios), 5 runs.
@@ -1465,11 +1475,14 @@ before — QWaitCondition blindness; vanished while #5/#6 baseline held at
 67–82/run). STOP-exit hook: 0 reports. Normal build: `test_honest_ack` PASS,
 delivery 10/10 100%.
 
-- [ ] **Step 4: The grep gate** — `grep -rn "EvtWakeup\|PrvWakeUpCPU" src/`
+- [x] **Step 4: The grep gate** — `grep -rn "EvtWakeup\|PrvWakeUpCPU" src/`
 output recorded in STATUS: exactly one wake mechanism (plus the ROMStubs stub
-definition).
+definition). **DONE 2026-06-11:** one input-delivery wake (`EmCPU68K.cpp:1022`);
+`PrvWakeUpCPU` deleted (comment-only at `:1011`); other `EvtWakeup` calls are
+the stub def + pre-existing upstream paths + the `launch` app-switch path —
+none a competing pen/key wake. (`src/Emulator_Src_3.5/` = uncompiled refsrc.)
 
-- [ ] **Step 5: Record, tag, push**
+- [x] **Step 5: Record, tag, push** — DONE 2026-06-11.
 
 Update `docs/STATUS.md` (GATE 2 PASSED line with all numbers) and the
 recovery-plan CURRENT POSITION banner (Phase 2 complete → next: Phase 3).
