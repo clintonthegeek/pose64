@@ -74,6 +74,14 @@ def main():
     check("enum violation is usage error", E(r) and "must be one of" in T(r), T(r))
     check("validation sent nothing", len(f.received) == n, f.received[n:])
 
+    # --- robustness: non-object arguments must not crash the proxy (code review) ---
+    r = p.call("palm_ping", "oops")
+    check("non-object args is usage error, not a crash",
+          E(r) and "must be an object" in T(r), T(r))
+    # proxy still alive after the bad call (ping reuses the scripted "state" response):
+    r = p.call("palm_ping")
+    check("proxy survived bad args", not E(r) and T(r) == "pong", T(r))
+
     # --- debug groups ---
     r = p.call("palm_break", {"action": "list"})
     check("break list multiline", f.received[-1] == "break list" and "empty" in T(r), T(r))

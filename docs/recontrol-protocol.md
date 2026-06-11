@@ -197,10 +197,11 @@ Sub-commands: `tap`, `pen`, `key`, `type`, `button`, `sleep`, `repeat N { ... }`
 
 ### Debugging
 
-> **Not MCP tools.** None of the commands in this section (or Logging,
+> **Not MCP tools yet.** None of the commands in this section (or Logging,
 > Gremlins, Configuration, Profiling below) are exposed by `pose64-mcp-proxy`
-> — the proxy implements exactly 28 `palm_*` tools, none of them debugging.
-> Drive these over raw TCP (`printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`).
+> — the proxy currently implements 27 `palm_*` tools (the 10 debug-surface
+> tools land in the next commit). Drive these over raw TCP
+> (`printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`).
 >
 > **`break` does not stop execution on its own.** Setting/listing breakpoints
 > works, but when one hits, `Debug::EnterDebugger` only suspends the CPU if an

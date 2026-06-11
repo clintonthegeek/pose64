@@ -46,20 +46,6 @@ static int         g_recv_timeout_sec = 60;  // SO_RCVTIMEO; must exceed the
 // recv outcome, so callers can distinguish "server wedged" from "peer closed".
 enum RecvStatus { RECV_OK = 1, RECV_LOST = 0, RECV_TIMEOUT = -1 };
 
-// Side-effect-free commands, where a reconnect+resend after a dropped response
-// cannot double-execute anything.  Everything NOT listed (install, key, type,
-// poke, delete, tap, pen, button, launch, reset, save, load, menu, run, ...) is
-// treated as non-idempotent and is never silently re-sent.
-static bool cmd_is_idempotent (const std::string& cmd)
-{
-    std::string verb = cmd.substr (0, cmd.find_first_of (" \r\n"));
-    static const char* const kReadOnly[] = {
-        "state", "info", "apps", "ui", "peek", "regs",
-        "backtrace", "bt", "screen-hash"};
-    for (const char* v : kReadOnly)
-        if (verb == v) return true;
-    return false;
-}
 
 // ============================================================================
 // Logging (all to stderr — stdout is clean JSON-RPC only)
@@ -201,7 +187,7 @@ static bool tcp_ensure_connected ()
 // command did NOT reach the server (the send itself failed).  Once the command
 // has been delivered, we never blindly resend it — a dropped *response* must not
 // double-execute a non-idempotent command (install/key/type/poke/delete/...).
-static std::string rc_command (const std::string& cmd)
+static std::string rc_command (const std::string& cmd, bool idempotent = false)
 {
     std::string full = cmd + "\n";
     std::string resp;
@@ -226,7 +212,7 @@ static std::string rc_command (const std::string& cmd)
                + "s; the command may still be running — query state before retrying.";
     // RECV_LOST: connection dropped after delivery.  Resend only if a re-run is
     // side-effect-free; otherwise report honestly instead of double-executing.
-    if (cmd_is_idempotent (cmd))
+    if (idempotent)
     {
         if (tcp_reconnect () && tcp_send (g_sock, full)
             && tcp_recv_line (g_sock, resp) == RECV_OK)
@@ -242,7 +228,7 @@ static std::string rc_command (const std::string& cmd)
 // terminated by ".\n".  But if the command fails, ReControl returns "ERR ...\n"
 // as a single line (no dot terminator).  So we read the first line, and only
 // continue to multi-line read if it starts with "OK".
-static std::string rc_command_multi (const std::string& cmd)
+static std::string rc_command_multi (const std::string& cmd, bool idempotent = false)
 {
     std::string full = cmd + "\n";
     std::string first_line;
@@ -262,8 +248,8 @@ static std::string rc_command_multi (const std::string& cmd)
                + std::to_string (g_recv_timeout_sec) + "s.";
     if (rc == RECV_LOST)
     {
-        // Multi-line commands (ui/info/apps) are read-only — safe to resend.
-        if (!tcp_reconnect () || !tcp_send (g_sock, full)
+        // Resend only when the caller marked this command idempotent.
+        if (!idempotent || !tcp_reconnect () || !tcp_send (g_sock, full)
             || tcp_recv_line (g_sock, first_line) != RECV_OK)
             return "ERR transient: ReControl connection lost";
     }
@@ -377,8 +363,17 @@ static std::string base64_encode (const std::vector<uint8_t>& data)
 }
 
 // ============================================================================
-// Tool definitions for tools/list
+// Tool table — the single source of truth
 // ============================================================================
+//
+// Every MCP tool is ONE entry in kTools[].  tools/list, dispatch, argument
+// validation, and reconnect/idempotency policy all derive from it.  (Phase 3
+// replaced three parallel structures that had drifted: the tools/list
+// builder, the dispatch if-chain, and cmd_is_idempotent().)
+//
+// Multiline-ness and idempotency are per-ACTION, not per-tool ("break list"
+// is multiline+idempotent, "break set" is neither), so each tool's builder
+// returns them alongside the TCP command.
 
 static json make_schema (json properties = {}, std::vector<std::string> required = {})
 {
@@ -405,321 +400,376 @@ static json bool_prop (const std::string& desc)
     return {{"type", "boolean"}, {"description", desc}};
 }
 
-static json get_tools_list ()
+static json enum_prop (const std::string& desc, std::vector<std::string> values)
 {
-    json tools = json::array ();
+    json p = {{"type", "string"}, {"description", desc}};
+    p["enum"] = json (values);
+    return p;
+}
 
-    auto add = [&](const std::string& name, const std::string& desc, json schema) {
-        tools.push_back ({{"name", name}, {"description", desc}, {"inputSchema", schema}});
-    };
+struct BuiltCmd
+{
+    std::string cmd;        // TCP command to send (when err is empty)
+    std::string err;        // non-empty => "ERR usage: <err>", nothing sent
+    bool multiline  = false;
+    bool idempotent = false;
+};
 
-    add ("palm_ping", "Ping the emulator to check if it is responsive.",
-         make_schema ());
+static BuiltCmd built (std::string cmd, bool multiline = false, bool idempotent = false)
+{
+    BuiltCmd b;
+    b.cmd = std::move (cmd);
+    b.multiline = multiline;
+    b.idempotent = idempotent;
+    return b;
+}
 
-    add ("palm_state", "Get emulator state and device info.",
-         make_schema ());
+static BuiltCmd usage_err (std::string msg)
+{
+    BuiltCmd b;
+    b.err = std::move (msg);
+    return b;
+}
 
-    add ("palm_ui", "Read the current Palm OS form/UI structure.",
-         make_schema ());
+using SchemaFn  = json (*) ();
+using BuildFn   = BuiltCmd (*) (const json&);
+using HandlerFn = json (*) (const json&, const json&);
 
-    add ("palm_apps", "List installed applications on the emulated device.",
-         make_schema ());
+struct ToolDef
+{
+    const char* name;
+    const char* description;
+    SchemaFn    schema;
+    BuildFn     build;      // nullptr when custom is set
+    HandlerFn   custom;     // nullptr for plain command tools
+};
 
-    add ("palm_dbs", "List all databases (apps, data, resources) on the emulated device.",
-         make_schema ());
+static std::string istr (const json& v)   // validated integer -> string
+{
+    return std::to_string (v.get<long long> ());
+}
 
-    add ("palm_tap", "Tap at screen coordinates.",
-         make_schema ({{"x", int_prop ("X coordinate")}, {"y", int_prop ("Y coordinate")}},
-                      {"x", "y"}));
+static std::string sstr (const json& v)   // validated string -> string
+{
+    return v.get<std::string> ();
+}
 
-    add ("palm_tap_id", "Tap a UI object by its numeric ID.",
-         make_schema ({{"id", int_prop ("Object ID from palm_ui")}},
-                      {"id"}));
+// Generic argument validation against the tool's own schema: required
+// arguments present, basic types correct, enum membership, no unknown
+// arguments.  A failure returns the usage message and NOTHING is sent to
+// the emulator — no silent defaults (the old proxy turned a missing 'x'
+// into "tap 0 0").
+static std::string validate_args (const json& schema, const json& args)
+{
+    if (!args.is_object ())
+        return "arguments must be an object";
 
-    add ("palm_pen", "Send a pen down or up event at coordinates.",
-         make_schema ({{"action", str_prop ("'down' or 'up'")},
-                       {"x", int_prop ("X coordinate")},
-                       {"y", int_prop ("Y coordinate")}},
-                      {"action", "x", "y"}));
+    if (schema.contains ("required"))
+        for (const auto& r : schema["required"])
+            if (!args.contains (r.get<std::string> ()))
+                return "missing required argument '" + r.get<std::string> () + "'";
 
-    add ("palm_key", "Send a key event by character code.",
-         make_schema ({{"code", int_prop ("Character code")}},
-                      {"code"}));
-
-    add ("palm_type", "Type a string of text into the emulator.",
-         make_schema ({{"text", str_prop ("Text to type")}},
-                      {"text"}));
-
-    add ("palm_button", "Press a hardware button (power, up, down, app1-4, cradle, contrast).",
-         make_schema ({{"name", str_prop ("Button name")},
-                       {"action", str_prop ("'down', 'up', or 'tap'")}},
-                      {"name", "action"}));
-
-    add ("palm_screenshot",
-         "Take a screenshot. Returns image data if no path given, otherwise saves to path. "
-         "Use scale/grid/annotate/crosshair for AI-friendly coordinate overlays.",
-         make_schema ({{"path",      str_prop ("File path to save PNG (optional, default /tmp/pose64_screenshot.png)")},
-                       {"scale",     int_prop ("Integer scale multiplier, e.g. 4 for 640x640 from 160x160 (default 1)")},
-                       {"grid",      bool_prop ("Draw coordinate grid overlay with rulers (default false)")},
-                       {"annotate",  bool_prop ("Draw UI element bounding boxes with IDs (default false)")},
-                       {"crosshair", str_prop ("Draw crosshair at 'x,y' coordinates, e.g. '80,72'")}}));
-
-    add ("palm_screen_hash", "Get a CRC32 hash of the current screen contents.",
-         make_schema ());
-
-    add ("palm_launch", "Launch an application by database name.",
-         make_schema ({{"app", str_prop ("Application database name")}},
-                      {"app"}));
-
-    add ("palm_install", "Install a .prc/.pdb file into the emulator.",
-         make_schema ({{"path", str_prop ("Path to .prc or .pdb file")}},
-                      {"path"}));
-
-    add ("palm_export", "Export a Palm OS database (.prc/.pdb) from the emulator to a file.",
-         make_schema ({{"db", str_prop ("Database name (from palm_apps)")},
-                       {"path", str_prop ("File path to write the exported database")}},
-                      {"db", "path"}));
-
-    add ("palm_save", "Save the current emulator session to a file.",
-         make_schema ({{"path", str_prop ("Path to save session file")}},
-                      {"path"}));
-
-    add ("palm_load", "Load an emulator session from a file.",
-         make_schema ({{"path", str_prop ("Path to session file")}},
-                      {"path"}));
-
-    add ("palm_reset", "Reset the emulated device.",
-         make_schema ({{"type", str_prop ("'soft', 'hard', or 'debug' (optional, default soft)")}}));
-
-    add ("palm_sleep", "Pause for a number of milliseconds (1-30000).",
-         make_schema ({{"ms", int_prop ("Milliseconds to sleep (1-30000)")}},
-                      {"ms"}));
-
-    add ("palm_quit", "Quit the emulator.",
-         make_schema ());
-
-    add ("palm_dialog", "Query or respond to a pending POSE64 modal dialog (debugger, warnings, etc).",
-         make_schema ({{"respond", str_prop ("Button to click: ok, cancel, continue, debug, reset, yes, no (omit to just query)")}}));
-
-    add ("palm_run", "Execute a batch of commands in one call. Commands separated by semicolons. "
-         "Supports: tap, pen, key, type, button, sleep, repeat N { ... }. "
-         "Example: 'tap 12 148; sleep 150; type x; tap 12 148'",
-         make_schema ({{"script", str_prop ("Semicolon-separated commands to execute")}},
-                      {"script"}));
-
-    add ("palm_peek", "Read bytes from emulated memory. Address formats: 0x<hex> (absolute), "
-         "a5@<offset> (A5-relative), global.<name> (low-memory global).",
-         make_schema ({{"addr", str_prop ("Memory address (0x<hex>, a5@<offset>, or global.<name>)")},
-                       {"nbytes", int_prop ("Number of bytes to read (1-256)")}},
-                      {"addr", "nbytes"}));
-
-    add ("palm_poke", "Write bytes to emulated memory.",
-         make_schema ({{"addr", str_prop ("Memory address (0x<hex>, a5@<offset>, or global.<name>)")},
-                       {"nbytes", int_prop ("Number of bytes to write (1-256)")},
-                       {"data", str_prop ("Hex string of bytes to write (e.g. '00A1B2C3')")}},
-                      {"addr", "nbytes", "data"}));
-
-    add ("palm_regs", "Read m68k CPU registers (D0-D7, A0-A7, PC, SR).",
-         make_schema ());
-
-    add ("palm_menu", "Trigger a menu item by menu and item title. Posts a menuEvent to the Palm OS event queue.",
-         make_schema ({{"menu", str_prop ("Menu title (e.g. 'Options')")},
-                       {"item", str_prop ("Item title or substring (e.g. 'About')")}},
-                      {"menu", "item"}));
-
-    add ("palm_delete", "Delete a database from the emulated device.",
-         make_schema ({{"db", str_prop ("Database name to delete")}},
-                      {"db"}));
-
-    return tools;
+    const json props = schema.value ("properties", json::object ());
+    for (auto it = args.begin (); it != args.end (); ++it)
+    {
+        if (!props.contains (it.key ()))
+            return "unknown argument '" + it.key () + "'";
+        const json& p = props[it.key ()];
+        const std::string type = p.value ("type", "");
+        if (type == "integer" && !it.value ().is_number_integer ())
+            return "argument '" + it.key () + "' must be an integer";
+        if (type == "string" && !it.value ().is_string ())
+            return "argument '" + it.key () + "' must be a string";
+        if (type == "boolean" && !it.value ().is_boolean ())
+            return "argument '" + it.key () + "' must be a boolean";
+        if (p.contains ("enum"))
+        {
+            bool ok = false;
+            for (const auto& e : p["enum"])
+                if (e == it.value ())
+                    ok = true;
+            if (!ok)
+                return "argument '" + it.key () + "' must be one of " + p["enum"].dump ();
+        }
+    }
+    return "";
 }
 
 // ============================================================================
-// Tool dispatch
+// Custom handlers — tools whose MCP result is more than a command passthrough
 // ============================================================================
 
-// Helper: send single-line command, return tool result (OK text or ERR).
-static json rc_tool (const json& id, const std::string& cmd)
+static json h_ping (const json& id, const json&)
 {
+    std::string resp = rc_command ("state", true);
+    if (resp.rfind ("OK", 0) == 0)
+        return make_tool_result (id, "pong");
+    return make_tool_result (id, resp, true);
+}
+
+static json h_state (const json& id, const json&)
+{
+    std::string state = rc_command ("state", true);
+    std::string info  = rc_command_multi ("info", true);
+    return make_tool_result (id, json ({{"state", state}, {"info", info}}).dump (2));
+}
+
+static json h_dialog (const json& id, const json& args)
+{
+    std::string respond = args.value ("respond", std::string ());
+    if (respond.empty ())
+        return make_tool_result (id, rc_command_multi ("dialog", true));
+    std::string resp = rc_command ("dialog respond " + respond);
+    return make_tool_result (id, resp, resp.rfind ("OK", 0) != 0);
+}
+
+static json h_screenshot (const json& id, const json& args)
+{
+    std::string path = args.value ("path", std::string ());
+    bool has_path = !path.empty ();
+    if (!has_path)
+        path = "/tmp/pose64_screenshot.png";
+
+    std::string cmd = "screenshot " + path;
+
+    int  scale    = args.value ("scale", 1);
+    bool grid     = args.value ("grid", false);
+    bool annotate = args.value ("annotate", false);
+    std::string crosshair = args.value ("crosshair", std::string ());
+
+    crosshair.erase (std::remove (crosshair.begin (), crosshair.end (), ' '), crosshair.end ());
+    crosshair.erase (std::remove (crosshair.begin (), crosshair.end (), '\n'), crosshair.end ());
+    if (!crosshair.empty () && crosshair.find (',') == std::string::npos)
+        return make_tool_result (id, "ERR usage: crosshair must be 'x,y' (e.g. '80,72')", true);
+
+    if (scale > 1)
+        cmd += " scale=" + std::to_string (scale);
+    if (grid)
+        cmd += " grid";
+    if (annotate)
+        cmd += " annotate";
+    if (!crosshair.empty ())
+        cmd += " crosshair=" + crosshair;
+
     std::string resp = rc_command (cmd);
-    bool ok = resp.substr (0, 2) == "OK";
-    return make_tool_result (id, resp, !ok);
+    if (resp.substr (0, 2) != "OK")
+        return make_tool_result (id, resp, true);
+
+    if (has_path)
+    {
+        if (annotate)
+        {
+            std::string ui_text = rc_command_multi ("ui", true);
+            return make_tool_result (id, resp + "\n" + ui_text);
+        }
+        return make_tool_result (id, resp);
+    }
+
+    std::ifstream file (path, std::ios::binary);
+    if (!file)
+        return make_tool_result (id, "ERR: could not read " + path, true);
+
+    std::vector<uint8_t> data ((std::istreambuf_iterator<char> (file)),
+                                std::istreambuf_iterator<char> ());
+    std::string b64 = base64_encode (data);
+
+    if (annotate)
+    {
+        std::string ui_text = rc_command_multi ("ui", true);
+        return make_tool_image_text (id, b64, ui_text);
+    }
+
+    return make_tool_image (id, b64);
 }
 
-// Helper: send multi-line command, return tool result.
-static json rc_tool_multi (const json& id, const std::string& cmd)
+// ============================================================================
+// The catalog.  27 core tools (this task) + 10 debug-surface tools (next).
+// ============================================================================
+
+static const ToolDef kTools[] = {
+
+{ "palm_ping", "Ping the emulator to check if it is responsive.",
+  [] { return make_schema (); },
+  nullptr, h_ping },
+
+{ "palm_state", "Get emulator state (running/suspended/blocked_on_ui) and device info as JSON.",
+  [] { return make_schema (); },
+  nullptr, h_state },
+
+{ "palm_ui", "Read the current Palm OS form/UI structure: object types, IDs, labels, bounds, text.",
+  [] { return make_schema (); },
+  [] (const json&) { return built ("ui", true, true); }, nullptr },
+
+{ "palm_apps", "List installed applications. Set all=true to list EVERY database "
+  "(data, resources, libraries), not just launchable apps.",
+  [] { return make_schema ({{"all", bool_prop ("List all databases, not just apps (default false)")}}); },
+  [] (const json& a) { return built (a.value ("all", false) ? "apps all" : "apps", true, true); },
+  nullptr },
+
+{ "palm_tap", "Tap at screen coordinates (0-159). Returns 'OK delivered' only once the "
+  "guest's event queue actually has the event (delivery-honest, blocks <=2s); a refused "
+  "or undelivered tap is a truthful ERR, never a silent OK.",
+  [] { return make_schema ({{"x", int_prop ("X coordinate (0-159)")},
+                            {"y", int_prop ("Y coordinate (0-159)")}}, {"x", "y"}); },
+  [] (const json& a) { return built ("tap " + istr (a["x"]) + " " + istr (a["y"])); }, nullptr },
+
+{ "palm_tap_id", "Tap the center of a form object by its numeric ID (from palm_ui). "
+  "Delivery-honest like palm_tap.",
+  [] { return make_schema ({{"id", int_prop ("Object ID from palm_ui")}}, {"id"}); },
+  [] (const json& a) { return built ("tap-id " + istr (a["id"])); }, nullptr },
+
+{ "palm_pen", "Send a single pen down or up event at coordinates. Delivery-honest.",
+  [] { return make_schema ({{"action", enum_prop ("Pen action", {"down", "up"})},
+                            {"x", int_prop ("X coordinate (0-159)")},
+                            {"y", int_prop ("Y coordinate (0-159)")}},
+                           {"action", "x", "y"}); },
+  [] (const json& a) { return built ("pen " + sstr (a["action"]) + " "
+                                     + istr (a["x"]) + " " + istr (a["y"])); }, nullptr },
+
+{ "palm_key", "Send a key event by decimal character code. Delivery-honest.",
+  [] { return make_schema ({{"code", int_prop ("Character code (decimal)")}}, {"code"}); },
+  [] (const json& a) { return built ("key " + istr (a["code"])); }, nullptr },
+
+{ "palm_type", "Type a string of text (UTF-8 in, converted to Latin-1). Delivery-honest.",
+  [] { return make_schema ({{"text", str_prop ("Text to type")}}, {"text"}); },
+  [] (const json& a) { return built ("type " + sstr (a["text"])); }, nullptr },
+
+{ "palm_button", "Press a hardware button. Queued contract: OK means enqueued to the "
+  "hardware-button state, not delivery-confirmed; ERR busy when gremlin/playback active.",
+  [] { return make_schema ({{"name", enum_prop ("Button", {"power", "up", "down", "app1",
+                                                           "app2", "app3", "app4",
+                                                           "cradle", "contrast"})},
+                            {"action", enum_prop ("Action", {"down", "up", "tap"})}},
+                           {"name", "action"}); },
+  [] (const json& a) { return built ("button " + sstr (a["name"]) + " " + sstr (a["action"])); },
+  nullptr },
+
+{ "palm_screenshot", "Take a screenshot. Returns base64 image data if no path given, else "
+  "saves PNG to path. scale/grid/annotate/crosshair add AI-friendly coordinate overlays; "
+  "the returned CRC is always of raw pre-overlay pixels.",
+  [] { return make_schema ({{"path", str_prop ("File path to save PNG (optional; default returns image data)")},
+                            {"scale", int_prop ("Integer upscale, e.g. 4 for 640x640 (default 1, max 16)")},
+                            {"grid", bool_prop ("Coordinate grid overlay with rulers (default false)")},
+                            {"annotate", bool_prop ("UI bounding boxes with IDs; also returns palm_ui text (default false)")},
+                            {"crosshair", str_prop ("Mark a point: 'x,y', e.g. '80,72'")}}); },
+  nullptr, h_screenshot },
+
+{ "palm_screen_hash", "CRC32 hash of current screen pixels + dimensions (fast change detection).",
+  [] { return make_schema (); },
+  [] (const json&) { return built ("screen-hash", false, true); }, nullptr },
+
+{ "palm_launch", "Launch an application by database name (names with spaces are fine).",
+  [] { return make_schema ({{"app", str_prop ("Application database name (from palm_apps)")}}, {"app"}); },
+  [] (const json& a) { return built ("launch " + sstr (a["app"])); }, nullptr },
+
+{ "palm_install", "Install a .prc/.pdb file into the emulator (max 4MB).",
+  [] { return make_schema ({{"path", str_prop ("Path to .prc or .pdb file")}}, {"path"}); },
+  [] (const json& a) { return built ("install " + sstr (a["path"])); }, nullptr },
+
+{ "palm_export", "Export a database from the emulator to a host .prc/.pdb file.",
+  [] { return make_schema ({{"db", str_prop ("Database name (from palm_apps)")},
+                            {"path", str_prop ("Host file path to write")}}, {"db", "path"}); },
+  [] (const json& a) { return built ("export " + sstr (a["db"]) + " " + sstr (a["path"])); },
+  nullptr },
+
+{ "palm_save", "Save the current emulator session to a .psf file.",
+  [] { return make_schema ({{"path", str_prop ("Path to save session file")}}, {"path"}); },
+  [] (const json& a) { return built ("save " + sstr (a["path"])); }, nullptr },
+
+{ "palm_load", "Load an emulator session from a .psf file (replaces the current session).",
+  [] { return make_schema ({{"path", str_prop ("Path to session file")}}, {"path"}); },
+  [] (const json& a) { return built ("load " + sstr (a["path"])); }, nullptr },
+
+{ "palm_reset", "Reset the emulated device. Works even in blocked_on_ui (dismisses any dialog).",
+  [] { return make_schema ({{"type", enum_prop ("Reset type (default soft)", {"soft", "hard", "debug"})}}); },
+  [] (const json& a) { return built (a.contains ("type") ? "reset " + sstr (a["type"]) : "reset"); },
+  nullptr },
+
+{ "palm_sleep", "Pause command processing for 1-30000 milliseconds.",
+  [] { return make_schema ({{"ms", int_prop ("Milliseconds (1-30000)")}}, {"ms"}); },
+  [] (const json& a) { return built ("sleep " + istr (a["ms"])); }, nullptr },
+
+{ "palm_quit", "Quit the emulator process.",
+  [] { return make_schema (); },
+  [] (const json&) { return built ("quit"); }, nullptr },
+
+{ "palm_dialog", "Query a pending modal dialog (message, buttons, full CPU register dump when "
+  "blocked_on_ui), or respond to dismiss it. Omit 'respond' to just query.",
+  [] { return make_schema ({{"respond", enum_prop ("Button to click (omit to query)",
+                                                   {"ok", "cancel", "continue", "debug",
+                                                    "reset", "yes", "no"})}}); },
+  nullptr, h_dialog },
+
+{ "palm_run", "Execute a batch of commands in one call, separated by semicolons. "
+  "Sub-commands: tap, pen, key, type, button, sleep, repeat N { ... }. Queued contract "
+  "(not delivery-confirmed). Example: 'tap 12 148; sleep 150; type x'.",
+  [] { return make_schema ({{"script", str_prop ("Semicolon-separated commands")}}, {"script"}); },
+  [] (const json& a) { return built ("run " + sstr (a["script"])); }, nullptr },
+
+{ "palm_peek", "Read 1-256 bytes from emulated memory. Address formats: 0x<hex> (absolute), "
+  "a5@<offset> (A5-relative), global.<name> (low-memory global). Works in blocked_on_ui.",
+  [] { return make_schema ({{"addr", str_prop ("Address (0x<hex>, a5@<offset>, global.<name>)")},
+                            {"nbytes", int_prop ("Bytes to read (1-256)")}}, {"addr", "nbytes"}); },
+  [] (const json& a) { return built ("peek " + sstr (a["addr"]) + " " + istr (a["nbytes"]),
+                                     false, true); }, nullptr },
+
+{ "palm_poke", "Write bytes to emulated memory.",
+  [] { return make_schema ({{"addr", str_prop ("Address (0x<hex>, a5@<offset>, global.<name>)")},
+                            {"nbytes", int_prop ("Bytes to write (1-256)")},
+                            {"data", str_prop ("Hex string of bytes (e.g. '00A1B2C3')")}},
+                           {"addr", "nbytes", "data"}); },
+  [] (const json& a) { return built ("poke " + sstr (a["addr"]) + " " + istr (a["nbytes"])
+                                     + " " + sstr (a["data"])); }, nullptr },
+
+{ "palm_regs", "Read all m68k CPU registers (D0-D7, A0-A7, PC, SR). Works in blocked_on_ui.",
+  [] { return make_schema (); },
+  [] (const json&) { return built ("regs", false, true); }, nullptr },
+
+{ "palm_menu", "Trigger a menu item by menu title and item title (posts a menuEvent).",
+  [] { return make_schema ({{"menu", str_prop ("Menu title (e.g. 'Options')")},
+                            {"item", str_prop ("Item title or substring (e.g. 'About')")}},
+                           {"menu", "item"}); },
+  [] (const json& a) { return built ("menu \"" + sstr (a["menu"]) + "\" \""
+                                     + sstr (a["item"]) + "\""); }, nullptr },
+
+{ "palm_delete", "Delete a database from the emulated device.",
+  [] { return make_schema ({{"db", str_prop ("Database name to delete")}}, {"db"}); },
+  [] (const json& a) { return built ("delete " + sstr (a["db"])); }, nullptr },
+
+};  // kTools
+
+static const ToolDef* find_tool (const std::string& name)
 {
-    std::string resp = rc_command_multi (cmd);
-    bool is_err = (resp.size () >= 3 && resp.substr (0, 3) == "ERR");
-    return make_tool_result (id, resp, is_err);
+    for (const ToolDef& t : kTools)
+        if (name == t.name)
+            return &t;
+    return nullptr;
 }
+
+// ============================================================================
+// Dispatch — one path for every tool
+// ============================================================================
 
 static json dispatch_tool (const json& id, const std::string& name, const json& args)
 {
-    if (name == "palm_ping")
-    {
-        std::string resp = rc_command ("state");
-        if (resp.substr (0, 2) == "OK")
-            return make_tool_result (id, "pong");
-        return make_tool_result (id, resp, true);
-    }
+    const ToolDef* t = find_tool (name);
+    if (!t)
+        return make_tool_result (id, "Unknown tool: " + name, true);
 
-    if (name == "palm_state")
-    {
-        std::string state = rc_command ("state");
-        std::string info  = rc_command_multi ("info");
-        return make_tool_result (id, json ({{"state", state}, {"info", info}}).dump (2));
-    }
+    std::string verr = validate_args (t->schema (), args);
+    if (!verr.empty ())
+        return make_tool_result (id, "ERR usage: " + verr, true);
 
-    if (name == "palm_ui")           return rc_tool_multi (id, "ui");
-    if (name == "palm_apps")         return rc_tool_multi (id, "apps");
-    if (name == "palm_dbs")          return rc_tool_multi (id, "apps all");
+    if (t->custom)
+        return t->custom (id, args);
 
-    if (name == "palm_tap")
-        return rc_tool (id, "tap " + std::to_string (args.value ("x", 0))
-                                  + " " + std::to_string (args.value ("y", 0)));
+    BuiltCmd b = t->build (args);
+    if (!b.err.empty ())
+        return make_tool_result (id, "ERR usage: " + b.err, true);
 
-    if (name == "palm_tap_id")
-        return rc_tool (id, "tap-id " + std::to_string (args.value ("id", 0)));
-
-    if (name == "palm_pen")
-        return rc_tool (id, "pen " + args.value ("action", std::string ())
-                                  + " " + std::to_string (args.value ("x", 0))
-                                  + " " + std::to_string (args.value ("y", 0)));
-
-    if (name == "palm_key")
-        return rc_tool (id, "key " + std::to_string (args.value ("code", 0)));
-
-    if (name == "palm_type")
-        return rc_tool (id, "type " + args.value ("text", std::string ()));
-
-    if (name == "palm_button")
-        return rc_tool (id, "button " + args.value ("name", std::string ())
-                                     + " " + args.value ("action", std::string ()));
-
-    if (name == "palm_screenshot")
-    {
-        std::string path = args.value ("path", std::string ());
-        bool has_path = !path.empty ();
-        if (!has_path)
-            path = "/tmp/pose64_screenshot.png";
-
-        // Build TCP command with optional flags
-        std::string cmd = "screenshot " + path;
-
-        int  scale    = args.value ("scale", 1);
-        bool grid     = args.value ("grid", false);
-        bool annotate = args.value ("annotate", false);
-        std::string crosshair = args.value ("crosshair", std::string ());
-
-        // Sanitise crosshair: strip whitespace, validate "int,int" format
-        crosshair.erase (std::remove (crosshair.begin (), crosshair.end (), ' '), crosshair.end ());
-        crosshair.erase (std::remove (crosshair.begin (), crosshair.end (), '\n'), crosshair.end ());
-        if (!crosshair.empty () && crosshair.find (',') == std::string::npos)
-            return make_tool_result (id, "ERR: crosshair must be 'x,y' (e.g. '80,72')", true);
-
-        if (scale > 1)
-            cmd += " scale=" + std::to_string (scale);
-        if (grid)
-            cmd += " grid";
-        if (annotate)
-            cmd += " annotate";
-        if (!crosshair.empty ())
-            cmd += " crosshair=" + crosshair;
-
-        std::string resp = rc_command (cmd);
-        if (resp.substr (0, 2) != "OK")
-            return make_tool_result (id, resp, true);
-
-        if (has_path)
-        {
-            if (annotate)
-            {
-                // Return OK line + ui text together so caller gets annotation data
-                std::string ui_text = rc_command_multi ("ui");
-                return make_tool_result (id, resp + "\n" + ui_text);
-            }
-            return make_tool_result (id, resp);
-        }
-
-        // Read the PNG and return as base64 image
-        std::ifstream file (path, std::ios::binary);
-        if (!file)
-            return make_tool_result (id, "ERR: could not read " + path, true);
-
-        std::vector<uint8_t> data ((std::istreambuf_iterator<char> (file)),
-                                    std::istreambuf_iterator<char> ());
-        std::string b64 = base64_encode (data);
-
-        // If annotate is on, also fetch palm_ui text and return both.
-        // ui_text may be "ERR ..." if no active form; we include it as
-        // informational text alongside the annotated image without marking
-        // the result as an error (the image itself is still valid).
-        if (annotate)
-        {
-            std::string ui_text = rc_command_multi ("ui");
-            return make_tool_image_text (id, b64, ui_text);
-        }
-
-        return make_tool_image (id, b64);
-    }
-
-    if (name == "palm_screen_hash")  return rc_tool (id, "screen-hash");
-    if (name == "palm_launch")       return rc_tool (id, "launch " + args.value ("app", std::string ()));
-    if (name == "palm_install")      return rc_tool (id, "install " + args.value ("path", std::string ()));
-    if (name == "palm_export")       return rc_tool (id, "export " + args.value ("db", std::string ())
-                                                              + " " + args.value ("path", std::string ()));
-    if (name == "palm_save")         return rc_tool (id, "save " + args.value ("path", std::string ()));
-    if (name == "palm_load")         return rc_tool (id, "load " + args.value ("path", std::string ()));
-
-    if (name == "palm_reset")
-    {
-        std::string type = args.value ("type", std::string ());
-        return rc_tool (id, type.empty () ? "reset" : "reset " + type);
-    }
-
-    if (name == "palm_sleep")
-        return rc_tool (id, "sleep " + std::to_string (args.value ("ms", 0)));
-
-    if (name == "palm_quit")         return rc_tool (id, "quit");
-
-    if (name == "palm_dialog")
-    {
-        std::string respond = args.value ("respond", std::string ());
-        if (respond.empty ())
-        {
-            std::string info = rc_command_multi ("dialog");
-            return make_tool_result (id, info);
-        }
-        else
-        {
-            return rc_tool (id, "dialog respond " + respond);
-        }
-    }
-
-    if (name == "palm_run")
-        return rc_tool (id, "run " + args.value ("script", std::string ()));
-
-    if (name == "palm_peek")
-        return rc_tool (id, "peek " + args.value ("addr", std::string ())
-                                    + " " + std::to_string (args.value ("nbytes", 0)));
-
-    if (name == "palm_poke")
-        return rc_tool (id, "poke " + args.value ("addr", std::string ())
-                                    + " " + std::to_string (args.value ("nbytes", 0))
-                                    + " " + args.value ("data", std::string ()));
-
-    if (name == "palm_regs")
-        return rc_tool (id, "regs");
-
-    if (name == "palm_menu")
-        return rc_tool (id, "menu \"" + args.value ("menu", std::string ())
-                                      + "\" \"" + args.value ("item", std::string ()) + "\"");
-
-    if (name == "palm_delete")
-        return rc_tool (id, "delete " + args.value ("db", std::string ()));
-
-    return make_tool_result (id, "Unknown tool: " + name, true);
+    std::string resp = b.multiline ? rc_command_multi (b.cmd, b.idempotent)
+                                   : rc_command (b.cmd, b.idempotent);
+    return make_tool_result (id, resp, resp.rfind ("OK", 0) != 0);
 }
 
 // ============================================================================
@@ -737,7 +787,12 @@ static json handle_initialize (const json& id, const json& /* params */)
 
 static json handle_tools_list (const json& id)
 {
-    return make_result (id, {{"tools", get_tools_list ()}});
+    json tools = json::array ();
+    for (const ToolDef& t : kTools)
+        tools.push_back ({{"name", t.name},
+                          {"description", t.description},
+                          {"inputSchema", t.schema ()}});
+    return make_result (id, {{"tools", tools}});
 }
 
 static json handle_tools_call (const json& id, const json& params)

@@ -47,7 +47,7 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_ping` | -- | Test MCP connectivity |
 | `palm_state` | -- | Emulator state + device info (JSON) |
 | `palm_ui` | -- | Active form structure with object IDs |
-| `palm_apps` | -- | Installed applications (text, one per line) |
+| `palm_apps` | `all` (optional) | Installed applications; `all=true` lists every database |
 | `palm_tap` | `x`, `y` | Tap at display coordinates |
 | `palm_tap_id` | `id` | Tap form object by stable ID |
 | `palm_pen` | `action`, `x`, `y` | Raw pen down/up |
@@ -70,7 +70,6 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_poke` | `addr`, `nbytes`, `data` | Write bytes to emulated memory |
 | `palm_regs` | -- | Read m68k CPU registers (D0-D7, A0-A7, PC, SR) |
 | `palm_menu` | `menu`, `item` | Trigger a menu item by menu and item title |
-| `palm_dbs` | -- | List all databases (apps, data, overlays, libraries, etc.) |
 | `palm_delete` | `db` | Delete a database from the device |
 
 All tools return structured text. No Bash calls needed for emulator interaction.
@@ -215,7 +214,7 @@ palm_state              -> "running"
 When your app crashes (illegal instruction, bus error, etc.):
 
 1. `palm_dialog` — read the crash message and CPU registers (including PC)
-2. `backtrace` over raw TCP — there is **no `palm_backtrace` MCP tool**:
+2. `backtrace` over raw TCP (no `palm_backtrace` MCP tool yet — A5 adds it):
    `printf 'backtrace\n' | socat -t5 - TCP:localhost:6416`
 3. `palm_peek addr="0x<PC>" nbytes=16` — examine the code at the crash site
 4. `palm_dialog respond=reset` — dismiss the dialog and recover
@@ -310,12 +309,12 @@ palm_regs                               # dump all CPU registers
 
 Max 256 bytes per peek/poke. Data is hex-encoded.
 
-## Debugging Commands (raw TCP — there are NO `palm_*` MCP tools for these)
+## Debugging Commands (raw TCP — 10 debug-surface MCP tools land in the next commit)
 
 The debugging command groups below exist in the ReControl TCP protocol but
-are **not exposed as MCP tools** — the proxy implements exactly the 28 tools
-in the table above. Calling `palm_break`, `palm_backtrace`, `palm_log`, etc.
-will fail with "Unknown tool". Drive these over raw TCP instead:
+are **not yet exposed as MCP tools** — the proxy currently implements 27 core
+tools. Calling `palm_break`, `palm_backtrace`, `palm_log`, etc.
+will fail with "Unknown tool" until Task A5 lands. Drive these over raw TCP instead:
 
 ```bash
 printf 'backtrace\n' | socat -t5 - TCP:localhost:6416
