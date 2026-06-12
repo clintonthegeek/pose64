@@ -26,7 +26,11 @@
 extern bool ParseAddress (const std::string& addrStr, emuptr& outAddr);
 
 // ============================================================================
-// RcCmd_Break — WorkerCycle (all sub-commands run under dispatch stopper)
+// RcCmd_Break — Adaptive (runs directly while blocked_on_ui, else under the
+// dispatch cycle stopper).  The CPU thread is frozen on the dialog in the
+// blocked case, so mutating gDebuggerGlobals.bp[] + the meta-memory
+// instruction-break bits is safe; the dialog's resume path holds its
+// (index, pc) by value and never re-reads the table (GATE 3 Gap 1).
 // ============================================================================
 
 std::string RcCmd_Break (const QStringList& args)

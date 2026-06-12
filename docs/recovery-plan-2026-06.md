@@ -54,11 +54,19 @@
 >   into the ILLEGAL instruction and loops; fix = gate prompt must
 >   save+restore original bytes around the poke. Full findings and fix spec:
 >   `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.
->   **Phase 3 is NOT certified complete.**
+> - **GATE 3 gap fixes LANDED (2026-06-12):** reproduce-first
+>   (`tests/phase3/test_break_blocked_ops.py`, pre-fix FAIL → 3× ALL PASS).
+>   `break` → Adaptive dispatch (works while `blocked_on_ui`; cleanup order
+>   is now clearall-then-continue); Task C3 prompt saves/restores bytes
+>   around the ILLEGAL poke; `load` while blocked refuses (`ERR blocked`)
+>   instead of deadlocking (dismiss-and-defer path replaced); syscall
+>   timeouts carry recovery hints. Sweep clean (phase-1 7/7, surface 3/3,
+>   dispatch 37/37, honest_ack, slp_trap, check_suppression, break_real).
+>   See findings doc RESOLUTION section. **Phase 3 is NOT certified
+>   complete.**
 >
-> **NEXT ACTION:** Fix Gap 1 (clearall from `blocked_on_ui`, emulator code
-> change, task-1.0d pattern — reproduce-first per R1), fix Gate 3 prompt
-> (save+restore bytes around poke), re-run GATE 3. On PASS: tag
+> **NEXT ACTION:** Re-run GATE 3 (plan 3c Task C3, revised prompt) against a
+> fresh emulator on port 6416 from the current build. On PASS: tag
 > `phase-3-complete` and proceed to Phase 4. Do NOT tag before the live GATE 3
 > run passes.
 

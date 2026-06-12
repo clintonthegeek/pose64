@@ -161,3 +161,49 @@ Every tool call resolved — no "Unknown tool" at any point. These flows are ver
 - Emulator: running on port 6416, `freshm515.psf` loaded, all breakpoints clear
 - Git: master @ `837391a` (landmine #7 root fix, last clean commit)
 - Working tree: clean
+
+---
+
+## RESOLUTION (2026-06-12, fix session)
+
+All four gaps fixed; reproduce-first (R1) honored. Repro:
+`tests/phase3/test_break_blocked_ops.py` — pre-fix run FAILED with the gate's
+exact error (`ERR timeout: CPU did not reach a cycle boundary within 5000ms`
+on `break clearall` from `blocked_on_ui`); post-fix 3× ALL PASS.
+
+- **Gap 1 (FIXED, root):** `break` moved `kCmdWorkerCycle` → `kCmdAdaptive`
+  in the ReControl dispatch table — the same direct-when-blocked dispatch
+  peek/poke/regs/backtrace already use. While `blocked_on_ui` the CPU thread
+  is frozen on the dialog, so `RcCmd_Break`'s mutations (the
+  `gDebuggerGlobals.bp[]` table + meta-memory instruction-break bits) are
+  safe to run directly on the main thread; the dialog's resume path
+  (`ReportErrBreakpoint`) holds its `(index, pc)` by value and never re-reads
+  the table. New canonical sequence on a hot-address hit:
+  `break clearall` (while blocked) → `dialog respond continue` → running, no
+  re-hit. `test_break_real.py` updated from its continue/clearall race-loop
+  workaround to this contract (ALL PASS).
+- **Gap 2 (FIXED, prompt):** plan 3c Task C3 gate prompt steps 3/5 now
+  save the original bytes (`palm_peek` before the `0x4AFC` poke) and restore
+  them while still blocked, then `respond=continue`; explicit warning not to
+  `respond=reset` with the ILLEGAL bytes in place. SKILL.md gained the same
+  fault-injection guidance (poke is process-permanent).
+- **Gap 3 (FIXED, replace-don't-stack):** `RcCmd_Load`'s blocked-path
+  (dismiss-and-defer) REPLACED by an immediate refusal:
+  `ERR blocked: dismiss dialog first with 'dialog respond' (if it re-raises,
+  'break clearall' works while blocked)`. Root cause of the deadlock: the
+  old path's dismissal assumptions predate Phase 3b — clearing
+  `watchEnabled` only defuses watchpoint dialogs, but breakpoint/crash
+  dialogs re-raise on hot/faulting PCs, so the CPU re-blocked before the
+  deferred teardown and `HandleClose` waited forever on a CPU thread parked
+  on a dialog the (stuck) main thread could never service. Verified in the
+  repro round 1: refusal returns immediately, pending dialog undisturbed.
+- **Gap 4 (FIXED, text):** both syscall-boundary timeout messages in
+  `ReControl.cpp` (WorkerSysCall dispatch + menu lookup) now end with
+  "Recovery: call palm_state to confirm running, then retry."
+
+Docs updated in the same commit: `recontrol-protocol.md` (blocked_on_ui
+section + break note + load row), `claude/skills/palm-dev/SKILL.md`
+(break-while-blocked contract, load refusal, poke save/restore), proxy tool
+descriptions for `palm_break`/`palm_load`. Regression sweep clean: phase-1
+repros 7/7, honest_ack, surface 3/3 (SKILL parity), dispatch 37/37,
+slp_trap, check_suppression, break_real.

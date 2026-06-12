@@ -316,7 +316,8 @@ sleep 8
 
 - [ ] **Step 2: Dispatch the gate agent**
 
-Dispatch a `pose64-tester` subagent with EXACTLY this prompt (the gate's "given only SKILL.md" condition — the agent gets the task, not coaching):
+Dispatch a `pose64-tester` subagent with EXACTLY this prompt (the gate's "given only SKILL.md" condition — the agent gets the task, not coaching).
+*(Prompt revised 2026-06-12 per the GATE 3 FAIL findings, Gap 2: steps 3 and 5 now save the original bytes before the ILLEGAL poke and restore them while blocked — a ROM poke is permanent for the emulator process, so `respond=reset` without restoring loops the crash forever.)*
 
 ```
 GATE 3 verification run. Using only the palm_* MCP tools as documented in
@@ -328,14 +329,18 @@ against the already-running emulator:
    listing apps to confirm the emulator is healthy.
 2. Launch the Memo Pad application and verify via the UI structure that it
    is frontmost.
-3. Cause a guest crash: read the current PC via palm_regs, then poke 2 bytes
-   of 0x4AFC (ILLEGAL) over a code address obtained from palm_backtrace
-   frame 1, tap the screen to drive execution through it, and wait for
-   state=blocked_on_ui.
+3. Cause a guest crash: pick a code address from palm_backtrace frame 0,
+   save its original bytes with palm_peek (addr, nbytes=2) — the poke is
+   permanent for the emulator process, so you MUST be able to restore it —
+   then poke 2 bytes of 0x4AFC (ILLEGAL) over it, tap the screen to drive
+   execution through it, and wait for state=blocked_on_ui.
 4. Inspect the crash: capture the dialog message, the register dump, and a
    backtrace.
-5. Recover: respond to the dialog so the device is running again (reset is
-   acceptable), and verify state=running.
+5. Recover: while still blocked_on_ui, poke the saved original bytes back
+   over the target address (peek/poke work while blocked), then respond to
+   the dialog with continue, and verify state=running. (Do NOT respond with
+   reset while the ILLEGAL bytes are still in place — the device reboots
+   into the same crash, indefinitely.)
 6. Breakpoint flow: launch Memo Pad again if needed; set a breakpoint on a
    backtrace frame PC, tap to trigger it, confirm the breakpoint dialog
    appears (blocked_on_ui), capture backtrace while stopped, clear all

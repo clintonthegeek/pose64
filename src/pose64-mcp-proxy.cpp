@@ -676,7 +676,8 @@ static const ToolDef kTools[] = {
   [] { return make_schema ({{"path", str_prop ("Path to save session file")}}, {"path"}); },
   [] (const json& a) { return built ("save " + sstr (a["path"])); }, nullptr },
 
-{ "palm_load", "Load an emulator session from a .psf file (replaces the current session).",
+{ "palm_load", "Load an emulator session from a .psf file (replaces the current session). "
+  "Refuses while blocked_on_ui — dismiss the dialog first (palm_dialog respond).",
   [] { return make_schema ({{"path", str_prop ("Path to session file")}}, {"path"}); },
   [] (const json& a) { return built ("load " + sstr (a["path"])); }, nullptr },
 
@@ -764,9 +765,11 @@ static const ToolDef kTools[] = {
 { "palm_break", "Manage the 6 m68k breakpoint slots. action=set requires idx+addr (condition "
   "optional, e.g. 'd0 == 0'); clear/enable/disable require idx. On hit the CPU "
   "blocks on a Continue/Debug/Reset dialog (state=blocked_on_ui): inspect with "
-  "palm_dialog/palm_backtrace/palm_peek, resume with palm_dialog "
-  "respond=continue. With an external SLP debugger attached (--slp-debugger), "
-  "the debugger takes the hit instead.",
+  "palm_dialog/palm_backtrace/palm_peek. Works while blocked_on_ui — clear "
+  "breakpoints from the dialog (action=clearall), THEN palm_dialog "
+  "respond=continue; for a hot address that order is the only one that avoids "
+  "an immediate re-hit. With an external SLP debugger attached "
+  "(--slp-debugger), the debugger takes the hit instead.",
   [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "clear",
                                                                 "enable", "disable", "clearall"})},
                             {"idx", int_prop ("Breakpoint slot 0-5")},

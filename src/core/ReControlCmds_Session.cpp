@@ -330,9 +330,7 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 	QPointer<ReControlSession> safeRef (session);
 	std::string pathStr = path.toStdString ();
 
-	// doTeardown: executes the actual session teardown + rebuild.  Split out so
-	// it can be posted from a second timer when the first fires inside a nested
-	// msgBox.exec() event loop (the kBlockedOnUI case).
+	// doTeardown: executes the actual session teardown + rebuild.
 	auto doTeardown = [safeRef, pathStr]() {
 		auto safeSend = [&safeRef](const std::string& msg) {
 			if (safeRef)
@@ -398,28 +396,22 @@ void RcCmd_Load (ReControlSession* session, const QStringList& args)
 		}
 	};
 
-	// First timer: may fire inside msgBox.exec()'s nested event loop when
-	// kBlockedOnUI.  We dismiss the dialog and clear the watchpoint here,
-	// then RETURN immediately so the nested event loop can exit cleanly
-	// (msgBox.exec() returns, EndDialogAction() runs, BlockOnDialog() unblocks).
-	// We post doTeardown in a second timer, which fires from the OUTER event
-	// loop after the nested loop has exited.
-	//
-	// When NOT kBlockedOnUI, no nesting is in play and we run doTeardown
-	// directly in this same timer callback.
+	// The timer decouples teardown from the socket handler's call stack.
+	// If the session is blocked_on_ui when it fires, REFUSE instead of
+	// loading (GATE 3 Gap 3, 2026-06-12).  The old dismiss-and-defer path
+	// assumed dismissing the dialog left the CPU running — true when only
+	// watchpoints raised dialogs and watchEnabled was cleared first, but
+	// false since Phase 3b: breakpoint and crash dialogs re-raise on
+	// hot/faulting PCs, the CPU re-blocks before the deferred teardown
+	// runs, and HandleClose then waits forever on a CPU thread parked on a
+	// dialog this (stuck) thread can never service.
 	QTimer::singleShot (0, qApp, [safeRef, pathStr, doTeardown = std::move (doTeardown)]() mutable {
 		if (gSession && gSession->GetSessionState () == kBlockedOnUI)
 		{
-			// Clear watchpoint FIRST so the emulation thread can't re-enter
-			// BlockOnDialog() after the dismiss.
-			gDebuggerGlobals.watchEnabled = false;
-			EmDlgQt_DismissIfPending ();
-
-			// Defer teardown until after the nested event loop exits and
-			// EmActionDialog::Do() has called EndDialogAction().
-			QTimer::singleShot (0, qApp, [doTeardown = std::move (doTeardown)]() mutable {
-				doTeardown ();
-			});
+			if (safeRef)
+				safeRef->SendErr ("blocked",
+					"dismiss dialog first with 'dialog respond' "
+					"(if it re-raises, 'break clearall' works while blocked)");
 			return;
 		}
 

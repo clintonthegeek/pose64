@@ -9,17 +9,14 @@ breakpoint 0 at the current-frame PC (frame #0, always present — the live
 stack-crawl depth varies between 1 and 2 frames, so pcs[1] is not reliable),
 deliver a tap, and expect the hit.
 
-Resume contract (deviation from the original plan draft, documented per the
-plan's "adjust the frame strategy and note it" allowance): `break clearall`
-is a WorkerCycle command and CANNOT run while the CPU is blocked_on_ui (it
-needs a cycle boundary that never comes while parked on the dialog — this is
-the same documented constraint repro_dialog_subsystem.py relies on). The
-breakpoint PC is a hot event-loop address that re-hits immediately on resume,
-so a single continue+clearall races the re-block. We therefore resume by
-looping `dialog respond continue` (a Custom command, valid while blocked) and
-retrying `break clearall` until it lands during a running window, then assert
-the CPU is running.  The blocked_on_ui detection and dialog assertions are NOT
-loosened.
+Resume contract (updated for the GATE 3 Gap 1 fix, 2026-06-12): `break` is
+now an Adaptive command — it runs directly while the CPU is blocked_on_ui
+(the CPU thread is frozen on the dialog, so the breakpoint table is safe to
+modify).  The sane sequence is therefore: `break clearall` first (while
+blocked), then `dialog respond continue` — with the table cleared there is
+nothing to re-hit, even though the breakpoint PC is a hot event-loop address.
+The dedicated repro for the blocked-clearall contract is
+test_break_blocked_ops.py; this test uses the same sequence for resume.
 
 Pre-fix: the guest never blocks (hit silently ignored) -> FAIL.
 """
@@ -54,35 +51,21 @@ def wait_state(c, want, timeout=6.0):
 
 
 def resume_and_clear(c, rnd):
-    """Resume from the breakpoint dialog and clear all breakpoints.
-
-    The breakpoint sits on a hot event-loop PC, and `break clearall` is a
-    WorkerCycle command (it cannot run while blocked_on_ui — it needs a cycle
-    boundary that never arrives while the CPU is parked on the dialog; this is
-    the same documented constraint repro_dialog_subsystem.py relies on).  So
-    each `dialog respond continue` resumes the CPU, which may re-reach the hot
-    PC and re-block before `break clearall` lands.
-
-    Robust resume sequence (validated by instrumentation): alternate
-    `dialog respond continue` and `break clearall` without gating on a stale
-    state read.  Once the CPU is running, `break clearall` reaches a cycle
-    boundary and succeeds; with no breakpoint armed it then stays running.
-    "no pending dialog" on continue is benign (the CPU is already running).
+    """Clear all breakpoints (while still blocked_on_ui — break is Adaptive
+    since the GATE 3 Gap 1 fix), then resume.  With the table cleared there
+    is nothing to re-hit, so a single continue settles into running.
     Returns the final running state.
     """
-    deadline = time.time() + 30.0
-    while time.time() < deadline:
-        r = c.send_command("dialog respond continue")
-        if not r.startswith("OK") and "no pending dialog" not in r:
-            raise AssertionError(f"round {rnd}: continue failed: {r}")
-        r = c.send_command("break clearall")
-        if r.startswith("OK"):
-            # No breakpoint armed now; confirm it settles into running.
-            final = wait_state(c, "running", timeout=3.0)
-            if "running" in final:
-                return final
-        # else the CPU re-hit the bp before the cycle boundary; loop again.
-    raise AssertionError(f"round {rnd}: break clearall never landed while running")
+    r = c.send_command("break clearall")
+    if not r.startswith("OK"):
+        raise AssertionError(f"round {rnd}: break clearall while blocked failed: {r!r}")
+    r = c.send_command("dialog respond continue")
+    if not r.startswith("OK"):
+        raise AssertionError(f"round {rnd}: continue failed: {r!r}")
+    final = wait_state(c, "running", timeout=5.0)
+    if "running" not in final:
+        raise AssertionError(f"round {rnd}: did not settle into running: {final!r}")
+    return final
 
 
 def one_round(c, rnd):

@@ -38,15 +38,25 @@ a modal dialog and enters `blocked_on_ui` state.  In this state:
   reset flag, and unblocks the CPU thread.  Response indicates what happened:
   `OK reset (was blocked_on_ui, dialog dismissed)`.
 - **`regs`** — works; registers are frozen and stable.
-- **`peek`** — works; memory is stable.
+- **`peek`** / **`poke`** — work; memory is stable.
 - **`backtrace`** — works; stack crawl from frozen CPU state.
+- **`break`** — works (all sub-commands; GATE 3 Gap 1 fix, 2026-06-12); the
+  CPU thread is frozen, so the breakpoint table is safe to modify.  This is
+  how you escape a breakpoint on a hot event-loop address: `break clearall`
+  while blocked, then `dialog respond continue` — nothing is left to re-hit.
 - **`state`** — works; returns `OK blocked_on_ui`.
 
 Commands that require CPU execution (`install`, `launch`, `tap`, etc.) will
 fail in this state.  Dismiss the dialog or reset first.
 
-Commands that require a CPU cycle boundary (`ui`, `watch`, `spy`, `break`,
-`peek`/`poke`/`regs`/`backtrace` when not `blocked_on_ui`) return:
+**`load`** refuses in this state with
+`ERR blocked: dismiss dialog first with 'dialog respond' (if it re-raises,
+'break clearall' works while blocked)` — it must not tear down a session
+whose CPU thread is parked on a dialog (GATE 3 Gap 3 fix, 2026-06-12;
+pre-fix this deadlocked the server).
+
+Commands that require a CPU cycle boundary (`ui`, `watch`, `spy`,
+`peek`/`poke`/`regs`/`backtrace`/`break` when not `blocked_on_ui`) return:
 ```
 ERR timeout: CPU did not reach a cycle boundary within 5000ms. Recovery: dismiss any dialog (dialog respond) or palm_reset.
 ```
@@ -104,7 +114,7 @@ active` when refused.
 | `install <path>` | `OK\n` | Install .prc/.pdb file (max 4MB, timeout scales with file size) |
 | `launch <dbname>` | `OK\n` | Launch app by database name (supports names with spaces) |
 | `save <path>` | `OK\n` | Save session state to .psf file |
-| `load <path>` | `OK\n` | Load session from .psf file (works from cold start or replaces current) |
+| `load <path>` | `OK\n` | Load session from .psf file (works from cold start or replaces current). Refuses while `blocked_on_ui`: `ERR blocked: dismiss dialog first…` |
 | `reset [soft\|hard\|debug]` | `OK\n` | Reset emulator (works even in `blocked_on_ui` state) |
 | `sleep <ms>` | `OK\n` | Pause command processing for 1-30000 ms |
 | `quit` | `OK\n` | Exit emulator |
@@ -205,8 +215,12 @@ All commands in this section (and Logging, Gremlins, Configuration, Profiling be
 > it and `state` reports `blocked_on_ui`. Inspect the hit with `dialog` (the
 > message names the slot and hit address, and a register dump is appended),
 > `backtrace`, `peek`, etc., then resume with `dialog respond continue` (or
-> `dialog respond reset`). Note: `break`/`watch`/`spy` are WorkerCycle commands
-> and cannot run while `blocked_on_ui`; clear/modify breakpoints after resuming.
+> `dialog respond reset`). `break` itself works while `blocked_on_ui` (GATE 3
+> Gap 1 fix, 2026-06-12): clear or modify breakpoints from the dialog, then
+> continue — for a breakpoint on a hot event-loop address this is the ONLY
+> reliable cleanup order (the CPU re-hits before any cycle boundary after a
+> bare continue). Note: `watch`/`spy` remain WorkerCycle commands and cannot
+> run while `blocked_on_ui`.
 >
 > If an external Palm-Debugger-protocol (SLP) client is attached instead, that
 > debugger takes the hit. As of Phase 3b the SLP listening sockets (ports

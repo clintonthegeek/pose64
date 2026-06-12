@@ -73,7 +73,7 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_delete` | `db` | Delete a database from the device |
 | `palm_speed` | `value` (optional) | Set/query emulation speed: 1-10000 percent or `max`; omit to query |
 | `palm_backtrace` | -- | m68k stack crawl (works in `blocked_on_ui`) |
-| `palm_break` | `action`, `idx`, `addr`, `condition` | Manage 6 breakpoint slots; on hit the CPU blocks on a dialog (`blocked_on_ui`), resume via `palm_dialog respond=continue` (set/clear/enable/disable/clearall) |
+| `palm_break` | `action`, `idx`, `addr`, `condition` | Manage 6 breakpoint slots; on hit the CPU blocks on a dialog (`blocked_on_ui`); works while blocked — clear breakpoints from the dialog, then `palm_dialog respond=continue` (set/clear/enable/disable/clearall) |
 | `palm_watch` | `action`, `addr`, `nbytes` | Watchpoint: dialog-stop when range is written (set/clear/status) |
 | `palm_spy` | `action`, `addr` | Step spy: dialog-stop when value changes (set/clear/status) |
 | `palm_log` | `action`, `category`, `level` | Event logging: 20 categories, levels 0/1/2 (list/set/dump/clear) |
@@ -319,18 +319,20 @@ palm_break action=set idx=0 addr="0x10C32A40"   # arm breakpoint
 palm_state                              # -> "blocked_on_ui" (breakpoint hit)
 palm_dialog                            # -> "hit breakpoint 0 at address ..." + registers
 palm_backtrace                         # -> stack crawl at the hit
-palm_dialog respond=continue           # -> resume execution
-palm_break action=clearall             # -> remove breakpoints (AFTER resuming)
+palm_break action=clearall             # -> remove breakpoints (works WHILE blocked)
+palm_dialog respond=continue           # -> resume execution; nothing left to re-hit
 ```
 
-**Important:** `palm_break`/`palm_watch`/`palm_spy` are WorkerCycle commands and
-cannot run while `blocked_on_ui` (they need a CPU cycle boundary that never
-arrives while parked on the dialog) — clear or modify breakpoints only after
-`palm_dialog respond=continue` has resumed the CPU. If the breakpoint sits on a
-hot address it may re-hit immediately on resume; alternate
-`palm_dialog respond=continue` and `palm_break action=clearall` until it clears.
-With an external SLP debugger attached (`--slp-debugger`), that debugger takes
-the hit instead of the in-emulator dialog.
+**Important:** `palm_break` works while `blocked_on_ui` (the CPU is frozen on
+the dialog, so the breakpoint table is safe to modify). Clear breakpoints
+BEFORE responding to the dialog — for a breakpoint on a hot address (e.g. an
+event-loop PC from `palm_backtrace`) this is the only reliable order, because
+the CPU re-hits immediately after a bare continue. `palm_watch`/`palm_spy`
+remain WorkerCycle commands and cannot run while `blocked_on_ui`; clear those
+after resuming. `palm_load` refuses while `blocked_on_ui` (`ERR blocked`) —
+dismiss the dialog first. With an external SLP debugger attached
+(`--slp-debugger`), that debugger takes the hit instead of the in-emulator
+dialog.
 
 ## App-Specific Workflows
 
@@ -374,6 +376,13 @@ palm_regs                               # dump all CPU registers
 ```
 
 Max 256 bytes per peek/poke. Data is hex-encoded.
+
+**Poking code (fault injection):** POSE64 ROM is debug-writable, and a poke
+persists for the rest of the emulator process — `palm_dialog respond=reset`
+reboots into your modified code and a poked-in crash (e.g. `4AFC` ILLEGAL)
+fires again on every boot. ALWAYS `palm_peek` the original bytes first, and
+poke them back while still `blocked_on_ui` (peek/poke work while blocked)
+before `palm_dialog respond=continue`.
 
 ## Debugging Commands
 

@@ -25,7 +25,12 @@ host.
   calibration (m500 only), sleep-until-interrupt idle.
 - **ReControl**: 36 commands via a table-driven dispatcher with explicit
   threading categories (`ReControl.cpp:101`). The dispatch-category
-  assignments were audited command-by-command and are correct.
+  assignments were audited command-by-command and are correct. (`break`
+  deliberately moved WorkerCycle → Adaptive 2026-06-12, GATE 3 Gap 1: it
+  runs directly while `blocked_on_ui` — the frozen CPU thread cannot touch
+  the breakpoint table — so breakpoints can be cleared from the dialog
+  before resuming; `load` refuses while `blocked_on_ui` instead of
+  deadlocking, same date.)
 - **MCP proxy**: **37** `palm_*` tools served from a single source-of-truth
   table (tools/list, dispatch, and reconnect/idempotency policy all derive
   from it — Phase 3a). Central argument validation: a missing/invalid
@@ -406,7 +411,23 @@ host.
     poke. A third quality gap: `palm_load` from `blocked_on_ui` deadlocks the
     ReControl server (needs a blocked-state guard + actionable error). Full
     findings: `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.
-    **Phase 3 is NOT certified complete and has NOT been tagged.**
+  - **GATE 3 gap fixes LANDED (2026-06-12, same day).** All four findings
+    gaps fixed, reproduce-first: `tests/phase3/test_break_blocked_ops.py`
+    failed pre-fix with the gate's exact `ERR timeout` on `break clearall`
+    from `blocked_on_ui`, 3× ALL PASS post-fix. (1) `break` →
+    `kCmdAdaptive` (runs directly while blocked; canonical hot-address
+    cleanup is now clearall-then-continue, no re-hit) — `test_break_real.py`
+    updated from its continue/clearall race-loop to the new contract.
+    (2) Gate prompt (plan 3c Task C3) now saves/restores original bytes
+    around the ILLEGAL poke; SKILL.md documents poke permanence.
+    (3) `load` while blocked: dismiss-and-defer path REPLACED by immediate
+    `ERR blocked` refusal (old path deadlocked — dismissal assumptions
+    predate Phase 3b breakpoint/crash dialogs, which re-raise and re-block
+    before the deferred teardown). (4) Syscall-boundary timeouts carry a
+    recovery hint. Sweep clean: phase-1 7/7, honest_ack, surface 3/3,
+    dispatch 37/37, slp_trap, check_suppression, break_real. Resolution
+    detail: findings doc RESOLUTION section. **GATE 3 re-run pending —
+    Phase 3 is NOT certified complete and has NOT been tagged.**
   - Full regression sweep at checkpoint (2026-06-11 `abdb074`): phase-1
     repros **7/7 PASS**; honest-ack **PASS**; surface **3/3**; dispatch
     **37/37**; repro_slp_trap **ALL PASS**; test_break_real **ALL PASS** (3

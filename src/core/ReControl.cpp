@@ -142,7 +142,14 @@ static const CommandEntry sCommandTable[] = {
 	{"bt",             kCmdAdaptive,      0,    RcCmd_Backtrace,  nullptr},
 
 	// Debug
-	{"break",          kCmdWorkerCycle,   0,    RcCmd_Break,      nullptr},
+	// break is Adaptive, not WorkerCycle (GATE 3 Gap 1, 2026-06-12): while
+	// blocked_on_ui the CPU thread is frozen on the dialog and cannot touch
+	// the breakpoint table or meta-memory bits, so the handler is safe to run
+	// directly — and a breakpoint on a hot event-loop PC re-hits before any
+	// cycle boundary after a continue, so WorkerCycle dispatch made cleanup
+	// from the dialog impossible (same direct-when-blocked reasoning as
+	// peek/poke/regs/backtrace).
+	{"break",          kCmdAdaptive,      0,    RcCmd_Break,      nullptr},
 	{"watch",          kCmdWorkerCycle,   0,    RcCmd_Watch,      nullptr},
 	{"spy",            kCmdWorkerCycle,   0,    RcCmd_Spy,        nullptr},
 	{"log",            kCmdImmediate,     0,    RcCmd_Log,        nullptr},
@@ -269,7 +276,8 @@ void ReControlSession::DoMenuLookup (std::string menuTitle, std::string itemTitl
 			EmSessionStopper stopper (gSession, kStopOnSysCall, 5000);
 			if (!stopper.Stopped () || !stopper.CanCall ())
 			{
-				*result = "ERR timeout: CPU did not reach syscall boundary within 5000ms\n";
+				*result = "ERR timeout: CPU did not reach syscall boundary within 5000ms. "
+				          "Recovery: call palm_state to confirm running, then retry.\n";
 				return;
 			}
 
@@ -491,7 +499,8 @@ void ReControlSession::DispatchCommand (const QStringList& parts)
 				{
 					char msg[256];
 					snprintf (msg, sizeof (msg),
-						"ERR timeout: CPU did not reach syscall boundary within %dms\n",
+						"ERR timeout: CPU did not reach syscall boundary within %dms. "
+						"Recovery: call palm_state to confirm running, then retry.\n",
 						timeout);
 					return msg;
 				}
