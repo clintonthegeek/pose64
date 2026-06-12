@@ -17,11 +17,8 @@ Device: m515 session (m515.psf). m515 has NO throttle-calibration entry
 satisfies the spec's "uncalibrated device" intent without a new-session
 bring-up. Palm-Vx-4.0-en.rom is the on-disk fallback device (plan Task 2).
 
-Pref seeding: build/.poserrc (binary-adjacent prefs win over ~/.poserrc,
-Preferences::GetPrefRef). NOTE: '-preference PortSerial=...' does NOT work
-same-run today: EmApplication::Startup runs gPrefs->Load() ->
-SetTransports() BEFORE CLI prefs are applied. Plan Task 4 fixes that;
-plan Task 5 switches this seeding over.
+Pref seeding: '-preference PortSerial=serial:pty:HotSync' (works same-run
+since the Task-4 fix — transports are rebuilt after CLI prefs are applied).
 
 ATTACH ORDER (Task-2 root cause, measured 2026-06-12, findings doc
 docs/superpowers/plans/2026-06-12-phase4-findings.md):
@@ -87,29 +84,10 @@ from tests.lib.harness import emulator, connect  # noqa: E402
 
 PORT = 6450
 EMU_LOG = "/tmp/pose64_hotsync_smoke.log"
-POSERRC = os.path.join(REPO, "build", ".poserrc")
 PTY_RE = re.compile(r"connect HotSync tools to: (/dev/pts/\d+)")
 PROBLEM_FORM_DEADLINE = 30.0   # a failed attempt shows the form within ~5s
 PILOT_XFER_TIMEOUT = 60.0      # per-attempt wall budget for the listing
 MAX_ATTEMPTS = 3               # ~0.9 per-attempt success (see docstring)
-
-
-def seed_poserrc():
-    """Point the binary-adjacent prefs at the PTY transport; keep a backup."""
-    backup = None
-    if os.path.exists(POSERRC):
-        backup = POSERRC + ".smoke-backup"
-        os.replace(POSERRC, backup)
-    with open(POSERRC, "w") as f:
-        f.write("PortSerial=serial:pty:HotSync\n")
-    return backup
-
-
-def restore_poserrc(backup):
-    if os.path.exists(POSERRC):
-        os.unlink(POSERRC)
-    if backup:
-        os.replace(backup, POSERRC)
 
 
 def wait_for_pty(deadline_s=20.0):
@@ -202,65 +180,63 @@ def sync_attempt(c, pty):
 
 
 def main():
-    backup = seed_poserrc()
-    try:
-        with emulator(PORT, capture_log=EMU_LOG):
-            c = connect(PORT, timeout=10)
+    with emulator(PORT, capture_log=EMU_LOG,
+                  extra_args=["-preference",
+                               "PortSerial=serial:pty:HotSync"]):
+        c = connect(PORT, timeout=10)
+        try:
+            # Serial observability. The Log* pref value is a BITMASK,
+            # not a level: 1 = log during normal operation,
+            # 2 = log ONLY while a Gremlin Horde runs, 3 = both
+            # (EmTypes.h kNormalLogging/kGremlinLogging; gate is
+            # LogCommon() in Logging.h). Value 2 outside a Horde logs
+            # nothing -- that was the Task-2 "silent serial log".
+            for cat in ("Serial", "SerialData"):
+                r = c.send_command(f"log set {cat} 1")
+                assert r and r.startswith("OK"), f"log set {cat}: {r!r}"
+
+            # Step 1: sacrificial tap. Creates the (persistent) PTY.
+            r = c.send_command("button cradle tap")
+            assert r and r.startswith("OK"), f"cradle tap: {r!r}"
+
+            pty = wait_for_pty()
+            assert pty, (
+                "PTY never appeared in stderr after cradle tap — the "
+                f"guest never opened the serial port (see {EMU_LOG}; "
+                "check the HotSync app actually launched via screenshot)")
+            print(f"PTY: {pty}")
+
+            # Steps 2-6 with bounded retries: every failed attempt
+            # (including the sacrificial one) ends in the Problem
+            # form, so each cycle starts from the same state.
+            ok, out = False, ""
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                ok, out = sync_attempt(c, pty)
+                if ok:
+                    break
+                print(f"attempt {attempt}/{MAX_ATTEMPTS} failed "
+                      f"(delivery-phase race, see docstring):\n{out}")
+            print("=== pilot-xfer output ===")
+            print(out)
+            assert ok, (
+                f"no successful sync in {MAX_ATTEMPTS} attempts; "
+                f"last failure:\n{out}")
+            # Every Palm OS device carries the preferences databases.
+            assert "Preferences" in out, f"no database listing:\n{out}"
+
+            state = c.send_command("state") or ""
+            assert "running" in state, f"post-sync state: {state!r}"
+            print("HOTSYNC SMOKE PASS")
+        except Exception:
+            # Persist the serial log (now actually populated, see the
+            # bitmask note above) for debugging. Writes build/Log_*.txt.
             try:
-                # Serial observability. The Log* pref value is a BITMASK,
-                # not a level: 1 = log during normal operation,
-                # 2 = log ONLY while a Gremlin Horde runs, 3 = both
-                # (EmTypes.h kNormalLogging/kGremlinLogging; gate is
-                # LogCommon() in Logging.h). Value 2 outside a Horde logs
-                # nothing -- that was the Task-2 "silent serial log".
-                for cat in ("Serial", "SerialData"):
-                    r = c.send_command(f"log set {cat} 1")
-                    assert r and r.startswith("OK"), f"log set {cat}: {r!r}"
-
-                # Step 1: sacrificial tap. Creates the (persistent) PTY.
-                r = c.send_command("button cradle tap")
-                assert r and r.startswith("OK"), f"cradle tap: {r!r}"
-
-                pty = wait_for_pty()
-                assert pty, (
-                    "PTY never appeared in stderr after cradle tap — the "
-                    f"guest never opened the serial port (see {EMU_LOG}; "
-                    "check the HotSync app actually launched via screenshot)")
-                print(f"PTY: {pty}")
-
-                # Steps 2-6 with bounded retries: every failed attempt
-                # (including the sacrificial one) ends in the Problem
-                # form, so each cycle starts from the same state.
-                ok, out = False, ""
-                for attempt in range(1, MAX_ATTEMPTS + 1):
-                    ok, out = sync_attempt(c, pty)
-                    if ok:
-                        break
-                    print(f"attempt {attempt}/{MAX_ATTEMPTS} failed "
-                          f"(delivery-phase race, see docstring):\n{out}")
-                print("=== pilot-xfer output ===")
-                print(out)
-                assert ok, (
-                    f"no successful sync in {MAX_ATTEMPTS} attempts; "
-                    f"last failure:\n{out}")
-                # Every Palm OS device carries the preferences databases.
-                assert "Preferences" in out, f"no database listing:\n{out}"
-
-                state = c.send_command("state") or ""
-                assert "running" in state, f"post-sync state: {state!r}"
-                print("HOTSYNC SMOKE PASS")
+                c.send_command("log dump")
             except Exception:
-                # Persist the serial log (now actually populated, see the
-                # bitmask note above) for debugging. Writes build/Log_*.txt.
-                try:
-                    c.send_command("log dump")
-                except Exception:
-                    pass
-                raise
-            finally:
-                c.disconnect()
-    finally:
-        restore_poserrc(backup)
+                pass
+            raise
+        finally:
+            c.disconnect()
 
 
 if __name__ == "__main__":
