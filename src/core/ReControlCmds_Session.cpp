@@ -457,10 +457,10 @@ void RcCmd_Info (ReControlSession* session, const QStringList& args)
 	std::string serialInfo;
 	{
 		Preference<EmTransportDescriptor> pref (kPrefKeyPortSerial);
-		std::string desc = pref->GetDescriptor ();
-		if (!desc.empty () && desc != "null:")
+		EmTransportType type = pref->GetType ();
+		if (type != kTransportNull && type != kTransportUnknown)
 		{
-			serialInfo = desc;
+			serialInfo = pref->GetDescriptor ();
 			EmTransportSerial* serial = dynamic_cast<EmTransportSerial*> (
 				gEmuPrefs->GetTransportForDevice (kUARTSerial));
 			if (serial)
