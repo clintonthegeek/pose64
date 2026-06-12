@@ -2,8 +2,9 @@
 
 **Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03);
 Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**;
-**Phase 3 IN PROGRESS — plans 3a+3b COMPLETE, landmine #7 root fix DEFERRED
-(spec §C3), GATE 3 PENDING — Phase 3 NOT yet certified complete.**
+**Phase 3 IN PROGRESS — plans 3a+3b COMPLETE; landmine #7 ROOT-FIXED 2026-06-12
+(deferral overridden by user decision); GATE 3 PENDING — Phase 3 NOT yet
+certified complete.**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -124,37 +125,53 @@ host.
    `EmScreen::GetBits` swaps the global `gMemAccessFlags` while the CPU runs
    (`EmWindow.cpp:549-607`, `EmMemory.cpp:630-657`) — a port regression (the
    original stopped the CPU here).
-7. **`check set` re-arms a known freeze (root fix DEFERRED on profile
-   evidence — Phase 3c).** Any DRAM-region check flag (LowMemoryAccess,
-   SystemGlobalAccess, ScreenAccess, MemMgrDataAccess, FreeChunkAccess,
-   UnlockedChunkAccess) re-arms unbounded per-DRAM-access work, pinning CPU
-   to ~100%. Bypassed by default in `0bc2a41` (the `gMetaCheckActive`
-   short-circuit), so it costs nothing with flags off; the underlying scan
-   was never optimized.
-   - **Corrected pre-fix behavior (measured Phase 3c C1 @3edd8b3, ScreenAccess
-     + `gremlin new 42 2000000`):** the freeze is **INSTANT**, not "within
-     ~10 min" (CPU baseline median 39.8% → 94% on the FIRST flagged sample,
-     then pinned 99.9–100%). RSS leaks **~3.1 MB/min** (+31 MB / 10 min), not
-     the historical "~200 KB/min". ReControl latency is unaffected (the freeze
-     is on the CPU worker thread; `state`/`check clearall` still answer).
-   - **Why the planned fix (negative caching + tagged-chunk dedup) was
-     deferred:** it was implemented and measured (Phase 3c C2). It DID cure the
-     first-order bottleneck — `PrvSearchForCodeChunk` (the database×resource
-     re-walk) — and held CPU at baseline ~38% for the first ~5 min. But the
-     freeze **returns** (~5 min in: CPU → 99.9%, RSS → 270 MB). Instrumentation
-     proved `PrvSearchForCodeChunk` is then called <100k times total (the
-     negative cache works), so the residual freeze is a **structurally
-     different, deeper path**: with `InRAMOSComponent` now cheap, `META_CHECK`
-     reaches `EmBankDRAM::ProbableCause → MetaMemory::GetWhatHappened →
-     AllowForBugs → FindFunctionName → EndOfFunctionSequence` (a per-access
-     guest-code function-boundary/CRC scan + full heap/UI-object walk) on every
-     flagged access by gremlin-driven code. The planned fix **relocated** the
-     freeze rather than eliminating it, and acceptance FAILED (cpu_drift and
-     rss both red). Fixing the `GetWhatHappened` per-access cost is out of scope
-     for "negative caching + dedup" and risks the violation-detection
-     correctness these checks exist to provide — so per spec §C3 the fix was
-     reverted and the root fix filed as a named post-v1.0 task (see
-     `docs/recovery-plan-2026-06.md`). `palm_check`'s honest warning stands.
+7. ~~**`check set` re-arms a known freeze.**~~ **ROOT-FIXED (landmine-7 root
+   fix, 2026-06-12, branch `landmine-7-root-fix` — deferral overridden by
+   user decision).** Any DRAM-region check flag previously re-armed unbounded
+   per-DRAM-access work. **Mechanism of the freeze (root-caused 2026-06-12):**
+   `META_CHECK` fires per DRAM access from a RAM PC; `GetWhatHappened` does a
+   full heap walk (`GWH_ExamineHeap`) and `AllowForBugs` runs several `In*`
+   function-range predicates per access — and `EmFunctionRange::InRange`
+   never caches a non-match and deliberately `Reset()`s ranges found in RAM
+   (`EmPalmFunction.cpp`), so each predicate re-runs `FindFunctionName`, a
+   2-byte-step scan across the PC's whole containing chunk. Nothing remembered
+   a verdict, so one hot site paid full price per access (measured: ONE PC,
+   3.2M analyses in ~2 min, 100% non-OK verdicts — most dropped *unreported*
+   because their class's Report pref wasn't even armed). Reported violations
+   additionally grew RSS per report (`EmEventPlayback::RecordErrorEvent` +
+   `LogDump`).
+   - **Pre-fix reproduction (2026-06-12, C2+instrumentation-strip binary,
+     ScreenAccess + `gremlin new 42 2000000`, 10-min acceptance):**
+     **ACCEPTANCE FAIL** — episodic 99%+ CPU bursts with RSS jumps, then a
+     sustained pin: first-2-min CPU median 37.5% → last-2-min **99.8%**; RSS
+     growth **+98.8 MB**. Matches the Phase 3c "freeze relocates/returns"
+     evidence (instant-pin in the 3c C1 run; burst timing varies with the
+     gremlin's app mix).
+   - **The fix (two layers):** (1) Phase 3c C2 re-applied — negative caching
+     in `PrvSearchForCodeChunk` + insert dedup in `PrvAddTaggedChunk` (cures
+     the first-order database×resource re-walk). (2) **Per-site verdict
+     cache** at the `EmBankDRAM::ProbableCause` boundary keyed
+     `(PC, size, meta-bit signature, r/w)`: first occurrence per site runs
+     the full existing analysis + report path byte-for-byte (including the
+     `Report*Access` pref gate); repeats are counted and suppressed.
+     Invalidation: atomic generation bumped on any `Report*Access` pref
+     change / `Reset` / `Load`, applied lazily on the CPU thread; precise
+     per-chunk erase in `MetaMemory::ChunkUnlocked` (entries are
+     chunk-anchored; PCs outside any heap chunk are never cached).
+     Forgiveness paths that depend on dynamic context (stack walks, live UI
+     objects, transient patch state, address-conditioned checks) call
+     `MarkVerdictUncacheable` and are never cached — violation-detection
+     correctness is preserved by construction. **Reporting-semantics change
+     (documented in recontrol-protocol.md + palm_check):** one report per
+     site per arming; `check clearall` + `check set` re-arms fresh reports.
+   - **Evidence:** `tests/phase3/test_check_suppression.py` 3× PASS (CPU flat
+     at baseline with the hot class armed; one `blocked_on_ui` dialog per
+     arming; `dialog respond continue` resumes with no re-block; re-arm
+     re-reports exactly once). Post-fix acceptance: see Phase 3 bullet
+     (ScreenAccess + all-six-flags 10-min runs, spec §C2 bars). Per-access
+     fprintf instrumentation (`META_ERROR`/`ALLOWBUGS`/`GETRANGE`/`MEMMGR`
+     traces, committed in `870b7ab`) was stripped en route — it polluted
+     every prior measurement of this landmine.
 8. ~~**SLP debugger sockets listen by default** (6414/2000) and connecting
    triggers an untimed main-thread `kStopOnSysCall` stop
    (`Debug::EventCallback`) — a UI hang waiting to happen.~~ **FIXED (Phase
@@ -359,15 +376,23 @@ host.
     Continue/Debug/Reset dialog, `test_break_real.py` 3× PASS); landmine #8
     FIXED (SLP sockets off by default, `EventCallback` stoppers bounded at
     5000ms, `repro_slp_trap.py` ALL PASS).
-  - **Plan 3c PARTIAL — landmine #7 root fix DEFERRED (spec §C3 fallback),
-    final commit `abdb074`.** Freeze was R1-measured (instant CPU pin ~100%,
-    RSS ~3.1 MB/min). Negative-caching+dedup fix implemented and tested, but
-    cures only `PrvSearchForCodeChunk`; freeze relocates to
-    `GetWhatHappened/AllowForBugs/FindFunctionName` — a structurally different,
-    deeper error-reporting path. Acceptance FAILED (cpu_drift + rss red). Fix
-    reverted per spec §C3; `palm_check` ships with truthful measured warning;
-    root fix filed as named POST-V1 task (see "What we are explicitly NOT
-    doing" in recovery-plan). See Landmines #7 above for full evidence.
+  - **Plan 3c landmine #7 — ROOT-FIXED 2026-06-12 (deferral overridden by
+    user decision; plan `2026-06-11-landmine7-root-fix.md`, branch
+    `landmine-7-root-fix`).** Phase 3c history: freeze R1-measured
+    (`3edd8b3`), negative-caching fix relocated it, reverted per §C3
+    (`abdb074`). This session: pre-fix reproduction on the C2+strip binary
+    **ACCEPTANCE FAIL** (first2min 37.5% → last2min **99.8%** CPU, RSS
+    **+98.8 MB**/10 min — episodic bursts then sustained pin). Fix = C2
+    re-applied + **per-site verdict cache** (see Landmines #7 for mechanism).
+    **Post-fix acceptance BOTH PASS:** ScreenAccess — flagged median 40.3%
+    vs baseline 38.4%, drift 37.5→38.9, RSS +0.8 MB, probes <2 ms; all six
+    DRAM flags — RSS +0.9 MB, probes <2 ms (guest parks on the first
+    report's dialog — the once-per-arming contract). Suppression semantics:
+    `test_check_suppression.py` 3× PASS + 1 confirm. Regression sweep clean:
+    phase-1 repros 7/7, honest_ack, surface 3/3, dispatch 37/37, slp_trap,
+    break_real (one round-1 dialog flake immediately after the acceptance
+    teardown, then 2× consecutive ALL PASS). Per-access fprintf traces from
+    `870b7ab` stripped (they polluted all prior #7 measurements).
   - **GATE 3 — PENDING/DEFERRED.** The fresh-agent MCP gate was not run this
     session (MCP server disconnected mid-session; rebuilt 37-tool proxy +
     emulator pre-flight-verified but live GATE 3 run deferred). **Phase 3 is
@@ -428,7 +453,8 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md` | historical — Phase 3 approved spec |
 | `docs/superpowers/plans/2026-06-11-phase3a-mcp-surface.md` | historical — Plan 3a complete |
 | `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md` | historical — Plan 3b complete |
-| `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` | ACTIVE — Plan 3c; #7 fix deferred, **GATE 3 PENDING** |
+| `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` | historical — Plan 3c; its §C3 deferral superseded by the landmine-7 root fix; **GATE 3 PENDING** (Task C3 still the gate script) |
+| `docs/superpowers/plans/2026-06-11-landmine7-root-fix.md` | ACTIVE — landmine #7 root fix (COMPLETE through Task 7; merge pending) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),

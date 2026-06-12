@@ -256,18 +256,26 @@ All commands in this section (and Logging, Gremlins, Configuration, Profiling be
 |---------|----------|-------------|
 | `speed [<percent>\|max]` | `OK\n` / `OK <percent>\n` / `OK max\n` | Set or query emulation speed (100 = 1x wall-clock, `max` = unthrottled). Needed for GATE 2 dual-speed runs. |
 
-> **Performance warning (landmine #7, root fix deferred — Phase 3c):**
-> enabling any DRAM-region check flag (LowMemoryAccess, SystemGlobalAccess,
-> ScreenAccess, MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess)
-> re-arms unbounded per-DRAM-access work on every checked access. **Measured
-> Phase 3c:** CPU pins to ~100% **instantly** (NOT "within ~10 minutes" — that
-> wording was stale) and RSS leaks **~3.1 MB/min**. The default-off bypass
-> (commit `0bc2a41`, the `gMetaCheckActive` short-circuit) means it costs
-> nothing with flags off; the underlying scan was never optimized. The planned
-> negative-caching fix cured the first-order `PrvSearchForCodeChunk` re-walk but
-> the freeze relocated into `ProbableCause`/`GetWhatHappened`, so the root fix
-> is deferred (see `docs/STATUS.md` landmine #7). Enable briefly for one
-> targeted test under no/low load, then `check clearall` immediately.
+> **Check-flag semantics (landmine #7 ROOT-FIXED 2026-06-12 — per-site
+> verdict cache):** the historical freeze (pre-fix reproduction: first-2-min
+> CPU median 37.5% → last-2-min **99.8%**, RSS **+98.8 MB**/10 min under
+> `gremlin 42` with ScreenAccess armed) is gone. Each violating **site** —
+> (PC, access kind, size, read/write) — is fully analyzed and reported ONCE
+> per arming; repeated hits are counted and suppressed. Distinct violation
+> kinds that share a meta-bit signature at one PC coarsen to one report. A
+> report can raise a Continue/Debug/Reset dialog (`blocked_on_ui`) — answer
+> with `dialog respond continue`. `check clearall` + `check set` re-arms
+> fresh analysis (every site re-reports once). Cached verdicts are
+> invalidated on reset, session load, any check-flag change, and when the
+> code chunk containing a cached PC is unlocked; forgiveness decisions that
+> depend on dynamic context (stack walks, live UI objects, transient patch
+> state, specific addresses) are never cached. The `gMetaCheckActive`
+> short-circuit still makes everything free with flags off. **Measured
+> post-fix (10-min acceptance, gremlin 42):** ScreenAccess armed — flagged
+> CPU median 40.3% vs baseline 38.4%, RSS growth 0.8 MB, every probe <2 ms;
+> all six DRAM flags armed — RSS growth 0.9 MB, probes <2 ms (the guest
+> spends that run parked on the first report's dialog, which is the
+> once-per-arming contract working).
 
 | `check list` | Multi-line | List 18 memory-check flags with on/off status |
 | `check set <flag> <on\|off>` | `OK\n` | Toggle individual memory check |

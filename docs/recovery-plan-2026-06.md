@@ -32,15 +32,18 @@
 >   gated behind `SLPDebugger` pref + `--slp-debugger` flag; both
 >   `EventCallback` stoppers bounded at 5000ms; repro
 >   `tests/phase3/repro_slp_trap.py` ALL PASS). Final commit `1d4d54b`.
-> - **Plan 3c (MetaMemory + GATE 3) — PARTIAL; landmine #7 root fix DEFERRED
->   (spec §C3 fallback):** freeze measured at R1 (`3edd8b3`: CPU pinned ~100%
->   instantly, RSS ~3.1 MB/min). Negative-caching+dedup fix implemented and
->   tested, but cures only the first-order `PrvSearchForCodeChunk` re-walk;
->   freeze relocates to `GetWhatHappened/AllowForBugs/FindFunctionName` (per-
->   access guest-code boundary/CRC scan). Acceptance FAILED (cpu_drift + rss
->   both red). Fix reverted per spec §C3; `palm_check` ships with truthful
->   measured warning; root fix filed as named POST-V1 task. Final commit
->   `abdb074`.
+> - **Plan 3c (MetaMemory + GATE 3) — landmine #7 ROOT-FIXED 2026-06-12
+>   (deferral overridden by user decision; plan
+>   `2026-06-11-landmine7-root-fix.md`):** pre-fix reproduction on the
+>   C2+strip binary FAILED acceptance exactly as Phase 3c measured (first2min
+>   37.5% → last2min 99.8% CPU, RSS +98.8 MB/10 min). Fix = C2 re-applied
+>   (negative caching + dedup) **plus a per-site verdict cache** at the
+>   `ProbableCause` boundary — each (PC, size, meta-sig, r/w) site analyzed/
+>   reported once per arming, repeats suppressed; generation + chunk-anchored
+>   invalidation; dynamic-context forgiveness never cached. Reporting
+>   semantics now once-per-site-per-arming (documented). Evidence:
+>   `test_check_suppression.py` 3× PASS; post-fix acceptance both runs (see
+>   STATUS). Per-access fprintf traces from `870b7ab` stripped en route.
 > - **GATE 3 — PENDING/DEFERRED.** The fresh-agent MCP gate (SKILL.md-only
 >   install → launch → crash → inspect → recover) was not run this session:
 >   the MCP server disconnected mid-session and references the old 28-tool
@@ -419,22 +422,13 @@ fresh clone builds and runs.
 - No multi-client ReControl, no Windows-specific automation work until
   GATE 4.
 - No new MCP features beyond Phase 3 until v1.0.
-- **Landmine #7 root fix is DEFERRED to a named post-v1.0 task (evidence
-  trigger, spec §C3).** Task **POST-V1: MetaMemory check-flag freeze — second
-  layer.** Phase 3c implemented + measured the planned negative-caching +
-  tagged-chunk dedup fix; it cured the first-order `PrvSearchForCodeChunk`
-  re-walk (held CPU at baseline ~38% for ~5 min) but the freeze RELOCATED into
-  `EmBankDRAM::ProbableCause → MetaMemory::GetWhatHappened → AllowForBugs →
-  FindFunctionName → EndOfFunctionSequence` (a per-access guest-code
-  boundary/CRC scan + full heap/UI walk that fires once `InRAMOSComponent` is
-  cheap). Instrumentation confirmed `PrvSearchForCodeChunk` is then called
-  <100k times total, so the residual cost is this distinct error-reporting
-  path. The root fix therefore needs the negative-caching change PLUS a
-  redesign of the `GetWhatHappened`/`AllowForBugs` per-access cost (e.g. cache
-  the function-range/CRC result, or gate it behind a cheaper pre-check) —
-  without regressing the violation-detection correctness those checks exist
-  for. Out of scope for the "negative caching + dedup" task; reverted in
-  Phase 3c. `palm_check` ships with its honest measured warning. Evidence:
-  `docs/STATUS.md` landmine #7; harness `tests/phase3/check_perf_harness.py`
-  (strengthened flagged-vs-baseline CPU gate caught the partial fix's
-  false-pass).
+- ~~Landmine #7 root fix DEFERRED to post-v1.0~~ **DONE 2026-06-12 (deferral
+  overridden by user decision)** — the per-site verdict cache landed on
+  branch `landmine-7-root-fix` (plan:
+  `docs/superpowers/plans/2026-06-11-landmine7-root-fix.md`). The Phase 3c
+  diagnosis held: the residual freeze was the
+  `ProbableCause → GetWhatHappened → AllowForBugs → FindFunctionName` per-
+  access path. The fix analyzes each site (PC, size, meta-bit signature, r/w)
+  once per arming and suppresses repeats, with generation + chunk-anchored
+  invalidation and dynamic-context forgiveness never cached. See
+  `docs/STATUS.md` landmine #7 (FIXED) for mechanism + evidence.

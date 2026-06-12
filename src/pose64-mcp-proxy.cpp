@@ -868,13 +868,14 @@ static const ToolDef kTools[] = {
   }, nullptr },
 
 { "palm_check", "MetaMemory access-check flags (18; action=list shows them). "
-  "WARNING (landmine #7, root fix deferred): enabling any DRAM-region flag "
-  "(LowMemoryAccess, SystemGlobalAccess, ScreenAccess, MemMgrDataAccess, "
-  "FreeChunkAccess, UnlockedChunkAccess) re-arms unbounded per-DRAM-access work "
-  "that pins CPU to ~100% INSTANTLY (measured Phase 3c — not 'within ~10 min') "
-  "and leaks RSS ~3.1 MB/min. The default-off bypass means this costs nothing "
-  "with flags off. Enable briefly for one targeted test under no/low load, then "
-  "action=clearall immediately.",
+  "DRAM-region flags (LowMemoryAccess, SystemGlobalAccess, ScreenAccess, "
+  "MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess) are usable "
+  "(landmine #7 root-fixed): each violating site (PC + access kind + size + "
+  "r/w) is analyzed and reported ONCE per arming; repeats are suppressed, so "
+  "no CPU pin and no RSS growth (measured: CPU at baseline under gremlin "
+  "load). A report may raise a blocked_on_ui dialog — answer it with "
+  "palm_dialog action=respond response=continue. Re-arm (clearall, then set) "
+  "to get fresh reports. Use action=clearall when done.",
   [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "set-all", "clearall"})},
                             {"flag", str_prop ("Flag name from action=list (set)")},
                             {"on", bool_prop ("true=on, false=off (set/set-all)")}},

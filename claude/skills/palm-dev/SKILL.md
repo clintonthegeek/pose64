@@ -78,7 +78,7 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_spy` | `action`, `addr` | Step spy: dialog-stop when value changes (set/clear/status) |
 | `palm_log` | `action`, `category`, `level` | Event logging: 20 categories, levels 0/1/2 (list/set/dump/clear) |
 | `palm_gremlin` | `action`, `seed`, `events` | Hordes stress testing (new/status/suspend/step/resume/stop) |
-| `palm_check` | `action`, `flag`, `on` | MetaMemory access checks — see landmine #7 warning in description |
+| `palm_check` | `action`, `flag`, `on` | MetaMemory access checks — one report per site per arming; dialog may need palm_dialog respond |
 | `palm_errorhandling` | `action`, `setting`, `behavior` | Guest error/warning behavior (get/set) |
 | `palm_profile` | `action`, `max`, `depth`, `path` | CPU profiler: init→start→stop→dump |
 
@@ -433,17 +433,17 @@ palm_gremlin action=resume
 palm_gremlin action=stop
 ```
 
-### Memory Checks (18 flags) — WARNING: DRAM flags are a performance trap (landmine #7)
+### Memory Checks (18 flags) — usable; one report per site per arming (landmine #7 fixed)
 
-Enabling any DRAM-region flag (LowMemoryAccess, SystemGlobalAccess,
-ScreenAccess, MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess)
-re-arms unbounded per-DRAM-access work. **Measured Phase 3c:** CPU pins to
-~100% **instantly** (not "within ~10 min" — that was stale) and RSS leaks
-~3.1 MB/min. The root fix is deferred (the planned negative-caching fix cured
-the first-order re-walk but the freeze relocated into the error-reporting path
-— see `docs/STATUS.md` landmine #7). With flags off the default-off bypass
-makes this cost nothing. Enable briefly for ONE targeted test under no/low
-load, then `action=clearall` immediately.
+DRAM-region flags (LowMemoryAccess, SystemGlobalAccess, ScreenAccess,
+MemMgrDataAccess, FreeChunkAccess, UnlockedChunkAccess) no longer freeze the
+emulator: each violating site (PC + access kind + size + r/w) is analyzed and
+reported **once per arming**; repeats are suppressed (CPU stays at baseline,
+RSS flat — measured under gremlin load). A report may raise a
+`blocked_on_ui` Continue/Debug/Reset dialog: inspect it with `palm_dialog
+action=query`, then `palm_dialog action=respond response=continue`. To get
+fresh reports for the same sites, re-arm: `action=clearall`, then set the
+flag again. `action=clearall` when done is still good hygiene.
 
 ```
 palm_check action=list
