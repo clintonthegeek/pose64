@@ -74,9 +74,12 @@
 >   "Unknown tool", zero raw-TCP/Bash fallbacks, no emulator restarts
 >   needed. Tagged `phase-3-complete`.
 >
-> **NEXT ACTION:** Phase 4 — HotSync smoke test (task 4.1): PTY transport
-> (`pty:HotSync`), `pilot-xfer -p /dev/pts/N -l`, scriptable cradle button.
-> Write the phase 4 detailed plan first (superpowers:writing-plans).
+> **NEXT ACTION:** Execute the Phase 4 detailed plan
+> (`docs/superpowers/plans/2026-06-12-phase4-hotsync.md`, written 2026-06-12
+> with a verified mechanism map): Task 1 smoke test first (zero emulator
+> changes), conditional 4.2 debug, then productize (`info` serial/pty line,
+> same-run `-preference`), docs/hotsync.md, GATE 4 (fresh-agent
+> reproduction), tag `phase-4-complete`.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
