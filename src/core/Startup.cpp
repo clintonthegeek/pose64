@@ -1025,6 +1025,17 @@ Bool Startup::PrvParseCommandLine (int argc, char** argv)
 	if (!Startup::PrvHandlePreferenceParameters (prefs))
 		goto BadParameter;
 
+	// Command-line preferences are applied AFTER EmulatorPreferences::Load()
+	// has already created the UART transports (EmApplication::Startup calls
+	// gPrefs->Load() first), so a '-preference PortSerial=...' would
+	// otherwise take effect only on the NEXT run.  Rebuild the transports
+	// so the documented flag works in THIS run.  Safe with no session yet:
+	// SetTransportForDevice's EmSessionStopper tolerates a null gSession
+	// (same conditions as the Load()-time call).
+
+	if (!prefs.empty ())
+		gEmuPrefs->SetTransports ();
+
 	return true;
 
 BadParameter:
