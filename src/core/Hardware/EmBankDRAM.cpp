@@ -673,7 +673,27 @@ void EmBankDRAM::ProbableCause (emuptr address, long size, Bool forRead)
 {
 	EmAssert (gSession);
 
-	Errors::EAccessType	whatHappened = MetaMemory::GetWhatHappened (address, size, forRead);
+	// Landmine #7 root fix: a site that has already been analyzed is not
+	// analyzed again — GetWhatHappened/AllowForBugs cost whole-chunk code
+	// scans and heap walks PER ACCESS, which pinned the CPU when a hot
+	// loop touched checked memory (measured: one PC, 3.2M analyses in
+	// ~2 min).  First occurrence per (PC, access-kind, r/w) behaves
+	// exactly as before — including the Report*Access pref gate inside
+	// ReportErr* — repeats are counted and suppressed.  Re-arming via
+	// check set/clearall invalidates and re-reports.
+
+	emuptr	pc = gCPU->GetPC ();
+
+	Errors::EAccessType	whatHappened;
+
+	if (MetaMemory::LookupCheckVerdict (pc, address, size, forRead, whatHappened))
+		return;
+
+	MetaMemory::BeginVerdictAnalysis ();
+
+	whatHappened = MetaMemory::GetWhatHappened (address, size, forRead);
+
+	MetaMemory::StoreCheckVerdict (pc, address, size, forRead, whatHappened);
 
 	switch (whatHappened)
 	{

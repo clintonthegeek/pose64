@@ -31,7 +31,9 @@
 #include "SessionFile.h"		// SessionFile::Write
 
 #include <algorithm>			// find
+#include <atomic>				// std::atomic (verdict-cache generation)
 #include <ctype.h>				// islower
+#include <map>					// std::map (verdict cache)
 
 using namespace std;
 
@@ -54,6 +56,48 @@ static EmTaggedPalmChunk		gLastChunk;
 
 static vector<MemHandle>		gBitmapHandleList;
 static vector<MemPtr>			gBitmapPointerList;
+
+// ---------------------------------------------------------------------------
+// Landmine #7: per-site verdict cache.  A "site" is (PC, meta-bit
+// signature, r/w).  GetWhatHappened/AllowForBugs cost whole-chunk code
+// scans and heap walks PER ACCESS; analyzing each site once per arming
+// and suppressing repeats is what makes the check flags usable.  All
+// mutation of gCheckVerdicts happens on the CPU thread (ProbableCause /
+// ChunkUnlocked / lazy generation-clear); other threads request
+// invalidation by bumping gVerdictGenRequested.
+// ---------------------------------------------------------------------------
+
+struct EmCheckVerdictKey
+{
+	emuptr	pc;
+	long	size;		// several forgiveness checks are size-conditioned
+	uint8	metaSig;
+	Bool	forRead;
+
+	bool operator< (const EmCheckVerdictKey& o) const
+	{
+		if (pc != o.pc)				return pc < o.pc;
+		if (size != o.size)			return size < o.size;
+		if (metaSig != o.metaSig)	return metaSig < o.metaSig;
+		return forRead < o.forRead;
+	}
+};
+
+struct EmCheckVerdictEntry
+{
+	Errors::EAccessType	verdict;
+	emuptr				chunkStart;		// containing chunk body, for ChunkUnlocked
+	emuptr				chunkEnd;
+	uint64				hits;
+};
+
+typedef map<EmCheckVerdictKey, EmCheckVerdictEntry>	EmCheckVerdictMap;
+
+static EmCheckVerdictMap		gCheckVerdicts;
+static std::atomic<uint32_t>	gVerdictGenRequested (0);
+static uint32_t					gVerdictGenApplied;		// CPU thread only
+static Bool						gVerdictCacheable;		// CPU thread only
+static const size_t				kMaxVerdictEntries = 512;
 
 enum
 {
@@ -92,6 +136,8 @@ void MetaMemory::Reset (void)
 
 	gBitmapHandleList.clear ();
 	gBitmapPointerList.clear ();
+
+	MetaMemory::InvalidateCheckVerdicts ();
 }
 
 
@@ -127,6 +173,8 @@ void MetaMemory::Load (SessionFile& f)
 	gTaggedChunks.clear ();
 	gHaveLastChunk = false;
 
+	MetaMemory::InvalidateCheckVerdicts ();
+
 	Chunk	chunk;
 	if (f.ReadMetaInfo (chunk))
 	{
@@ -144,6 +192,107 @@ void MetaMemory::Load (SessionFile& f)
 			gBitmapPointerList.clear ();
 		}
 	}
+}
+
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		� MetaMemory::LookupCheckVerdict
+// ---------------------------------------------------------------------------
+// Landmine #7: return the cached verdict for this site, counting the hit.
+// CPU thread only.  Lazily applies any invalidation requested by other
+// threads (pref change, Reset, Load) before looking up.
+
+Bool MetaMemory::LookupCheckVerdict (emuptr pc, emuptr address, long size, Bool forRead, Errors::EAccessType& verdict)
+{
+	uint32_t	gen = gVerdictGenRequested.load (std::memory_order_acquire);
+	if (gen != gVerdictGenApplied)
+	{
+		gCheckVerdicts.clear ();
+		gVerdictGenApplied = gen;
+	}
+
+	uint8	metaSig = (uint8) (*(EmMemGetMetaAddress (address)) &
+				(kAccessBitMask | kScreenBuffer | kStackBuffer));
+
+	EmCheckVerdictKey	key = { pc, size, metaSig, forRead };
+	EmCheckVerdictMap::iterator	iter = gCheckVerdicts.find (key);
+	if (iter == gCheckVerdicts.end ())
+		return false;
+
+	iter->second.hits++;
+	verdict = iter->second.verdict;
+	return true;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� MetaMemory::BeginVerdictAnalysis
+// ---------------------------------------------------------------------------
+// Reset the cacheable flag before a full GetWhatHappened analysis; any
+// forgiveness path whose decision rests on dynamic context (stack walks,
+// live UI objects, transient patch state, the specific address) calls
+// MarkVerdictUncacheable so the verdict is re-derived on every access.
+
+void MetaMemory::BeginVerdictAnalysis (void)
+{
+	gVerdictCacheable = true;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� MetaMemory::MarkVerdictUncacheable
+// ---------------------------------------------------------------------------
+
+void MetaMemory::MarkVerdictUncacheable (void)
+{
+	gVerdictCacheable = false;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� MetaMemory::StoreCheckVerdict
+// ---------------------------------------------------------------------------
+// Cache the analyzed verdict for this site.  Only PCs anchored to a known
+// heap chunk are cacheable: the chunk range is what lets ChunkUnlocked
+// invalidate this entry when the code unloads or moves.  (META_CHECK only
+// fires for RAM PCs, so ROM PCs never get here.)
+
+void MetaMemory::StoreCheckVerdict (emuptr pc, emuptr address, long size, Bool forRead, Errors::EAccessType verdict)
+{
+	if (!gVerdictCacheable)
+		return;
+
+	const EmPalmHeap*	heap = EmPalmHeap::GetHeapByPtr ((MemPtr)(uintptr_t) pc);
+	if (!heap)
+		return;
+
+	const EmPalmChunk*	chunk = heap->GetChunkBodyContaining (pc);
+	if (!chunk)
+		return;
+
+	if (gCheckVerdicts.size () >= kMaxVerdictEntries)
+		gCheckVerdicts.clear ();	// pathological cardinality; start over
+
+	uint8	metaSig = (uint8) (*(EmMemGetMetaAddress (address)) &
+				(kAccessBitMask | kScreenBuffer | kStackBuffer));
+
+	EmCheckVerdictKey	key = { pc, size, metaSig, forRead };
+	EmCheckVerdictEntry	entry = { verdict, chunk->BodyStart (), chunk->BodyEnd (), 0 };
+	gCheckVerdicts[key] = entry;
+}
+
+
+// ---------------------------------------------------------------------------
+//		� MetaMemory::InvalidateCheckVerdicts
+// ---------------------------------------------------------------------------
+// Thread-safe invalidation request; the CPU thread applies it lazily in
+// LookupCheckVerdict.
+
+void MetaMemory::InvalidateCheckVerdicts (void)
+{
+	gVerdictGenRequested.fetch_add (1, std::memory_order_release);
 }
 
 
@@ -390,6 +539,8 @@ Errors::EAccessType MetaMemory::GetWhatHappened (emuptr address, long size, Bool
 			// error or check "butItsOK", since if an error occurred,
 			// an error object will be scheduled with the EmSession.
 
+			MetaMemory::MarkVerdictUncacheable ();	// live UI-object state
+
 			whatHappened = Errors::kOKAccess;
 		}
 		else
@@ -449,6 +600,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 				::InCrc16CalcBlock () &&
 				::InSecPrvRandomSeed (rtnAddr))
 			{
+				MetaMemory::MarkVerdictUncacheable ();	// stack-walk + address-conditioned
 				return Errors::kOKAccess;
 			}
 		}
@@ -469,6 +621,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 				address == 0x0000 && size == 2 &&
 				InBackspaceChar ())
 			{
+				MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 				return Errors::kOKAccess;
 			}
 
@@ -478,6 +631,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 				address == 0x0000 && size == 2 &&
 				::InFldDelete ())
 			{
+				MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 				return Errors::kOKAccess;
 			}
 
@@ -487,6 +641,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 				address == 0x0002 && size == 2 &&
 				::InGrfProcessStroke ())
 			{
+				MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 				return Errors::kOKAccess;
 			}
 
@@ -506,6 +661,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 		if (EmPatchState::HasSysBinarySearchBug () &&
 			EmPatchState::IsInSysBinarySearch ())
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// transient patch state
 			return Errors::kOKAccess;
 		}
 
@@ -538,6 +694,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 
 		if (size == 4 && address == 0x0008 && (::InHsPrvInit () || ::InHsPrvInitCard ()))
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 			return Errors::kOKAccess;
 		}
 	}
@@ -552,6 +709,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 			 address == EmLowMem_AddressOf (tsmFepLibRefNum)) &&
 			 ::InTsmGlueGetFepGlobals ())
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 			return Errors::kOKAccess;
 		}
 
@@ -561,6 +719,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 			(::InPrvGetIntlMgrGlobalsP() ||
 			 ::InPrvSetIntlMgrGlobalsP()))
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 			return Errors::kOKAccess;
 		}
 
@@ -568,6 +727,7 @@ Errors::EAccessType MetaMemory::AllowForBugs (emuptr address, long size, Bool fo
 
 		if (address == EmLowMem_AddressOf (testHarnessGlobalsP))
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// address-conditioned
 			return Errors::kOKAccess;
 		}
 	}
@@ -1298,6 +1458,7 @@ void MetaMemory::GWH_ExamineChunk (	const EmPalmChunk& chunk,
 				if (taskInfo.param.task.stackStart >= bodyStart &&
 					taskInfo.param.task.stackStart < trlStart)
 				{
+					MetaMemory::MarkVerdictUncacheable ();	// live TCB state
 					goto HideBug;
 				}
 
@@ -1326,6 +1487,7 @@ PlanB:
 
 				if (::Incj_kptkdelete ())
 				{
+					MetaMemory::MarkVerdictUncacheable ();	// SP-in-chunk context
 					info.result = Errors::kOKAccess;
 				}
 
@@ -1365,6 +1527,7 @@ PlanB:
 					{
 						if (::Incj_kptkdelete (EmMemGet32 (a7)))
 						{
+							MetaMemory::MarkVerdictUncacheable ();	// stack-scan context
 							goto HideBug;
 						}
 
@@ -1385,6 +1548,7 @@ PlanB:
 			addrStart == bodyStart + sizeof (UInt16) * 2 /*offsetof (FindParamsType, more)*/ &&
 			::InFindShowResults ())
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// address-offset-conditioned
 			goto HideBug;
 		}
 
@@ -1405,6 +1569,7 @@ PlanB:
 				::InDmWrite (EmMemGet32 (a6_0 + 4)) &&			// See if DmWrite is MemMove's caller
 				::InFindSaveFindStr (EmMemGet32 (a6_1 + 4)))	// See if FindSaveFindStr is DmWrite's caller
 			{
+				MetaMemory::MarkVerdictUncacheable ();	// caller-stack context
 				goto HideBug;
 			}
 		}
@@ -1419,6 +1584,7 @@ PlanB:
 			::InMemMove () &&							// See if we're in MemMove
 			::InFntDefineFont (EmMemGet32 (a6_0 + 4)))	// See if FntDefineFont is MemMove's caller
 		{
+			MetaMemory::MarkVerdictUncacheable ();	// caller-stack context
 			goto HideBug;
 		}
 	}
@@ -3900,6 +4066,18 @@ static void PrvLoadTaggedChunk (emuptr pc)
 
 void MetaMemory::ChunkUnlocked (emuptr addr)
 {
+	// Landmine #7: drop cached verdicts for sites inside this chunk —
+	// the code identity at those PCs is no longer guaranteed.
+
+	EmCheckVerdictMap::iterator	viter = gCheckVerdicts.begin ();
+	while (viter != gCheckVerdicts.end ())
+	{
+		if (addr >= viter->second.chunkStart && addr < viter->second.chunkEnd)
+			gCheckVerdicts.erase (viter++);
+		else
+			++viter;
+	}
+
 	EmTaggedPalmChunkList::iterator	iter = gTaggedChunks.begin ();
 	while (iter != gTaggedChunks.end ())
 	{

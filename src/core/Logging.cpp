@@ -18,6 +18,7 @@
 #include "EmMemory.h"			// EmMemGet32, EmMemGet16, EmMem_strcpy, EmMem_strncat
 #include "EmStreamFile.h"		// EmStreamFile
 #include "Hordes.h"				// Hordes::IsOn, Hordes::EventCounter
+#include "MetaMemory.h"			// InvalidateCheckVerdicts (landmine #7)
 #include "Platform.h"			// GetMilliseconds
 #include "PreferenceMgr.h"		// Preference<>
 #include "ROMStubs.h"			// FrmGetTitle, WinGetFirstWindow
@@ -51,6 +52,11 @@ static void PrvUpdateMetaCheckActive (void)
 		gLogCache[kCachedPrefKeyReportMemMgrDataAccess]		||
 		gLogCache[kCachedPrefKeyReportFreeChunkAccess]		||
 		gLogCache[kCachedPrefKeyReportUnlockedChunkAccess];
+
+	// Landmine #7: arming or clearing any check flag re-opens analysis —
+	// every site gets one fresh report per arming.
+
+	MetaMemory::InvalidateCheckVerdicts ();
 }
 
 

@@ -117,6 +117,19 @@ class MetaMemory
 
 		static Errors::EAccessType
 								GetWhatHappened			(emuptr address, long size, Bool forRead);
+
+		// Landmine #7 root fix: per-site verdict cache for the check-flag
+		// machinery.  A "site" is (PC, meta-bit signature of the address,
+		// r/w).  First occurrence runs the full GetWhatHappened/report
+		// path; repeats are counted and suppressed.  Invalidated by
+		// Report*Access pref changes, Reset, Load (generation), and
+		// precisely when the PC's containing chunk is unlocked.
+
+		static Bool				LookupCheckVerdict		(emuptr pc, emuptr address, long size, Bool forRead, Errors::EAccessType& verdict);
+		static void				StoreCheckVerdict		(emuptr pc, emuptr address, long size, Bool forRead, Errors::EAccessType verdict);
+		static void				BeginVerdictAnalysis	(void);
+		static void				MarkVerdictUncacheable	(void);
+		static void				InvalidateCheckVerdicts	(void);
 		static Errors::EAccessType
 								AllowForBugs			(emuptr address, long size, Bool forRead, Errors::EAccessType);
 		static void				CheckUIObjectAccess		(emuptr address, size_t size, Bool forRead,
