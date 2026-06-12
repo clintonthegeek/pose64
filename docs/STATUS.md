@@ -4,8 +4,11 @@
 Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**;
 **Phase 3 COMPLETE — GATE 3 PASSED 2026-06-12** (first run same day FAILED on
 two gaps, both root-fixed + re-run PASSED; findings + resolution:
-`docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`). **Next: Phase 4
-(HotSync smoke test).**
+`docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`).
+**Phase 4 COMPLETE — GATE 4 PASSED 2026-06-12: HotSync verified end-to-end
+against pilot-link** (procedure: `docs/hotsync.md`; root-cause record:
+`docs/superpowers/plans/2026-06-12-phase4-findings.md`). **Next: Phase 5
+(declutter and ship 0.9.1).**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -447,6 +450,38 @@ host.
     repros **7/7 PASS**; honest-ack **PASS**; surface **3/3**; dispatch
     **37/37**; repro_slp_trap **ALL PASS**; test_break_real **ALL PASS** (3
     rounds). No red.
+- **Phase 4 — COMPLETE (GATE 4 PASSED 2026-06-12, tagged
+  `phase-4-complete`).** Plan:
+  `docs/superpowers/plans/2026-06-12-phase4-hotsync.md` (subagent-driven,
+  two-stage review per task). Executed same day:
+  - **Smoke harness** `tests/phase4/test_hotsync_smoke.py` — first live run
+    reproduced an ~80% handshake failure (`Error read system info` ~2 s
+    after attach; 1/5 passes proved the chain CAN work). Root-caused
+    (three measured mechanisms — see HotSync status above + findings doc)
+    and fixed at script level with the deterministic attach-before-tap
+    procedure: **5/5 acceptance + 3/3 confirm, 16 databases each.**
+  - **`info` serial line** (TDD, `tests/phase4/test_info_serial.py`):
+    `serial=<descriptor>[ pty=/dev/pts/N]` — gated by transport type;
+    `pty=` appears once the guest first opens the port and persists.
+    Agent-visible via `palm_state`.
+  - **`-preference` same-run fix** (TDD, `tests/phase4/test_preference_cli.py`):
+    `Startup::PrvParseCommandLine` now rebuilds transports after CLI prefs
+    are applied — pre-fix the flag updated the pref but the transport kept
+    the prefs-file value (the pref LIED; effect-based test caught it).
+  - **Docs:** `docs/hotsync.md` (verified procedure, why-this-order
+    evidence, troubleshooting incl. the Log-bitmask trap: `Log*` prefs are
+    bitmasks, 1=normal runs, 2=Gremlin-ONLY — `log set Serial 2` outside a
+    Horde logs nothing; backwards glosses corrected in SKILL.md, the proxy
+    `palm_log` description, and recontrol-protocol.md). SKILL.md gained the
+    HotSync workflow.
+  - **GATE 4 (fresh-agent reproduction from docs/hotsync.md alone): PASS** —
+    first deterministic attempt, full 16-database listing, clean teardown.
+    One gate finding folded back into the doc: one-shot `socat` pipes
+    intermittently lose multi-line ReControl responses; use a persistent
+    connection.
+  - Regression sweep at close: phase-1 repros 7/7, honest_ack, surface 3/3,
+    dispatch 37/37, break_blocked_ops, info_serial, preference_cli, smoke
+    3× — all PASS.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -471,13 +506,27 @@ remain on disk but gitignored — see `docs/reference-trees.md`.
 
 ## HotSync status
 
-Closer than assumed. All mechanisms exist (PTY transport, wall-clock 1x,
-accurate timers, scriptable cradle). **The end-to-end smoke test has never
-been run**: start emulator with Serial Port = `pty:HotSync`, note the
-`/dev/pts/N` line, run `pilot-xfer -p /dev/pts/N -l`, tap the cradle button.
-Known risk: on the calibrated m500, PalmOS ticks run ~2.66× fast during
-CPU-busy stretches (calibration corrects the throttle, not the timer) — test
-on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
+**WORKS — verified end-to-end 2026-06-12 (Phase 4, GATE 4 PASSED).**
+`pilot-xfer -p /dev/pts/N -l` lists the stock m515 session's 16 databases;
+5/5 + 3/3 consecutive passes of the automated reproduction
+(`tests/phase4/test_hotsync_smoke.py`) plus an independent fresh-agent
+reproduction from `docs/hotsync.md` alone (the GATE 4 run). The procedure
+is **order-sensitive** — the naive tap-then-attach order loses a timing
+race ~80% of the time. Three measured mechanisms (full evidence:
+`docs/superpowers/plans/2026-06-12-phase4-findings.md`): the guest's CMP
+retry volley lasts only ~1.2 s (~18 wakeups at 64 ms; wall-true m515 runs
+~15× real device speed); stale wakeups queue in the pty slave buffer and
+poison a late-attaching pilot-xfer (`Error read system info`); and the
+modal "HotSync Problem" form (id=12000) swallows cradle re-taps until
+dismissed (`tap-id 12004`). Deterministic order: sacrificial tap (creates
+the persistent PTY) → dismiss Problem form → flush pty → attach pilot-xfer
+→ tap cradle. Residual ~10% per-attempt delivery-phase race (RX-pump ~50 ms
+quantum vs the 64 ms listen window) is retried at script level; an
+emulator-side fix is spec-4.3 territory, explicitly deferred. Setup:
+`-preference PortSerial=serial:pty:HotSync` (same-run effective since the
+Phase 4 fix); the PTY slave path is reported by `info`/`palm_state`
+(`serial=… pty=/dev/pts/N`). m500 timing caveat stands: it is the one
+throttle-calibrated device (~2.66× busy-tick skew) — use m515/Vx.
 
 ## Authoritative document set
 
@@ -490,6 +539,7 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `claude/agents/pose64-tester.md` | Autonomous tester agent |
 | `docs/debugging-guide.md` | Host-side debugging (ASAN/GDB/perf) |
 | `docs/recovery-plan-2026-06.md` | The active roadmap + current-position banner |
+| `docs/hotsync.md` | Verified HotSync procedure (GATE 4, 2026-06-12) |
 | `docs/superpowers/plans/2026-06-10-task-1-0d-dialog-lifetime.md` | historical — 1.0d complete |
 | `docs/superpowers/plans/2026-06-10-phase1-kill-freeze-classes.md` | historical — Phase 1 detailed plan (GATE 1 passed) |
 | `docs/superpowers/plans/2026-06-10-phase2-planning-handoff.md` | historical — Phase 2 handoff; §10 = decisions record |
@@ -500,6 +550,8 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` | historical — Plan 3c complete; GATE 3 PASSED 2026-06-12 (Task C3 prompt as revised 2026-06-12) |
 | `docs/superpowers/plans/2026-06-11-landmine7-root-fix.md` | historical — landmine #7 root fix complete (on master) |
 | `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md` | historical — GATE 3 first-run FAIL findings + RESOLUTION (all gaps fixed, re-run PASSED) |
+| `docs/superpowers/plans/2026-06-12-phase4-hotsync.md` | historical — Phase 4 plan complete; GATE 4 PASSED 2026-06-12 |
+| `docs/superpowers/plans/2026-06-12-phase4-findings.md` | historical — HotSync race root-cause record (still the evidence behind docs/hotsync.md) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),

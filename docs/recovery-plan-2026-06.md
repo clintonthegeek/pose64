@@ -74,12 +74,24 @@
 >   "Unknown tool", zero raw-TCP/Bash fallbacks, no emulator restarts
 >   needed. Tagged `phase-3-complete`.
 >
-> **NEXT ACTION:** Execute the Phase 4 detailed plan
-> (`docs/superpowers/plans/2026-06-12-phase4-hotsync.md`, written 2026-06-12
-> with a verified mechanism map): Task 1 smoke test first (zero emulator
-> changes), conditional 4.2 debug, then productize (`info` serial/pty line,
-> same-run `-preference`), docs/hotsync.md, GATE 4 (fresh-agent
-> reproduction), tag `phase-4-complete`.
+> **Phase 4 — COMPLETE (GATE 4 PASSED 2026-06-12, tagged
+> `phase-4-complete`).** HotSync verified end-to-end against pilot-link:
+> smoke harness reproduced an ~80% handshake race (first run), root-caused
+> same day (guest CMP volley only ~1.2 s; stale wakeups queue in the pty
+> slave; the modal "HotSync Problem" form swallows re-taps) and fixed with
+> the deterministic attach-before-tap procedure — 5/5 + 3/3 passes, 16
+> databases listed. Productized: `info` reports `serial=… pty=/dev/pts/N`;
+> `-preference` now effective same-run (transports rebuilt after CLI
+> prefs); `docs/hotsync.md` written and independently reproduced by a
+> fresh agent from the doc alone (the GATE 4 run). Log-pref bitmask trap
+> (level 2 = Gremlin-only) corrected across docs/proxy. Evidence:
+> `docs/superpowers/plans/2026-06-12-phase4-findings.md`.
+>
+> **NEXT ACTION:** Phase 5 — declutter and ship 0.9.1: PROBABLY-SAFE
+> dead-code deletions (one commit each, build between), small dedups
+> (`ParseAddress` decl, `#undef` shim header, profile stoppers), the
+> `main.cpp:145` return-before-Shutdown fix, STATUS/release notes, tag
+> 0.9.1, rebuild packages. Then GATE 5 = the v1.0 definition of done.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -394,7 +406,8 @@ zero raw-TCP fallbacks.
 project's reason to exist beyond parity. All mechanisms already shipped;
 nobody ever ran the test.
 
-- [ ] **4.1 Smoke test** (do this FIRST; it may just work):
+- [x] **4.1 Smoke test** — DONE 2026-06-12 (`tests/phase4/test_hotsync_smoke.py`;
+      first run exposed the attach race, see 4.2):
       1. Session on an **uncalibrated** device (Palm V/Vx ROM — wall-true
          ticks; avoids the m500's 2.66× busy-tick skew).
       2. Preferences → Serial Port = `pty:HotSync`; note stderr line
@@ -404,18 +417,24 @@ nobody ever ran the test.
       5. Record outcome (works / CMP handshake seen / nothing) with serial
          logging on (`log set Serial 2`... check exact category via
          `log list`).
-- [ ] **4.2 If handshake stalls** — debug the UART/transport under load
-      (FIFO overrun, RTS, `CycleSlowly` RX pump cadence,
-      `EmUARTDragonball.cpp:630-647`); this is the only expected weak spot.
-- [ ] **4.3 If timeouts trip on m500** — wall-pace the timer accumulator
-      (raw clock) independently of the calibrated throttle clock — keeps
-      ticks true during busy stretches.
-- [ ] **4.4 Productize** — ReControl `info` (or new `serial`) reports the
-      PTY slave path so WildPalms can script sync end-to-end; write
-      `docs/hotsync.md` with the verified procedure.
+- [x] **4.2 If handshake stalls** — HAPPENED & RESOLVED 2026-06-12: not the
+      UART pump but an attach-order race (tiny CMP volley + stale pty bytes
+      + tap-swallowing Problem form); root-cause record:
+      `docs/superpowers/plans/2026-06-12-phase4-findings.md`. The RX-pump
+      ~50 ms quantum IS implicated in a residual ~10% per-attempt race
+      (retried at script level; emulator fix deferred → 4.3 territory).
+- [ ] **4.3 If timeouts trip on m500** — NOT NEEDED for GATE 4 (m515 is
+      wall-true). Remains the home of the deferred RX-pump-quantum fix if
+      the residual ~10% race ever needs killing at the source.
+- [x] **4.4 Productize** — DONE 2026-06-12: `info` reports
+      `serial=<descriptor>[ pty=/dev/pts/N]`; `-preference` effective
+      same-run; `docs/hotsync.md` written + gate-verified.
 
 **GATE 4:** `pilot-xfer -l` lists the device's databases; procedure
 reproducible from docs/hotsync.md by a fresh session.
+**PASSED 2026-06-12** — fresh agent, doc only, first deterministic attempt,
+16 databases, clean teardown; its one finding (one-shot socat loses
+multi-line responses) folded back into docs/hotsync.md.
 
 ---
 

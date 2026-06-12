@@ -33,6 +33,14 @@ ReControl commands (`button`, `ui`, `tap-id`, `info`) are shown; the MCP
 equivalents (`palm_button`, `palm_ui`, `palm_tap_id`, `palm_state`)
 behave identically.
 
+> **Transport note (GATE 4 finding, 2026-06-12):** drive ReControl over a
+> **persistent** TCP connection (`tests/lib/recontrol_client.py`, or the
+> MCP tools). One-shot `socat`/`nc` pipes intermittently lose the
+> response — a command like `info` or `ui` can execute server-side yet
+> print nothing locally, which reads as "the form never appeared" in
+> step 4. Single-line probes (`state`) are usually fine; multi-line
+> responses are the unreliable case.
+
 1. **Configure the serial transport.** Launch with the CLI flag (takes
    effect same-run since the Task-4 fix):
 
