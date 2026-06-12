@@ -153,9 +153,9 @@ def sync_attempt(c, pty):
     Precondition: a failed attempt has just ended (Problem form up or
     imminent). Returns (ok, pilot-xfer output)."""
     ok, ui = wait_for_problem_form(c)
-    assert ok, (
-        "guest never showed the 'HotSync Problem' form after a failed "
-        f"attempt; last ui dump:\n{ui}")
+    if not ok:
+        return False, ("guest never showed the 'HotSync Problem' form after "
+                       f"a failed attempt; last ui dump:\n{ui}")
 
     # Dismiss it, else cradle taps are swallowed.
     r = c.send_command("tap-id 12004")
@@ -171,10 +171,15 @@ def sync_attempt(c, pty):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         time.sleep(1.0)
-        if proc.poll() is None:
-            # Re-arm the guest; the desktop is listening.
-            r = c.send_command("button cradle tap")
-            assert r and r.startswith("OK"), f"sync tap: {r!r}"
+        if proc.poll() is not None:
+            # pilot-xfer died before we could start the sync — the PTY is
+            # persistent, so this is an environment fault, not the race.
+            out, _ = proc.communicate()
+            return False, ("pilot-xfer exited before the sync tap "
+                           f"(exit {proc.returncode}):\n{out}")
+        # Re-arm the guest; the desktop is listening.
+        r = c.send_command("button cradle tap")
+        assert r and r.startswith("OK"), f"sync tap: {r!r}"
 
         try:
             out, _ = proc.communicate(timeout=PILOT_XFER_TIMEOUT)

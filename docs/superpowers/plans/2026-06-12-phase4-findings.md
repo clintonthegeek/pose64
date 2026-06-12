@@ -141,7 +141,7 @@ HOTSYNC SMOKE PASS   (x5)
 - 5/5 `HOTSYNC SMOKE PASS`, pilot-xfer exit 0, 16 databases each run.
 - No orphan processes after each run (`pgrep pilot-xfer` empty;
   only `build/pose64-mcp-proxy` remained).
-- `build/.poserrc` restored to `PortSerial=null:` after every run.
+- `build/.poserrc` removed or restored to its pre-run state (`PortSerial=null:` on this machine) after every run.
 
 Intermediate experiment tallies: racy order 1/5; deterministic without
 dismissal 0/5; deterministic with dismissal+flush 5/5, 3/3 (with serial
