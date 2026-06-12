@@ -107,30 +107,38 @@ def main():
                     ["pilot-xfer", "-p", pty, "-l"],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True)
-                t0 = time.time()
-                retapped = False
-                while proc.poll() is None:
-                    if time.time() - t0 > PILOT_XFER_TIMEOUT:
-                        proc.kill()
-                        out, _ = proc.communicate()
-                        raise AssertionError(
-                            f"pilot-xfer produced no listing within "
-                            f"{PILOT_XFER_TIMEOUT:.0f}s:\n{out}")
-                    if not retapped and time.time() - t0 > RETAP_AFTER:
-                        # First guest attempt likely expired pre-attach;
-                        # desktop is now listening, so re-arm once.
-                        print("re-tapping cradle (attach-then-tap order)")
-                        c.send_command("button cradle tap")
-                        retapped = True
-                    time.sleep(0.5)
+                try:
+                    t0 = time.time()
+                    retapped = False
+                    while proc.poll() is None:
+                        if time.time() - t0 > PILOT_XFER_TIMEOUT:
+                            proc.kill()
+                            try:
+                                out, _ = proc.communicate(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                out = "<pilot-xfer output unavailable: communicate timed out>"
+                            raise AssertionError(
+                                f"pilot-xfer produced no listing within "
+                                f"{PILOT_XFER_TIMEOUT:.0f}s:\n{out}")
+                        if not retapped and time.time() - t0 > RETAP_AFTER:
+                            # First guest attempt likely expired pre-attach;
+                            # desktop is now listening, so re-arm once.
+                            print("re-tapping cradle (attach-then-tap order)")
+                            c.send_command("button cradle tap")
+                            retapped = True
+                        time.sleep(0.5)
 
-                out, _ = proc.communicate()
-                print("=== pilot-xfer output ===")
-                print(out)
-                assert proc.returncode == 0, \
-                    f"pilot-xfer exit {proc.returncode}:\n{out}"
-                # Every Palm OS device carries the preferences databases.
-                assert "Preferences" in out, f"no database listing:\n{out}"
+                    out, _ = proc.communicate()
+                    print("=== pilot-xfer output ===")
+                    print(out)
+                    assert proc.returncode == 0, \
+                        f"pilot-xfer exit {proc.returncode}:\n{out}"
+                    # Every Palm OS device carries the preferences databases.
+                    assert "Preferences" in out, f"no database listing:\n{out}"
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
 
                 state = c.send_command("state") or ""
                 assert "running" in state, f"post-sync state: {state!r}"
