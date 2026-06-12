@@ -675,13 +675,6 @@ void EmBankDRAM::ProbableCause (emuptr address, long size, Bool forRead)
 
 	Errors::EAccessType	whatHappened = MetaMemory::GetWhatHappened (address, size, forRead);
 
-	if (whatHappened != Errors::kOKAccess)
-	{
-		fprintf (stderr, "META_ERROR: addr=0x%08X size=%ld %s whatHappened=%d PC=0x%08X IsPCInRAM=%d\n",
-			address, size, forRead ? "read" : "write",
-			(int) whatHappened, gCPU->GetPC (), Memory::IsPCInRAM ());
-	}
-
 	switch (whatHappened)
 	{
 		case Errors::kOKAccess:

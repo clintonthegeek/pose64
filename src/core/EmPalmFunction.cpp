@@ -279,14 +279,6 @@ void EmFunctionRange::GetRange (emuptr addr)
 
 	::FindFunctionName (addr, name, &startAddr, &endAddr, 80);
 
-	static int sGetRangeTraceCount = 0;
-	if (sGetRangeTraceCount < 50)
-	{
-		fprintf (stderr, "GETRANGE: looking for '%s' at addr=0x%08X, found name='%s' start=0x%08X end=0x%08X\n",
-			fName, addr, name, startAddr, endAddr);
-		sGetRangeTraceCount++;
-	}
-
 	string	shortName = ::PrvGetShortName (fName, 8);
 
 	// See if the function has the name as specified in fName.
