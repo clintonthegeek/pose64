@@ -3,8 +3,8 @@
 **Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03);
 Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**;
 **Phase 3 IN PROGRESS — plans 3a+3b COMPLETE; landmine #7 ROOT-FIXED 2026-06-12
-(deferral overridden by user decision); GATE 3 PENDING — Phase 3 NOT yet
-certified complete.**
+(deferral overridden by user decision); GATE 3 RUN 2026-06-12 — FAIL (two fixable
+gaps; Phase 3 NOT yet certified complete). See `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -393,12 +393,20 @@ host.
     break_real (one round-1 dialog flake immediately after the acceptance
     teardown, then 2× consecutive ALL PASS). Per-access fprintf traces from
     `870b7ab` stripped (they polluted all prior #7 measurements).
-  - **GATE 3 — PENDING/DEFERRED.** The fresh-agent MCP gate was not run this
-    session (MCP server disconnected mid-session; rebuilt 37-tool proxy +
-    emulator pre-flight-verified but live GATE 3 run deferred). **Phase 3 is
-    NOT certified complete and has NOT been tagged.** NEXT ACTION: reconnect
-    pose64 MCP server to rebuilt proxy + running emulator on port 6416, then
-    run GATE 3. On PASS: tag `phase-3-complete`, update this file.
+  - **GATE 3 — RUN 2026-06-12, FAIL.** Pre-flight PASS (surface 3/3, dispatch
+    37/37). Gate agent confirmed: install error self-describing, launch/UI/crash/
+    inspect/`palm_dialog` query all working, `palm_reset` from `blocked_on_ui`
+    working (task 1.0d confirmed), zero "Unknown tool". Two gaps blocked a PASS:
+    (1) **`palm_break clearall` times out on hot ROM addresses** — the CPU
+    re-hits the breakpoint before any WorkerCycle boundary after `respond=continue`;
+    fix = allow clearall to operate immediately when `blocked_on_ui` (same
+    pattern as task 1.0d for `palm_reset`). (2) **ROM poke is permanent** for
+    the session — `respond=reset` reboots into the ILLEGAL instruction and
+    crashes again; fix = gate prompt must save+restore original bytes around the
+    poke. A third quality gap: `palm_load` from `blocked_on_ui` deadlocks the
+    ReControl server (needs a blocked-state guard + actionable error). Full
+    findings: `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.
+    **Phase 3 is NOT certified complete and has NOT been tagged.**
   - Full regression sweep at checkpoint (2026-06-11 `abdb074`): phase-1
     repros **7/7 PASS**; honest-ack **PASS**; surface **3/3**; dispatch
     **37/37**; repro_slp_trap **ALL PASS**; test_break_real **ALL PASS** (3

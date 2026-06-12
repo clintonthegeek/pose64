@@ -6,7 +6,7 @@
 > session has the live code in context. Do not execute phases out of order;
 > the gates exist because this project previously died of skipped gates.
 
-> **CURRENT POSITION (updated 2026-06-11 — keep this banner current, R5):**
+> **CURRENT POSITION (updated 2026-06-12 — keep this banner current, R5):**
 > Phase 0 **complete** (GATE 0 passed). Phase 1 tasks **1.8, 1.3, 1.0d,
 > 1.1, 1.2, 1.4, 1.7** all done & verified. **GATE 1 PASSED (2026-06-10):**
 > TSAN single-pass 13/13 PASS (verified 3×); ASAN 30-min soak all iterations
@@ -44,17 +44,23 @@
 >   semantics now once-per-site-per-arming (documented). Evidence:
 >   `test_check_suppression.py` 3× PASS; post-fix acceptance both runs (see
 >   STATUS). Per-access fprintf traces from `870b7ab` stripped en route.
-> - **GATE 3 — PENDING/DEFERRED.** The fresh-agent MCP gate (SKILL.md-only
->   install → launch → crash → inspect → recover) was not run this session:
->   the MCP server disconnected mid-session and references the old 28-tool
->   proxy; the rebuilt 37-tool proxy + emulator were pre-flight-verified but
->   the live GATE 3 run was deferred. **Phase 3 is NOT certified complete.**
+> - **GATE 3 — RUN 2026-06-12, FAIL.** Pre-flight PASS; zero "Unknown tool";
+>   install/launch/crash/inspect all confirmed working. Two gaps blocked the
+>   pass: **(1)** `palm_break clearall` times out on hot ROM addresses —
+>   WorkerCycle boundary never arrives because the CPU re-hits the breakpoint
+>   immediately after every continue; fix = allow clearall to operate directly
+>   when `blocked_on_ui` (same pattern as task 1.0d for `palm_reset`).
+>   **(2)** ROM poke is permanent for the session — `respond=reset` reboots
+>   into the ILLEGAL instruction and loops; fix = gate prompt must
+>   save+restore original bytes around the poke. Full findings and fix spec:
+>   `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.
+>   **Phase 3 is NOT certified complete.**
 >
-> **NEXT ACTION:** reconnect the pose64 MCP server to the rebuilt 37-tool proxy
-> + running emulator on port 6416, then run GATE 3 (fresh-agent: SKILL.md only,
-> install → launch → crash → backtrace → recover, zero "Unknown tool", zero
-> raw-TCP fallbacks). On PASS: tag `phase-3-complete` and proceed to Phase 4.
-> Do NOT tag before the live GATE 3 run passes.
+> **NEXT ACTION:** Fix Gap 1 (clearall from `blocked_on_ui`, emulator code
+> change, task-1.0d pattern — reproduce-first per R1), fix Gate 3 prompt
+> (save+restore bytes around poke), re-run GATE 3. On PASS: tag
+> `phase-3-complete` and proceed to Phase 4. Do NOT tag before the live GATE 3
+> run passes.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
