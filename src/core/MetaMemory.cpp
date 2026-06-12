@@ -3873,6 +3873,21 @@ static Bool PrvIsRegisteredPalmCreator (UInt32 creator)
 
 static void PrvAddTaggedChunk (const EmTaggedPalmChunk& chunk)
 {
+	// Phase 3c: replace any stale entry covering the same body range instead
+	// of appending a duplicate — unbounded growth here was the historical
+	// ~200KB/min leak when chunks moved (the old entry was never reclaimed).
+
+	EmTaggedPalmChunkList::iterator	iter = gTaggedChunks.begin ();
+	while (iter != gTaggedChunks.end ())
+	{
+		if (iter->BodyContains (chunk.BodyStart ()))
+		{
+			*iter = chunk;
+			return;
+		}
+		++iter;
+	}
+
 	gTaggedChunks.push_back (chunk);
 }
 
@@ -4070,6 +4085,27 @@ static void PrvSearchForCodeChunk (emuptr pc)
 			// We found what we were looking for, so we can leave now.
 
 			return;
+		}
+	}
+
+	// Phase 3c (landmine #7): the PC is not in ANY resource database (e.g.
+	// code running from a locked dynamic-heap chunk, or a patch stub).  The
+	// old code cached nothing here, so EVERY subsequent DRAM access from
+	// this PC re-walked all databases above — the O(n)-per-access freeze.
+	// Cache the containing heap chunk as a non-system tagged chunk instead;
+	// chunk moves/frees invalidate it through the same Resync/ChunkUnlocked
+	// lifecycle as positive entries.
+
+	const EmPalmHeap*	heap = EmPalmHeap::GetHeapByPtr ((MemPtr)(uintptr_t) pc);
+	if (heap)
+	{
+		const EmPalmChunk*	chunk = heap->GetChunkBodyContaining (pc);
+		if (chunk)
+		{
+			gHaveLastChunk	= true;
+			gLastChunk		= EmTaggedPalmChunk (*chunk, false /* not system code */);
+
+			::PrvAddTaggedChunk (gLastChunk);
 		}
 	}
 }

@@ -86,11 +86,13 @@ def main():
     ap.add_argument("--flags", default="ScreenAccess")
     ap.add_argument("--minutes", type=int, default=10)
     ap.add_argument("--csv", default="/tmp/check_perf.csv")
+    ap.add_argument("--emulog", default=None,
+                    help="capture emulator stdout/stderr to this file")
     args = ap.parse_args()
     flags = DRAM_FLAGS if args.flags == "all" else args.flags.split(",")
 
     rows = []
-    with emulator(PORT) as proc:
+    with emulator(PORT, capture_log=args.emulog) as proc:
         c = connect(PORT, timeout=10)
         try:
             r = c.send_command("gremlin new 42 2000000")
