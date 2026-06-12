@@ -68,7 +68,7 @@ ERR timeout: CPU did not reach a cycle boundary within 5000ms. Recovery: dismiss
 | Command | Response | Description |
 |---------|----------|-------------|
 | `state` | `OK running\n` | Session state: running, suspended:reason, stopped, blocked_on_ui |
-| `info` | Multi-line | Device info: version, device, RAM, ROM, screen size, session path |
+| `info` | Multi-line | Device info: version, device, RAM, ROM, screen size, session path. Includes `serial=<descriptor>[ pty=<path>]` when a serial transport is configured; `pty=` appears once the guest opens the port. |
 | `apps` | Multi-line | Installed applications: name, type (4CC), creator (4CC) |
 
 ### Input
@@ -159,8 +159,13 @@ OK POSE64 0.9.1
  rom=Palm-m515-4.1-en.rom
  screen=160x160
  session=/path/to/session.psf
+ serial=serial:pty:HotSync pty=/dev/pts/3
 .
 ```
+
+The `serial=` line is omitted when no serial transport is configured (`null:`).
+The `pty=` suffix is absent until the guest first opens the port; once it
+appears it persists for the process lifetime.
 
 ### Dialog
 

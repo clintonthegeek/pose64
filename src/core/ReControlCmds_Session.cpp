@@ -12,6 +12,7 @@
 #include "EmSession.h"
 #include "EmApplication.h"
 #include "PreferenceMgr.h"
+#include "EmTransportSerial.h"	// EmTransportSerial, GetPtySlaveName (Phase 4)
 #include "EmDocument.h"
 #include "EmFileImport.h"
 #include "EmStreamFile.h"
@@ -450,7 +451,28 @@ void RcCmd_Info (ReControlSession* session, const QStringList& args)
 			sessionPath = ref.GetFullPath ();
 	}
 
-	session->QueueWorkResult ([version, deviceId, ramSizeMB, romName, sessionPath]() -> std::string {
+	// Serial transport: configured descriptor + live PTY slave path
+	// (Phase 4 — lets hosts script HotSync end-to-end; the PTY persists
+	// for the process once the guest first opens the port).
+	std::string serialInfo;
+	{
+		Preference<EmTransportDescriptor> pref (kPrefKeyPortSerial);
+		std::string desc = pref->GetDescriptor ();
+		if (!desc.empty () && desc != "null:")
+		{
+			serialInfo = desc;
+			EmTransportSerial* serial = dynamic_cast<EmTransportSerial*> (
+				gEmuPrefs->GetTransportForDevice (kUARTSerial));
+			if (serial)
+			{
+				std::string pty = serial->GetPtySlaveName ();
+				if (!pty.empty ())
+					serialInfo += " pty=" + pty;
+			}
+		}
+	}
+
+	session->QueueWorkResult ([version, deviceId, ramSizeMB, romName, sessionPath, serialInfo]() -> std::string {
 		if (!gSession) return "ERR transient: no session\n";
 		std::string out = "OK POSE64 " + version + "\n";
 		out += " device=" + deviceId + "\n";
@@ -497,6 +519,8 @@ void RcCmd_Info (ReControlSession* session, const QStringList& args)
 
 		if (!sessionPath.empty ())
 			out += " session=" + sessionPath + "\n";
+		if (!serialInfo.empty ())
+			out += " serial=" + serialInfo + "\n";
 		out += ".\n";
 		return out;
 	});
