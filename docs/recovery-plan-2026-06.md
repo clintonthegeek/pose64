@@ -54,7 +54,7 @@
 >   into the ILLEGAL instruction and loops; fix = gate prompt must
 >   save+restore original bytes around the poke. Full findings and fix spec:
 >   `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.
-> - **GATE 3 gap fixes LANDED (2026-06-12):** reproduce-first
+> - **GATE 3 gap fixes LANDED (2026-06-12, commit `c9989b6`):** reproduce-first
 >   (`tests/phase3/test_break_blocked_ops.py`, pre-fix FAIL → 3× ALL PASS).
 >   `break` → Adaptive dispatch (works while `blocked_on_ui`; cleanup order
 >   is now clearall-then-continue); Task C3 prompt saves/restores bytes
@@ -62,13 +62,21 @@
 >   instead of deadlocking (dismiss-and-defer path replaced); syscall
 >   timeouts carry recovery hints. Sweep clean (phase-1 7/7, surface 3/3,
 >   dispatch 37/37, honest_ack, slp_trap, check_suppression, break_real).
->   See findings doc RESOLUTION section. **Phase 3 is NOT certified
->   complete.**
+>   See findings doc RESOLUTION section.
+> - **GATE 3 — RE-RUN 2026-06-12, PASSED. Phase 3 COMPLETE.** Fresh
+>   `pose64-tester` agent, revised Task C3 prompt, fresh emulator on 6416
+>   from the fixed build, pre-flight surface 3/3 + dispatch 37/37, empty
+>   breakpoint table. All six steps PASS: install-error self-describing;
+>   Memo Pad launch + UI verify; ILLEGAL-poke crash (bytes saved first);
+>   dialog + regs + backtrace inspected while blocked; bytes restored while
+>   blocked → `respond=continue` → running; breakpoint hit → backtrace while
+>   blocked → `clearall` WHILE BLOCKED (`OK`) → continue → running. Zero
+>   "Unknown tool", zero raw-TCP/Bash fallbacks, no emulator restarts
+>   needed. Tagged `phase-3-complete`.
 >
-> **NEXT ACTION:** Re-run GATE 3 (plan 3c Task C3, revised prompt) against a
-> fresh emulator on port 6416 from the current build. On PASS: tag
-> `phase-3-complete` and proceed to Phase 4. Do NOT tag before the live GATE 3
-> run passes.
+> **NEXT ACTION:** Phase 4 — HotSync smoke test (task 4.1): PTY transport
+> (`pty:HotSync`), `pilot-xfer -p /dev/pts/N -l`, scriptable cradle button.
+> Write the phase 4 detailed plan first (superpowers:writing-plans).
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one

@@ -2,9 +2,10 @@
 
 **Date:** 2026-06-09 (full code + docs audit; previous activity 2026-04-03);
 Phase 1 progress updates 2026-06-10; **Phase 2 COMPLETE — GATE 2 PASSED 2026-06-11**;
-**Phase 3 IN PROGRESS — plans 3a+3b COMPLETE; landmine #7 ROOT-FIXED 2026-06-12
-(deferral overridden by user decision); GATE 3 RUN 2026-06-12 — FAIL (two fixable
-gaps; Phase 3 NOT yet certified complete). See `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`.**
+**Phase 3 COMPLETE — GATE 3 PASSED 2026-06-12** (first run same day FAILED on
+two gaps, both root-fixed + re-run PASSED; findings + resolution:
+`docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`). **Next: Phase 4
+(HotSync smoke test).**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -368,8 +369,8 @@ host.
     of the wedge = open question. **Other machines must re-create a healthy
     psf** (boot ROM → calibrate → save) — psf files do not travel via git.
 
-- **Phase 3 — IN PROGRESS (checkpoint 2026-06-11, HEAD `abdb074`). NOT yet
-  certified complete; GATE 3 PENDING.**
+- **Phase 3 — COMPLETE (GATE 3 PASSED 2026-06-12, tagged
+  `phase-3-complete`).**
   - **Plan 3a COMPLETE** (tasks 3.1 + 3.4, final commit `239fe22`): proxy
     rebuilt around a single 37-tool source-of-truth `kTools[]` table; full
     debug surface MCP-exposed; central argument validation (missing/bad arg →
@@ -426,8 +427,22 @@ host.
     before the deferred teardown). (4) Syscall-boundary timeouts carry a
     recovery hint. Sweep clean: phase-1 7/7, honest_ack, surface 3/3,
     dispatch 37/37, slp_trap, check_suppression, break_real. Resolution
-    detail: findings doc RESOLUTION section. **GATE 3 re-run pending —
-    Phase 3 is NOT certified complete and has NOT been tagged.**
+    detail: findings doc RESOLUTION section.
+  - **GATE 3 — RE-RUN 2026-06-12, PASSED. Phase 3 COMPLETE, tagged
+    `phase-3-complete`.** Fresh `pose64-tester` agent, revised Task C3
+    prompt (save/restore bytes around the poke), fresh emulator on 6416
+    from the fixed build (`c9989b6`), pre-flight surface 3/3 + dispatch
+    37/37, breakpoint table verified empty. All six steps PASS: (1) install
+    error self-describing, apps healthy; (2) Memo Pad launch + UI frontmost;
+    (3) peek-saved bytes at `0x1008501A`, poked `0x4AFC`, crash →
+    `blocked_on_ui`; (4) dialog message + inline register dump + backtrace
+    captured while blocked; (5) original bytes poked back WHILE BLOCKED →
+    `respond=continue` → running (no reset loop); (6) breakpoint at
+    `0x100182BA` hit → backtrace while blocked → `break clearall` WHILE
+    BLOCKED (`OK`) → continue → running. Zero "Unknown tool", zero
+    raw-TCP/Bash fallbacks, zero emulator restarts. The two 2026-06-12 fixes
+    (clearall-while-blocked, save/restore poke procedure) each exercised
+    live in the passing run.
   - Full regression sweep at checkpoint (2026-06-11 `abdb074`): phase-1
     repros **7/7 PASS**; honest-ack **PASS**; surface **3/3**; dispatch
     **37/37**; repro_slp_trap **ALL PASS**; test_break_real **ALL PASS** (3
@@ -482,15 +497,15 @@ on an uncalibrated device (Palm V/Vx) first, where ticks stay wall-true.
 | `docs/superpowers/specs/2026-06-11-phase3-mcp-debug-layer-design.md` | historical — Phase 3 approved spec |
 | `docs/superpowers/plans/2026-06-11-phase3a-mcp-surface.md` | historical — Plan 3a complete |
 | `docs/superpowers/plans/2026-06-11-phase3b-debugger-fixes.md` | historical — Plan 3b complete |
-| `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` | historical — Plan 3c; its §C3 deferral superseded by the landmine-7 root fix; **GATE 3 PENDING** (Task C3 still the gate script) |
-| `docs/superpowers/plans/2026-06-11-landmine7-root-fix.md` | ACTIVE — landmine #7 root fix (COMPLETE through Task 7; merge pending) |
+| `docs/superpowers/plans/2026-06-11-phase3c-metamemory-gate3.md` | historical — Plan 3c complete; GATE 3 PASSED 2026-06-12 (Task C3 prompt as revised 2026-06-12) |
+| `docs/superpowers/plans/2026-06-11-landmine7-root-fix.md` | historical — landmine #7 root fix complete (on master) |
+| `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md` | historical — GATE 3 first-run FAIL findings + RESOLUTION (all gaps fixed, re-run PASSED) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),
 `docs/plans/`, plus `docs/debugging-infrastructure.md`
 and `docs/qt-port-architectural-review.md` (banner-annotated in place),
 timer/benchmark/winuae docs (accurate but point-in-time).
-`docs/superpowers/` is mixed: the **2026-06-11-phase3c plan is ACTIVE**;
-the 2026-06-10 and earlier 2026-06-11 plans are historical records; the
-2026-06-10 dialog finding carries a verification addendum that corrects its
-hang claim; everything older is historical.
+`docs/superpowers/` is now all historical records (Phases 1–3 complete);
+the 2026-06-10 dialog finding carries a verification addendum that corrects
+its hang claim. Phase 4 gets its own plan when its session starts.
