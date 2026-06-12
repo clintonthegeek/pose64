@@ -830,11 +830,11 @@ static const ToolDef kTools[] = {
       return built ("spy set " + sstr (a["addr"]));
   }, nullptr },
 
-{ "palm_log", "Emulator event logging: 20 categories (action=list shows them), levels "
-  "0=off 1=during-gremlins 2=always. dump flushes the buffer to file, clear empties it.",
+{ "palm_log", "Emulator event logging: 20 categories (action=list shows them), level is a "
+  "bitmask: 0=off, 1=normal runs, 2=Gremlin-only, 3=both. dump flushes the buffer to file, clear empties it.",
   [] { return make_schema ({{"action", enum_prop ("Operation", {"list", "set", "dump", "clear"})},
                             {"category", str_prop ("Category name from action=list (set)")},
-                            {"level", int_prop ("0=off, 1=gremlin, 2=always (set)")}},
+                            {"level", int_prop ("bitmask: 0=off, 1=normal runs, 2=Gremlin-only, 3=both (set)")}},
                            {"action"}); },
   [] (const json& a) -> BuiltCmd {
       std::string act = sstr (a["action"]);

@@ -254,7 +254,7 @@ All commands in this section (and Logging, Gremlins, Configuration, Profiling be
 | Command | Response | Description |
 |---------|----------|-------------|
 | `log list` | Multi-line | List 20 logging categories with current values |
-| `log set <cat> <0\|1\|2>` | `OK\n` | Set logging level (0=off, 1=gremlin, 2=always) |
+| `log set <cat> <0\|1\|2\|3>` | `OK\n` | Set logging level (bitmask: 0=off, 1=normal runs, 2=Gremlin-only, 3=both) |
 | `log dump` | `OK\n` | Flush log buffer to file |
 | `log clear` | `OK\n` | Clear log buffer |
 
