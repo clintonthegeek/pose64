@@ -76,7 +76,7 @@ Once both are running, `palm_*` MCP tools are available -- call them directly.
 | `palm_break` | `action`, `idx`, `addr`, `condition` | Manage 6 breakpoint slots; on hit the CPU blocks on a dialog (`blocked_on_ui`); works while blocked — clear breakpoints from the dialog, then `palm_dialog respond=continue` (set/clear/enable/disable/clearall) |
 | `palm_watch` | `action`, `addr`, `nbytes` | Watchpoint: dialog-stop when range is written (set/clear/status) |
 | `palm_spy` | `action`, `addr` | Step spy: dialog-stop when value changes (set/clear/status) |
-| `palm_log` | `action`, `category`, `level` | Event logging: 20 categories, levels 0/1/2 (list/set/dump/clear) |
+| `palm_log` | `action`, `category`, `level` | Event logging: 20 categories; level is a bitmask, 1=normal runs, 2=Gremlin-only (list/set/dump/clear) |
 | `palm_gremlin` | `action`, `seed`, `events` | Hordes stress testing (new/status/suspend/step/resume/stop) |
 | `palm_check` | `action`, `flag`, `on` | MetaMemory access checks — one report per site per arming; dialog may need palm_dialog respond |
 | `palm_errorhandling` | `action`, `setting`, `behavior` | Guest error/warning behavior (get/set) |
@@ -334,6 +334,27 @@ dismiss the dialog first. With an external SLP debugger attached
 (`--slp-debugger`), that debugger takes the hit instead of the in-emulator
 dialog.
 
+### HotSync against pilot-link on the host
+
+Launch the emulator with `-preference PortSerial=serial:pty:HotSync`, then:
+
+```
+palm_button name=cradle action=tap   # sacrificial tap — creates the persistent PTY
+palm_state                           # poll until: serial=serial:pty:HotSync pty=/dev/pts/N
+palm_ui                              # poll until the "HotSync Problem" form (id=12000) is up
+palm_tap_id id=12004                 # dismiss it — cradle taps are swallowed while it shows
+# host shell:  pilot-xfer -p /dev/pts/N -l    (attach FIRST, give it ~1s to open the port)
+palm_button name=cradle action=tap   # fresh sync into the listening desktop -> listing in ~1s
+```
+
+Why this order: the guest's CMP retry volley lasts only ~1.2 s after a
+cradle tap, so pilot-xfer must already be listening when the cradle is
+tapped — tap-then-attach loses ~80% of the time. If pilot-xfer fails fast
+with `Error read system info`, that failed run has just drained the stale
+wakeup packets the sacrificial attempt queued in the PTY: re-run
+pilot-xfer, then re-tap the cradle. Full procedure, evidence, and
+troubleshooting: `docs/hotsync.md`.
+
 ## App-Specific Workflows
 
 See `claude/skills/palm-dev/references/builtin-apps.md` for detailed,
@@ -426,7 +447,7 @@ palm_spy action=status
 
 ```
 palm_log action=list
-palm_log action=set category="SystemCalls" level=2   # 0=off, 1=gremlin, 2=always
+palm_log action=set category="SystemCalls" level=1   # BITMASK: 1=normal runs, 2=Gremlin Hordes only, 3=both
 palm_log action=dump
 palm_log action=clear
 ```
