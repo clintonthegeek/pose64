@@ -87,9 +87,15 @@
 > (level 2 = Gremlin-only) corrected across docs/proxy. Evidence:
 > `docs/superpowers/plans/2026-06-12-phase4-findings.md`.
 >
-> **NEXT ACTION:** Phase 5 — declutter and ship 0.9.1: PROBABLY-SAFE
-> dead-code deletions (one commit each, build between), small dedups
-> (`ParseAddress` decl, `#undef` shim header, profile stoppers), the
+> **NEXT ACTION:** Phase 4.5 — HotSync normalization (user-requested
+> robustness interphase; plan:
+> `docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md`):
+> eager PTY creation at transport install, flush undelivered pty bytes on
+> guest port close, event-driven UART RX pump (kills the residual ~10% CMP
+> race) — then the smoke test and docs shrink to the natural
+> attach-then-tap order. After 4.5: Phase 5 — declutter and ship 0.9.1:
+> PROBABLY-SAFE dead-code deletions (one commit each, build between), small
+> dedups (`ParseAddress` decl, `#undef` shim header, profile stoppers), the
 > `main.cpp:145` return-before-Shutdown fix, STATUS/release notes, tag
 > 0.9.1, rebuild packages. Then GATE 5 = the v1.0 definition of done.
 
