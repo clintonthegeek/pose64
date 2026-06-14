@@ -31,9 +31,7 @@
 #include "EmTransportSerial.h"	// EmTransportSerial::GetDescriptorList
 #include "EmTransportSocket.h"	// EmTransportSocket::GetDescriptorList
 
-// Undefine Palm OS macros that conflict with Qt
-#undef daysInYear
-#undef monthsInYear
+#include "PalmMacroUndefs.h"	// Phase 5: daysInYear/monthsInYear undef
 
 #include <QFileDialog>
 #include <QMessageBox>

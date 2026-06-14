@@ -17,9 +17,7 @@
 #include "EmDocument.h"
 #include "EmSession.h"
 
-// Undefine Palm OS macros that conflict with Qt
-#undef daysInYear
-#undef monthsInYear
+#include "PalmMacroUndefs.h"	// Phase 5: daysInYear/monthsInYear undef
 
 #include <QMouseEvent>
 #include <QKeyEvent>

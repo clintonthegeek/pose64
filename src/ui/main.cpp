@@ -22,9 +22,7 @@
 #include "ReControl.h"
 #include "CPUWorkerThread.h"
 
-// Undefine Palm OS macros that conflict with Qt
-#undef daysInYear
-#undef monthsInYear
+#include "PalmMacroUndefs.h"	// Phase 5: daysInYear/monthsInYear undef
 
 #include <QApplication>
 #include <QTimer>

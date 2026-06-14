@@ -41,9 +41,7 @@
 #include "ErrorHandling.h"		// Errors::Initialize ();
 #include "EmPalmOS.h"			// EmPalmOS::Initialize
 
-// Undefine Palm OS macros that conflict with Qt
-#undef daysInYear
-#undef monthsInYear
+#include "PalmMacroUndefs.h"	// Phase 5: daysInYear/monthsInYear undef
 
 #include <QThread>
 #include <QCoreApplication>
