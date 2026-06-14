@@ -112,9 +112,28 @@
 > notes refreshed + tagged `0.9.1` (no version bump). Full regression sweep
 > green before the tag.
 >
-> **NEXT ACTION:** Phase 5 remainder — **build packages (deb/AppImage/exe) +
-> run GATE 5** (the v1.0 definition of done). Both were deliberately scoped
-> OUT of the 2026-06-14 cleanup session and deserve their own focused run.
+> **Phase 6 — Landmine hardening (PLANNING DONE, IMPLEMENTATION OUTSTANDING;
+> 2026-06-14).** User decision: order by **reproducibility-first** and **harden
+> before shipping 1.0**. Sequence: **#6 PaintScreen LCD-read race → #5 two-thread
+> 68K race → #11a quit-path (verify/close) → #11b load-during-queue**. Each is its
+> own reproduce-first sitting (R1/R6); #5/#6 gate on a **real-display TSAN** run
+> (offscreen does not paint). Design + the #6 and #5 reproduce-first plans are
+> authored and committed:
+> `docs/superpowers/specs/2026-06-14-landmine-hardening-design.md`,
+> `docs/superpowers/plans/2026-06-14-landmine6-reproduce.md`,
+> `docs/superpowers/plans/2026-06-14-landmine5-reproduce.md`.
+> **Implementation deferred** — the #5/#6 repros need a live X display and the
+> author was remote (2026-06-14). #6's fix direction was revised during planning:
+> the CPU stop was *deliberately* removed to avoid a nested-CPU deadlock
+> (`EmWindow.cpp:485-489`), so the fix makes the global `gMemAccessFlags` access
+> thread-safe rather than re-adding a stopper.
+>
+> **NEXT ACTION:** at a machine with a real display, execute
+> `docs/superpowers/plans/2026-06-14-landmine6-reproduce.md` (capture the TSAN
+> race → RED), then author/run its fix plan; then #5; then #11a/#11b. **After**
+> the hardening track: build packages (deb/AppImage/exe) + run GATE 5 (the v1.0
+> definition of done) — sequenced after hardening per the harden-before-ship
+> decision.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one

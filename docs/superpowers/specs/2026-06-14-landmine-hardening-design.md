@@ -156,12 +156,62 @@ Given the CRITICAL FINDING, the ranking is now:
 - Docs: `docs/STATUS.md`, `docs/architecture.md` (if semantics change),
   `docs/recovery-plan-2026-06.md` (banner).
 
-## Sub-projects 2–4 (sketches — not yet designed)
+## Sub-project 2 — Landmine #5 (detailed)
 
-- **#5:** add an ownership/nesting guard so a second `kStopOnSysCall` stopper cannot
-  succeed against an already-running (nested) CPU. Reuse #6's TSAN harness + a
-  menu-vs-worker-ROM-call hammer. Watch for deadlock against `fSharedLock` and for
-  regressing the #10 nested-ROM deferral.
+### Bug (confirmed in code, 2026-06-14)
+
+`SuspendThread(EmStopMethod, timeoutMs)` (`EmSession.cpp:774`) stops the CPU thread.
+For `kStopOnSysCall`, the first switch (`:808`) only sets `desiredBreakOnSysCall`;
+the actual wait happens in the `while (fState == kRunning)` loop (`:860`). **If the
+CPU is already `kSuspended`** (e.g. another caller already stopped it on a syscall),
+that loop is skipped entirely and control falls to the result switch:
+
+```cpp
+case kStopOnSysCall:                                   // EmSession.cpp:998
+    result = (fState == kSuspended) && fSuspendState.fCounters.fSuspendBySysCall;
+    if (result)
+        fSuspendState.fCounters.fSuspendByUIThread++;  // claims ownership it didn't earn
+```
+
+There is **no ownership/nesting check**: a second caller sees the *first* caller's
+`fSuspendBySysCall` already set and "succeeds" without having driven the CPU to stop.
+The window is real because `ExecuteSubroutine` (the host-initiated ROM-call path)
+**releases `fSharedLock` during `CallCPU()`** (`:1343-1346`). So a GUI/main-thread
+action overlapping a worker-thread ROM call can leave two code paths both believing
+they own a stopped-on-syscall CPU and both manipulate UAE's global `regs` → corruption.
+The nesting comment at `:1313-1316` is the landmine-#10 *deferral* (masking
+`fSuspendByUIThread` while nested); it does **not** guard this two-owner case.
+
+### Reproduce (R1 — must FAIL first; real-display TSAN)
+
+Harder than #6: needs **two concurrent CPU-driving paths**. Convention exit 0 =
+fixed, exit 1 = race present.
+
+- **Investigation first (the crux):** survey callers of `ExecuteSubroutine` /
+  `CallCPU` / `ATrap::DoCall` and classify them by thread (worker ReControl handlers
+  vs main-thread Qt idle/menu). Find a pair that can overlap (ReControl is
+  single-connection, so the second driver is almost certainly a main-thread path).
+- **Repro:** under `build-tsan`, real display, hammer the worker ROM-call path
+  (e.g. repeated `apps`/`launch`, which call `CollectCurrentAppInfo` family) while
+  the main thread independently drives ROM/idle work, and assert TSAN reports a data
+  race on the UAE register globals (`regs`) with `ExecuteSubroutine`/`CallCPU` frames
+  from **two different threads**. Match the specific signature (not the #6 family).
+
+### Fix — approaches (decide after repro)
+
+1. **Ownership/nesting guard at the result switch** *(primary candidate).* A second
+   `kStopOnSysCall` must not claim success against a CPU it did not stop. Track a
+   single syscall-stop owner (or refuse when `fNestLevel > 0` / when the stop was not
+   this caller's), returning `false`/`ERR busy` instead of a phantom success.
+2. **Serialize ROM-call drivers** with a dedicated mutex/owner token around
+   `ExecuteSubroutine`, so only one host-initiated ROM call is in flight at a time.
+
+**Risks:** must not regress #10 (nested-ROM deferral via `CheckForBreak`), #2/#4
+(suspend-counter balance and bounded timeouts), or #1.0d dialog lifetime. Reuses #6's
+real-display TSAN harness. **Plan:** `docs/superpowers/plans/2026-06-14-landmine5-reproduce.md`.
+
+## Sub-projects 3–4 (sketches — not yet designed)
+
 - **#11a:** verify Phase 5's reorder actually closes the normal-quit window (hammer
   quit-while-CPU-busy under ASAN); strike through or document residual.
 - **#11b:** reproduce the document-swap-vs-deferred-dialog race under TSAN; extend the

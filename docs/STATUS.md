@@ -130,15 +130,31 @@ host.
    sets `SO_RCVTIMEO` (a wedged server yields `ERR timeout` instead of hanging)
    and never double-executes non-idempotent commands. Verified:
    `tests/phase1/repro_1_3_proxy.py`.
-5. **Two threads can run the 68K core concurrently (rare).** A second caller
-   of `SuspendThread(kStopOnSysCall)` succeeds trivially while the first is
-   mid-`ExecuteSubroutine` (`EmSession.cpp:979-986`); a GUI menu action
-   concurrent with a worker-thread ROM call can corrupt UAE's global `regs`.
-   Likely source of "random" historical corruption.
-6. **`PaintScreen` reads LCD state without stopping the CPU** and
-   `EmScreen::GetBits` swaps the global `gMemAccessFlags` while the CPU runs
-   (`EmWindow.cpp:549-607`, `EmMemory.cpp:630-657`) — a port regression (the
-   original stopped the CPU here).
+5. **Two threads can run the 68K core concurrently (rare). OPEN — repro plan
+   authored, implementation deferred.** When the CPU is already `kSuspended` on a
+   syscall, the `while (fState==kRunning)` wait loop is skipped, so a second
+   caller of `SuspendThread(kStopOnSysCall)` falls straight to the result switch
+   (`EmSession.cpp:998-1004`), sees `fState==kSuspended && fSuspendBySysCall`
+   already true, claims success, and bumps `fSuspendByUIThread` without having
+   stopped anything — there is no ownership/nesting guard. `ExecuteSubroutine`
+   releases `fSharedLock` during `CallCPU()` (`:1343-1346`), which is the
+   unguarded window. A GUI action concurrent with a worker-thread ROM call can
+   then corrupt UAE's global `regs`. Likely source of "random" historical
+   corruption. **Plan:** `docs/superpowers/plans/2026-06-14-landmine5-reproduce.md`
+   (reproduce-first, real-display TSAN); deferred (author remote 2026-06-14).
+6. **`PaintScreen` reads LCD state without stopping the CPU. OPEN — repro plan
+   authored, implementation deferred.** `EmWindow::PaintScreen`
+   (`EmWindow.cpp:545`) calls `EmScreen::GetBits` with no stopper; inside,
+   `CEnableFullAccess` does non-atomic writes to the process-global
+   `gMemAccessFlags` (`EmMemory.cpp:635` set / `:651` restore) that the CPU thread
+   reads on every guest memory access. **Finding (2026-06-14):** the stop was
+   *deliberately* removed — `:485-489` comments that a stopper here deadlocks the
+   UI thread against a CPU in nested subroutine execution. So the fix targets the
+   global, not the stop (make the access-flag override thread-local); the sibling
+   `GetLCDContents` (`:462`) still guards the same call with `kStopNow`, but it is
+   not on the main paint thread. **Plan:**
+   `docs/superpowers/plans/2026-06-14-landmine6-reproduce.md` (reproduce-first,
+   real-display TSAN); deferred (author remote 2026-06-14).
 7. ~~**`check set` re-arms a known freeze.**~~ **ROOT-FIXED (landmine-7 root
    fix, 2026-06-12, branch `landmine-7-root-fix` — deferral overridden by
    user decision).** Any DRAM-region check flag previously re-armed unbounded
