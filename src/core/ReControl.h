@@ -4,6 +4,9 @@
 #ifndef ReControl_h
 #define ReControl_h
 
+#include "EmTypes.h"		// emuptr — for the ParseAddress declaration below
+							// (AUTOMOC TUs include this header without EmCommon.h)
+
 #include <string>
 #include <functional>
 #include <QObject>
@@ -116,5 +119,13 @@ private:
 
 void ReControl_Startup (int port);
 void ReControl_Shutdown (void);
+
+// ---------------------------------------------------------------------------
+// Shared command helpers
+// ---------------------------------------------------------------------------
+// Parses a hex/decimal address string into emuptr.  Defined in
+// ReControlCmds_Query.cpp.  (emuptr comes from EmCommon.h, which every
+// ReControl consumer includes before ReControl.h.)
+bool ParseAddress (const std::string& addrStr, emuptr& outAddr);
 
 #endif /* ReControl_h */

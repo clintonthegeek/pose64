@@ -22,8 +22,7 @@
 #include <string>
 #include <cstring>
 
-// ParseAddress is defined in ReControlCmds_Query.cpp
-extern bool ParseAddress (const std::string& addrStr, emuptr& outAddr);
+// ParseAddress is declared in ReControl.h (defined in ReControlCmds_Query.cpp).
 
 // ============================================================================
 // RcCmd_Break — Adaptive (runs directly while blocked_on_ui, else under the
