@@ -151,6 +151,13 @@ int main (int argc, char** argv)
 			// Shut down ReControl server
 			ReControl_Shutdown ();
 
+			// Phase 5: save preferences on normal exit too.  The CPU worker
+			// is already stopped (above), so this is clear of the teardown
+			// race (STATUS landmine #11a).  The error path below also calls
+			// Shutdown(); these are mutually exclusive (happy path returns
+			// here), so it is never called twice.
+			theApp.Shutdown ();
+
 			return exitCode;
 		}
 	}
