@@ -30,11 +30,16 @@
   </provides>
 
   <releases>
-    <release version="0.9.1" date="2026-03-13">
+    <release version="0.9.1" date="2026-06-14">
       <description>
-        <p>Debugging infrastructure overhaul: backtrace, breakpoints, watchpoints,
-        logging, gremlins, memory checks, error handling, profiling. Fixed
-        kStopOnSysCall hang, dialog protocol, and tap/key deadlock.</p>
+        <p>Stabilization release. Killed the cross-thread freeze classes
+        (suspend-counter leak, untimed stops, nested-ROM-call abortion,
+        dialog-action lifetime); made input delivery honest (delivered-ACK with
+        one wake mechanism); rebuilt the MCP debug surface (backtrace,
+        breakpoints, watchpoints, logging, gremlins, memory checks, error
+        handling, profiling) as 37 source-of-truth tools; root-fixed the
+        MetaMemory check freeze; and demonstrated HotSync against pilot-link
+        over a virtual serial PTY (launch, attach, tap once).</p>
       </description>
     </release>
     <release version="0.9.0" date="2026-02-18">

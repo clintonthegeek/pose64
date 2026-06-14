@@ -11,8 +11,9 @@ against pilot-link** (procedure: `docs/hotsync.md`; root-cause record:
 **Phase 4.5 (HotSync normalization) COMPLETE 2026-06-14: the natural order —
 launch, attach pilot-xfer, tap once — is now the working order; three
 emulator-side root fixes (eager PTY, flush-on-close, event-driven RX pump)
-retired the deterministic dance; soak 10/10 ×2.** **Next: Phase 5 (declutter
-and ship 0.9.1).**
+retired the deterministic dance; soak 10/10 ×2.**
+**Phase 5 (declutter) cleanup COMPLETE 2026-06-14; 0.9.1 finalized + tagged.
+GATE 5 + packaging pending (next session).**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -510,6 +511,55 @@ host.
     Full sweep at close: phase-1 7/7, honest_ack, surface 3/3, dispatch
     37/37, break_blocked_ops, info_serial, preference_cli, pty_stale_flush,
     smoke, soak — all PASS.
+- **Phase 5 — declutter + 0.9.1 finalize COMPLETE (2026-06-14; plan
+  `docs/superpowers/plans/2026-06-14-phase5-declutter-ship-0.9.1.md`).**
+  Each change build-verified, one commit, with an effect/smoke test:
+  - **Normal-exit prefs save** (`2ba5940`): `main.cpp`'s happy path returned
+    before `theApp.Shutdown()`, so `gPrefs->Save()` never ran on a normal
+    `quit` — preference changes were lost. Added the call after the CPU worker
+    is already stopped (clear of teardown landmine #11a). Reproduce-first test
+    `tests/phase5/test_shutdown_saves_prefs.py` (pre-fix `.poserrc` not
+    rewritten → post-fix rewritten).
+  - **Dead-code deletions** (grep- + build-proven unreferenced by the compiled
+    build): bundled `src/core/jpeg/` (58 files) + the `DISABLE_JPEG_SUPPORT`
+    fiction in `EmJPEG.h`/`CMakeLists.txt` — the real skin decode is Qt
+    `QImage` via `JPEGToPixMap`, untouched (`bb4dac3`); bundled `src/core/Gzip/`
+    (11 files) — session compression uses system zlib in `Miscellaneous.cpp`
+    (`ddd03f8`).
+  - **Aggressive dead-code sweep** (Explore hunter → independent re-verify →
+    one build-clean commit): removed the unreferenced static helpers
+    `EmFileRef::Get/SetEmulatorRef` (+ the `gEmulatorRef` they backed)
+    (`d862942`). The sweep surfaced exactly **one** HIGH-confidence candidate
+    (applied) and **zero** deferrals — Windows-conditional files (`if(WIN32)`),
+    the deliberately-kept UAE generator tools (`build68k.c`/`gencpu.c`), and
+    near-empty placeholder TUs were correctly excluded, not flagged.
+  - **Dedups:** `ParseAddress` declared once in `ReControl.h` (drop the
+    duplicate `extern`; `ReControl.h` now includes `EmTypes.h` for `emuptr`
+    because AUTOMOC TUs include it without `EmCommon.h` first) (`436d8d2`);
+    the 12-file `#undef daysInYear`/`monthsInYear` preamble hoisted into one
+    shim header `src/core/PalmMacroUndefs.h` (`2197c53`); `RcCmd_Profile`'s 7
+    duplicate `EmSessionStopper`s hoisted into one (dump/print prerequisite
+    errors still return before the stopper does any work) (`b61fd49`).
+  - **0.9.1 finalized:** release notes in
+    `data/ca.vibekoder.pose64.metainfo.xml` refreshed to describe what 0.9.1
+    actually contains (Phases 1–4.5), dated 2026-06-14; tagged `0.9.1`. No
+    version bump (already 0.9.1 in CMakeLists.txt/main.cpp). **Packages are
+    NOT yet built and GATE 5 has NOT been run — both are the next session**
+    (deliberately out of scope per the 2026-06-14 plan).
+  - Regression sweep at close (gates the tag): phase-1 repros 7/7, honest_ack,
+    surface 3/3, dispatch 37/37, break_blocked_ops ALL PASS, info_serial,
+    preference_cli, pty_stale_flush, hotsync_smoke, and the new
+    test_shutdown_saves_prefs — all PASS. The no-retry `test_hotsync_soak`
+    failed 5/10 ONCE when run back-to-back at the tail of the batch sweep
+    (host scheduling jitter under load narrowing the ~64 ms CMP window), then
+    passed **10/10 ×2 in isolation on an idle machine** — reproducing the
+    Phase 4.5 bar. This is not a Phase 5 regression: the entire serial RX
+    path (`EmTransportSerial.{h,cpp}`, `Hardware/EmCPU68K.cpp`,
+    `EmTransportSerialUnix.cpp`) is byte-identical to the pre-Phase-5 baseline,
+    and the only compiled-path Phase 5 edits (`EmSession.cpp`,
+    `CPUWorkerThread.cpp`) are pure `#undef`-shim no-ops. The soak remains a
+    load-sensitive stress test (run it on an otherwise-idle host); the smoke
+    test's bounded retry is the CI safety net for the residual jitter race.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -604,6 +654,7 @@ throttle-calibrated device (~2.66× busy-tick skew) — use m515/Vx.
 | `docs/superpowers/plans/2026-06-12-phase4-hotsync.md` | historical — Phase 4 plan complete; GATE 4 PASSED 2026-06-12 |
 | `docs/superpowers/plans/2026-06-12-phase4-findings.md` | historical — HotSync race root-cause record + Phase 4.5 resolution addendum (evidence behind docs/hotsync.md) |
 | `docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md` | historical — Phase 4.5 plan complete (HotSync normalized 2026-06-14) |
+| `docs/superpowers/plans/2026-06-14-phase5-declutter-ship-0.9.1.md` | historical — Phase 5 plan complete (declutter + 0.9.1 finalized 2026-06-14; packaging + GATE 5 deferred) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),

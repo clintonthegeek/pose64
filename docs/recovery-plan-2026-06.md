@@ -99,11 +99,22 @@
 > docs/hotsync.md, SKILL.md, STATUS, findings addendum updated. The residual
 > ~10% delivery-phase race the Phase-4 script retried is gone at the source.
 >
-> **NEXT ACTION:** Phase 5 — declutter and ship 0.9.1:
-> PROBABLY-SAFE dead-code deletions (one commit each, build between), small
-> dedups (`ParseAddress` decl, `#undef` shim header, profile stoppers), the
-> `main.cpp:145` return-before-Shutdown fix, STATUS/release notes, tag
-> 0.9.1, rebuild packages. Then GATE 5 = the v1.0 definition of done.
+> **Phase 5 — declutter + 0.9.1 finalize COMPLETE (2026-06-14; plan
+> `docs/superpowers/plans/2026-06-14-phase5-declutter-ship-0.9.1.md`).** Each
+> change build-verified, one commit, effect/smoke-tested: normal-exit prefs
+> save (`main.cpp` skipped `theApp.Shutdown()`; `2ba5940`); dead-code deletions
+> — bundled `src/core/jpeg/` + `DISABLE_JPEG_SUPPORT` fiction (`bb4dac3`),
+> bundled `src/core/Gzip/` (`ddd03f8`), unreferenced `EmFileRef::Get/Set`
+> `EmulatorRef` from the hunter sweep (`d862942`, one HIGH candidate / zero
+> deferrals); dedups — `ParseAddress` decl into `ReControl.h` (`436d8d2`),
+> 12-file `#undef daysInYear/monthsInYear` → one `PalmMacroUndefs.h` shim
+> (`2197c53`), `RcCmd_Profile`'s 7 stoppers → one (`b61fd49`). 0.9.1 release
+> notes refreshed + tagged `0.9.1` (no version bump). Full regression sweep
+> green before the tag.
+>
+> **NEXT ACTION:** Phase 5 remainder — **build packages (deb/AppImage/exe) +
+> run GATE 5** (the v1.0 definition of done). Both were deliberately scoped
+> OUT of the 2026-06-14 cleanup session and deserve their own focused run.
 
 **Goal:** Take POSE64 from "abandoned mid-debug, unstable under automation"
 to "stable, honest, useful for AI-driven Palm reverse engineering, with one
@@ -455,16 +466,22 @@ multi-line responses) folded back into docs/hotsync.md.
 
 ## Phase 5 — Declutter and ship 0.9.1
 
-- [ ] Apply the remaining PROBABLY-SAFE deletions from the dead-code audit
-      (`src/core/jpeg/` + the `DISABLE_JPEG_SUPPORT` fiction, `src/core/Gzip/`,
-      UAE generator tools) — one commit each, build between.
-- [ ] Small dedup: shared `ParseAddress` declaration in `ReControl.h`; the
-      10-file `#undef daysInYear` preamble into one shim header; hoist
-      `ReControlCmds_Profile.cpp`'s 7 duplicate stoppers.
-- [ ] Fix `main.cpp:145` returning before `theApp.Shutdown()` (prefs not
+- [x] Apply the PROBABLY-SAFE deletions from the dead-code audit
+      (`src/core/jpeg/` + the `DISABLE_JPEG_SUPPORT` fiction, `src/core/Gzip/`) —
+      one commit each, build between. A bounded hunter sweep also removed the
+      unreferenced `EmFileRef::Get/SetEmulatorRef` (one HIGH candidate, zero
+      deferrals). **UAE generator tools `build68k.c`/`gencpu.c` KEPT** to
+      preserve regen ability (user decision 2026-06-14).
+- [x] Small dedup: shared `ParseAddress` declaration in `ReControl.h`; the
+      12-file (audit said 10) `#undef daysInYear`/`monthsInYear` preamble into
+      one shim header `PalmMacroUndefs.h`; hoist `ReControlCmds_Profile.cpp`'s 7
+      duplicate stoppers into one.
+- [x] Fix `main.cpp` returning before `theApp.Shutdown()` (prefs not
       saved on normal exit).
-- [ ] Update STATUS.md (only verified facts), release notes, tag 0.9.1,
-      rebuild deb/AppImage/exe via existing packaging.
+- [x] Update STATUS.md (only verified facts), refresh 0.9.1 release notes,
+      tag 0.9.1.
+- [ ] Build packages — rebuild deb/AppImage/exe via existing packaging
+      (deferred to the GATE 5 session, 2026-06-14 scope decision).
 
 **GATE 5 (= v1.0 definition of done):** 30-minute autonomous agent session
 (install/launch/crash/inspect/recover ×20) with zero restarts; HotSync
