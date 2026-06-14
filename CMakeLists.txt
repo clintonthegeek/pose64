@@ -50,8 +50,6 @@ add_definitions(
     -DPthreadDraftVersion=10
     -DSTDC_HEADERS=1
     -DHAVE_LIMITS_H=1
-    # Temporarily disable JPEG for initial port
-    -DDISABLE_JPEG_SUPPORT=1
 )
 
 # Platform-specific definitions
@@ -147,9 +145,6 @@ list(APPEND CORE_SOURCES "src/core/Palm/Platform/Core/System/Src/Crc.c")
 
 # Exclude all omnithread platform implementations
 list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/omnithread/.*\\.(c|cpp)$")
-
-# Exclude bundled JPEG library — JPEG decoding uses Qt's QImage instead
-list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/jpeg/.*\\.c$")
 
 # Exclude ALL UAE files (add back explicitly)
 list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/UAE/.*\\.(c|cpp)$")
