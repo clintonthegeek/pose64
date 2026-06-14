@@ -16,44 +16,8 @@
 
 using namespace std;
 
-static EmFileRef	gEmulatorRef;
-
-/***********************************************************************
- *
- * FUNCTION:	EmFileRef::SetEmulatorRef
- *
- * DESCRIPTION:	Set the ref corresponding to the emulator application.
- *
- * PARAMETERS:	ref -.
- *
- * RETURNED:	nothing.
- *
- ***********************************************************************/
-
-void EmFileRef::SetEmulatorRef	(const EmFileRef& ref)
-{
-	EmAssert (ref.IsSpecified ());
-	EmAssert (!gEmulatorRef.IsSpecified ());
-
-	gEmulatorRef = ref;
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	EmFileRef::GetEmulatorRef
- *
- * DESCRIPTION:	Return the ref corresponding to the emulator application.
- *
- * PARAMETERS:	none.
- *
- * RETURNED:	ref - .
- *
- ***********************************************************************/
-
-EmFileRef EmFileRef::GetEmulatorRef	(void)
-{
-	EmAssert (gEmulatorRef.IsSpecified ());
-
-	return gEmulatorRef;
-}
+// Phase 5 dead-code sweep: EmFileRef::SetEmulatorRef / GetEmulatorRef (and the
+// file-static gEmulatorRef they backed) were declared in EmFileRef.h and
+// defined here but never called by any compiled translation unit, so they were
+// removed.  EmFileRef itself is very much alive — only these two unused static
+// helpers were dropped.

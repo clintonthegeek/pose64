@@ -102,8 +102,8 @@ class EmFileRef
 		bool					FromPrefString	(const std::string&);
 		std::string ToPrefString	(void) const;
 
-		static void				SetEmulatorRef	(const EmFileRef&);
-		static EmFileRef		GetEmulatorRef	(void);
+		// SetEmulatorRef/GetEmulatorRef removed in the Phase 5 dead-code sweep
+		// (declared + defined but never called by any compiled TU).
 
 #if PLATFORM_MAC
 	public:
