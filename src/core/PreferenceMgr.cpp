@@ -1970,6 +1970,13 @@ void EmulatorPreferences::SetTransportForDevice	(EmUARTDeviceType type,
 	delete fTransports[type];
 	fTransports[type] = transport;
 
+	// Phase 4.5: pty-backed serial transports create their PTY eagerly so
+	// HotSync tools can attach before the guest's first open; the slave
+	// path is then reported by `info` from startup.
+	EmTransportSerial*	serial = dynamic_cast<EmTransportSerial*> (transport);
+	if (serial)
+		serial->EnsurePtyCreated ();
+
 	// If the transport exists and needs to be opened, open it.
 
 	if (transport && gCPU && EmHAL::GetLineDriverState (type))

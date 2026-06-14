@@ -199,6 +199,27 @@ string EmTransportSerial::GetPtySlaveName (void) const
 }
 
 
+// Phase 4.5: create the PTY as soon as a pty: transport is installed, not
+// at the guest's first port open — so HotSync tools can attach BEFORE the
+// first sync attempt (the guest's CMP volley lasts only ~1.2 s; see
+// docs/hotsync.md "Why this order").  OpenPtyPort is idempotent (it reuses
+// fPtyMaster), so the guest's later open adopts this same PTY and the
+// slave path is stable for the process lifetime.
+
+void EmTransportSerial::EnsurePtyCreated (void)
+{
+	if (fHost && fConfig.fPort.compare (0, 4, "pty:") == 0)
+	{
+		fHost->OpenPtyPort (fConfig.fPort);
+
+		// OpenPtyPort points fCommHandle at the master as a side effect;
+		// the transport is NOT open yet, so undo that.  The reuse path in
+		// OpenPtyPort re-sets it when the guest really opens the port.
+		fHost->fCommHandle = 0;
+	}
+}
+
+
 /***********************************************************************
  *
  * FUNCTION:	EmTransportSerial::HostSetConfig

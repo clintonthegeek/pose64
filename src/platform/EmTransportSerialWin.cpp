@@ -54,6 +54,11 @@ string EmTransportSerial::GetPtySlaveName (void) const
 	return string ();
 }
 
+void EmTransportSerial::EnsurePtyCreated (void)
+{
+	// No PTY support on Windows.
+}
+
 ErrCode EmTransportSerial::HostSetConfig (const ConfigSerial& config)
 {
 	return errNone;
