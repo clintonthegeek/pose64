@@ -842,6 +842,11 @@ void EmHostTransportSerial::PutIncomingData	(const void* data, long& len)
 	char*	end = begin + len;
 	while (begin < end)
 		fReadBuffer.push_back (*begin++);
+
+	// Phase 4.5: wake the CPU loop's UART pump promptly (see CYCLE macro in
+	// EmCPU68K.cpp) — the read buffer above is the source of truth, this is
+	// only a hint, so a relaxed/released store is enough.
+	gSerialRxPending.store (true, std::memory_order_release);
 }
 
 

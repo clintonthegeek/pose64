@@ -23,6 +23,7 @@
 #include "EmMinimize.h"			// IsOn
 #include "EmPatchState.h"		// EmPatchState::UIInitialized
 #include "EmSession.h"			// HandleInstructionBreak
+#include "EmTransportSerial.h"	// gSerialRxPending (Phase 4.5)
 #include "Logging.h"			// LogAppendMsg
 #include "MetaMemory.h"			// IsCPUBreak
 #include "Platform.h"			// GetMilliseconds
@@ -138,8 +139,15 @@ EmCPU68K*	gCPU68K;
 	if (!session->IsNested ())													\
 	{																			\
 		/* Perform expensive operations (throttle, LCD, UI sync). */			\
-		if (sleeping || ((++counter & 0x7FFF) == 0))							\
+		/* Phase 4.5: also run promptly when host serial data is */			\
+		/* waiting — RX delivery otherwise has a 32K-instruction */			\
+		/* (~50 ms) quantum, which loses CMP handshakes (the guest */			\
+		/* listens 64 ms per wakeup).  Relaxed atomic: a wake hint; */			\
+		/* the read buffer is the source of truth. */							\
+		if (sleeping || ((++counter & 0x7FFF) == 0)								\
+			|| gSerialRxPending.load (std::memory_order_relaxed))				\
 		{																		\
+			gSerialRxPending.store (false, std::memory_order_relaxed);			\
 			this->CycleSlowly (sleeping);										\
 		}																		\
 	}																			\

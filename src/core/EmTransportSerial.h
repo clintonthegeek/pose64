@@ -16,11 +16,21 @@
 
 #include "EmTransport.h"
 
+#include <atomic>
 #include <map>
 #include <string>
 #include <vector>
 
 class EmHostTransportSerial;
+
+// Phase 4.5: set by the host comm read thread when serial data arrives from
+// the outside world; EmCPU68K's CYCLE macro then runs CycleSlowly promptly
+// instead of waiting out its 32K-instruction quantum, so UART RX delivery
+// is no longer quantized at ~50 ms (which lost CMP handshakes — the guest
+// listens only 64 ms per wakeup).  This is NOT an input-delivery wake in
+// the architecture.md rule-9 sense: it never touches EvtWakeup or the
+// event queue; it only advances the existing UART pump on the CPU thread.
+extern std::atomic<bool>	gSerialRxPending;
 
 class EmTransportSerial : public EmTransport
 {

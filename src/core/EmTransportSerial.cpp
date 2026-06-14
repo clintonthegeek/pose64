@@ -21,6 +21,8 @@ using namespace std;
 
 EmTransportSerial::OpenPortList	EmTransportSerial::fgOpenPorts;
 
+std::atomic<bool>	gSerialRxPending (false);
+
 #define PRINTF	if (!LogSerial ()) ; else LogAppendMsg
 
 

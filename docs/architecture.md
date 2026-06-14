@@ -530,6 +530,13 @@ same brackets or it will generate the same benign-but-noisy reports.
    is NOT in the tree — it cannot wake an already-asleep guest and floods
    awake apps with nilEvents.
 
+   *Clarification (Phase 4.5):* `gSerialRxPending` (EmTransportSerial.h) is
+   NOT an input-delivery wake and does not violate this rule. It never calls
+   `EvtWakeup` and never touches the event queue; it is a relaxed atomic
+   hint, set by the serial comm read thread, that makes the CPU loop run its
+   own `CycleSlowly` UART pump promptly instead of on the 32K-instruction
+   quantum. Consumed and cleared only on the CPU thread.
+
 10. **DO NOT inject events when `EmLowMem::GetEvtMgrIdle()` returns false.**
     The event manager is in the middle of processing. PuppetString already
     checks this. Bypassing this check causes events to be injected at wrong
