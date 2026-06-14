@@ -6,7 +6,7 @@
 > session has the live code in context. Do not execute phases out of order;
 > the gates exist because this project previously died of skipped gates.
 
-> **CURRENT POSITION (updated 2026-06-12 — keep this banner current, R5):**
+> **CURRENT POSITION (updated 2026-06-14 — keep this banner current, R5):**
 > Phase 0 **complete** (GATE 0 passed). Phase 1 tasks **1.8, 1.3, 1.0d,
 > 1.1, 1.2, 1.4, 1.7** all done & verified. **GATE 1 PASSED (2026-06-10):**
 > TSAN single-pass 13/13 PASS (verified 3×); ASAN 30-min soak all iterations
@@ -87,13 +87,19 @@
 > (level 2 = Gremlin-only) corrected across docs/proxy. Evidence:
 > `docs/superpowers/plans/2026-06-12-phase4-findings.md`.
 >
-> **NEXT ACTION:** Phase 4.5 — HotSync normalization (user-requested
-> robustness interphase; plan:
-> `docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md`):
-> eager PTY creation at transport install, flush undelivered pty bytes on
-> guest port close, event-driven UART RX pump (kills the residual ~10% CMP
-> race) — then the smoke test and docs shrink to the natural
-> attach-then-tap order. After 4.5: Phase 5 — declutter and ship 0.9.1:
+> **Phase 4.5 — HotSync normalization COMPLETE (2026-06-14; plan
+> `docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md`).** Three
+> emulator-side root fixes made the natural attach-then-tap order the working
+> order, each reproduce-first: **eager PTY creation** at transport install
+> (`38d69d5`, `info` reports `pty=` from startup → attach before the first
+> tap); **flush-on-close** (`3d8a396`, slave-side `tcflush` — 406 stale bytes
+> → 0); **event-driven UART RX pump** (`7d0c1b7`, `gSerialRxPending` wakes
+> CycleSlowly — soak 1/10 FAIL → 10/10 ×2, idle-CPU 80.58% median vs ~80.5
+> baseline). Smoke test rewritten to the normal order (3× PASS, attempt 1);
+> docs/hotsync.md, SKILL.md, STATUS, findings addendum updated. The residual
+> ~10% delivery-phase race the Phase-4 script retried is gone at the source.
+>
+> **NEXT ACTION:** Phase 5 — declutter and ship 0.9.1:
 > PROBABLY-SAFE dead-code deletions (one commit each, build between), small
 > dedups (`ParseAddress` decl, `#undef` shim header, profile stoppers), the
 > `main.cpp:145` return-before-Shutdown fix, STATUS/release notes, tag
@@ -429,9 +435,12 @@ nobody ever ran the test.
       `docs/superpowers/plans/2026-06-12-phase4-findings.md`. The RX-pump
       ~50 ms quantum IS implicated in a residual ~10% per-attempt race
       (retried at script level; emulator fix deferred → 4.3 territory).
-- [ ] **4.3 If timeouts trip on m500** — NOT NEEDED for GATE 4 (m515 is
-      wall-true). Remains the home of the deferred RX-pump-quantum fix if
-      the residual ~10% race ever needs killing at the source.
+- [x] **4.3 If timeouts trip on m500** — NOT NEEDED for GATE 4 (m515 is
+      wall-true). The residual ~10% delivery-phase race was eliminated in
+      **Phase 4.5** by the event-driven RX pump (`gSerialRxPending` wakes
+      CycleSlowly promptly instead of on the 32K-instruction quantum); 4.3
+      wall-pacing the tick accumulator remains deferred (post-v1.0) and is
+      no longer needed for HotSync.
 - [x] **4.4 Productize** — DONE 2026-06-12: `info` reports
       `serial=<descriptor>[ pty=/dev/pts/N]`; `-preference` effective
       same-run; `docs/hotsync.md` written + gate-verified.

@@ -336,24 +336,24 @@ dialog.
 
 ### HotSync against pilot-link on the host
 
-Launch the emulator with `-preference PortSerial=serial:pty:HotSync`, then:
+The natural order — launch, attach, tap once (Phase 4.5 made this the
+working order). Launch with `-preference PortSerial=serial:pty:HotSync`, then:
 
 ```
-palm_button name=cradle action=tap   # sacrificial tap — creates the persistent PTY
-palm_state                           # poll until: serial=serial:pty:HotSync pty=/dev/pts/N
-palm_ui                              # poll until the "HotSync Problem" form (id=12000) is up
-palm_tap_id id=12004                 # dismiss it — cradle taps are swallowed while it shows
+palm_state                           # read pty=/dev/pts/N (present from startup — eager PTY)
 # host shell:  pilot-xfer -p /dev/pts/N -l    (attach FIRST, give it ~1s to open the port)
-palm_button name=cradle action=tap   # fresh sync into the listening desktop -> listing in ~1s
+palm_button name=cradle action=tap   # one tap -> listing prints in ~2s, guest back to running
 ```
 
-Why this order: the guest's CMP retry volley lasts only ~1.2 s after a
+Why attach-first: the guest's CMP retry volley lasts only ~1.2 s after a
 cradle tap, so pilot-xfer must already be listening when the cradle is
-tapped — tap-then-attach loses ~80% of the time. If pilot-xfer fails fast
-with `Error read system info`, that failed run has just drained the stale
-wakeup packets the sacrificial attempt queued in the PTY: re-run
-pilot-xfer, then re-tap the cradle. Full procedure, evidence, and
-troubleshooting: `docs/hotsync.md`.
+tapped. The PTY now exists from startup (eager creation), so you can attach
+before any tap. The guest's port close flushes stale bytes and RX delivery
+is event-driven, so the old sacrificial-tap / form-dismiss / flush dance is
+gone. If an attempt fails anyway (a failed attempt shows the "HotSync
+Problem" form, id=12000): `palm_tap_id id=12004` to dismiss it, re-attach
+pilot-xfer, tap again. Full procedure, evidence, and troubleshooting:
+`docs/hotsync.md`.
 
 ## App-Specific Workflows
 

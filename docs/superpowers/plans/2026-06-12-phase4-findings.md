@@ -176,3 +176,53 @@ Red herring eliminated along the way: a `build/Log_0001.txt` containing a
 logged unconditionally, and warnings logged there because `2` includes
 `kGremlinLogging` and a Horde WAS running). `gremlin status` confirmed no
 Horde during smoke runs; m515.psf contains no Horde state.
+
+---
+
+## RESOLUTION ADDENDUM (Phase 4.5, 2026-06-14)
+
+The three measured mechanisms above were fixed at the emulator root in
+Phase 4.5, retiring the script-level deterministic dance. Each fix landed
+reproduce-first against its own test; plan:
+`docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md`.
+
+1. **Eager PTY creation** (commit `38d69d5`). `SetTransportForDevice` now
+   calls `EmTransportSerial::EnsurePtyCreated`, which runs `OpenPtyPort`
+   (idempotent) at transport install instead of waiting for the guest's
+   first port open. `info` reports `serial=… pty=/dev/pts/N` from startup,
+   so a HotSync tool can attach BEFORE any tap — the tiny ~1.2 s CMP volley
+   window can no longer be missed. The sacrificial tap is gone. Test:
+   `tests/phase4/test_info_serial.py` (rewritten to the eager contract;
+   pre-fix FAIL → PASS).
+
+2. **Flush-on-close** (commit `3d8a396`). `EmHostTransportSerial::CloseCommPort`
+   now flushes the pty when the guest closes its port. A master-side
+   `tcflush(fPtyMaster, TCIOFLUSH)` did NOT reach the slave input queue on
+   Linux (the repro still found 406 stale bytes after it), so the close
+   opens a transient slave fd and `tcflush(slave, TCIOFLUSH)` there — the
+   mechanism the Phase-4 harness validated. A prior attempt's unanswered
+   volley can no longer survive to poison the next attach
+   (`Error read system info`). Test: `tests/phase4/test_pty_stale_flush.py`
+   (406 stale bytes → 0).
+
+3. **Event-driven UART RX pump** (commit `7d0c1b7`). `PutIncomingData` sets
+   a relaxed atomic `gSerialRxPending`; `EmCPU68K`'s CYCLE macro runs
+   `CycleSlowly` promptly when it is set (then clears it) instead of only on
+   the 32K-instruction (~50 ms) quantum. The residual ~10% delivery-phase
+   race documented above (46 ms win / 56 ms lose vs the guest's 64 ms
+   per-wakeup listen window) is eliminated. This is NOT a second
+   input-delivery wake (architecture.md rule 9): it never touches
+   `EvtWakeup` or the event queue. Test:
+   `tests/phase4/test_hotsync_soak.py` (10 single-attempt syncs, no
+   retries) — pre-fix 1/10 FAIL → post-fix 10/10 ×2. Hot-loop cost
+   (GATE-2 methodology, 3-run 1x median): 80.58% idle CPU
+   (80.48/80.58/80.82) vs Phase-2 baseline ~80.50–80.65% — within noise;
+   the full-rate per-instruction atomic-load variant landed (the subsampled
+   fallback was not needed).
+
+**Net effect.** `tests/phase4/test_hotsync_smoke.py` was rewritten to the
+natural order — launch → attach pilot-xfer → tap once — and passes 3× on
+the first attempt; one bounded, reported retry remains only as a CI safety
+net. Spec-4.3 wall-pacing is no longer needed for HotSync. The findings
+above stand as the root-cause record; this addendum records that the root
+causes were removed, not merely worked around.

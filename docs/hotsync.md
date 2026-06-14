@@ -2,27 +2,34 @@
 
 POSE64 syncs with pilot-link over a virtual PTY serial port. Verified
 end-to-end on 2026-06-12 (m515 session): `pilot-xfer -l` exits 0 and lists
-the device's 16 databases — 5/5 + 3/3 consecutive passes of the procedure
-below. Automated reproduction:
+the device's 16 databases. Automated reproduction:
 
     python3 tests/phase4/test_hotsync_smoke.py
 
-The procedure is **order-sensitive**: the naive "tap the cradle, then
-attach pilot-xfer" loses a timing race ~80% of the time (measured 1/5).
-See "Why this order".
+**As of Phase 4.5 the procedure is the natural order — launch, attach
+pilot-xfer, tap the cradle once.** Three emulator-side fixes removed the
+former order-sensitivity: the PTY now exists from startup (eager creation),
+stale bytes are flushed by the guest's port close, and RX delivery is
+event-driven so it no longer loses the CMP timing race. The old
+"sacrificial tap → dismiss form → flush → attach → tap" dance is no longer
+needed; it survives only as troubleshooting below and in this file's git
+history. See "Why attach-before-tap (and the Phase 4.5 fixes)".
 
 ## Procedure (automated)
 
 `tests/phase4/test_hotsync_smoke.py` launches a fresh emulator
 (`build/pose64 -psf m515.psf` plus
-`-preference PortSerial=serial:pty:HotSync`), runs the deterministic
-sequence below — retrying up to 3 attempts for the residual phase race —
-and asserts:
+`-preference PortSerial=serial:pty:HotSync`), reads the PTY slave path from
+`info`, attaches pilot-xfer, taps the cradle once, and asserts:
 
 - `pilot-xfer -p /dev/pts/N -l` exits 0 and its output contains a
   database listing (`Preferences` exists on every Palm OS device; the
   stock m515 session lists 16 databases), and
 - the emulator is still `running` afterwards.
+
+A single bounded retry remains as a CI safety net; it is **reported** when
+it fires (the run prints `NOTE: needed N attempts`). A retry firing
+regularly is a regression — see Troubleshooting.
 
 The script's docstring and `sync_attempt()` are the executable form of
 this document; if they ever disagree, the script is what passed.
@@ -37,12 +44,12 @@ behave identically.
 > **persistent** TCP connection (`tests/lib/recontrol_client.py`, or the
 > MCP tools). One-shot `socat`/`nc` pipes intermittently lose the
 > response — a command like `info` or `ui` can execute server-side yet
-> print nothing locally, which reads as "the form never appeared" in
-> step 4. Single-line probes (`state`) are usually fine; multi-line
-> responses are the unreliable case.
+> print nothing locally. Single-line probes (`state`) are usually fine;
+> multi-line responses are the unreliable case.
 
-1. **Configure the serial transport.** Launch with the CLI flag (takes
-   effect same-run since the Task-4 fix):
+1. **Launch** with `-preference PortSerial=serial:pty:HotSync` (or set the
+   GUI preference once). The PTY is created immediately; the slave path is
+   in `info` / `palm_state` (`pty=/dev/pts/N`) and on stderr.
 
        build/pose64 -psf m515.psf --port 6416 \
            -preference PortSerial=serial:pty:HotSync
@@ -50,83 +57,61 @@ behave identically.
    (Persistent alternative: GUI Preferences → Serial Port =
    `pty:HotSync`, stored in `.poserrc` next to the binary.)
 
-2. **Sacrificial cradle tap.** `button cradle tap` (MCP:
-   `palm_button name=cradle action=tap`). The guest starts a local
-   HotSync and opens its serial port — that open is what creates the
-   PTY (~0.55 s after the tap). Nothing is listening yet, so this
-   attempt is *expected to fail*; its only job is creating the PTY,
-   which persists for the rest of the emulator process.
+2. **Attach pilot-xfer**: `pilot-xfer -p /dev/pts/N -l` (give it ~1 s).
 
-3. **Find the PTY slave path.** Either of:
-   - ReControl `info` / MCP `palm_state` →
-     `serial=serial:pty:HotSync pty=/dev/pts/N` (the `pty=` field
-     appears once the PTY exists);
-   - the stderr line:
-     `SERIAL: PTY created for "pty:HotSync" — connect HotSync tools to: /dev/pts/N`.
+3. **Tap the cradle**: `button cradle tap` / `palm_button name=cradle
+   action=tap`.
 
-4. **Wait for, then dismiss, the "HotSync Problem" form.** Poll `ui`
-   until the form (id=12000) is up — positive proof the attempt is over
-   and the guest port is closed (arrives within ~5 s). Then
-   `tap-id 12004` (the form's OK button; MCP: `palm_tap_id id=12004`).
-   Cradle taps are **swallowed** while this form is showing, so this
-   step is not optional.
+4. The listing prints within ~2 s and the guest returns to `running`.
 
-5. **Flush the stale wakeup packets out of the PTY.** The sacrificial
-   volley's ~18 CMP wakeup packets queue in the slave's input buffer
-   even while no slave is open. Scripted: open the slave and
-   `tcflush(fd, TCIOFLUSH)` (see `flush_pty()` in the smoke test).
-   Purely manual alternative: skip this step and use the recovery in
-   step 7 — a failed pilot-xfer run drains the queue itself.
+If an attempt fails anyway (a failed attempt shows the modal "HotSync
+Problem" form, id=12000): dismiss it (`tap-id 12004`), re-attach pilot-xfer,
+tap again. No flush is needed — the guest's port close discards stale bytes
+(Phase 4.5).
 
-6. **Attach pilot-xfer FIRST**, to the now-quiet PTY:
+## Why attach-before-tap (and the Phase 4.5 fixes)
 
-       pilot-xfer -p /dev/pts/N -l
+**The guest's retry window is tiny — so attach first.** m515 has no
+throttle calibration, so its ticks run wall-true at ~15× real device
+speed. Measured: the first CMP wakeup follows shortly after the cradle tap,
+identical 26-byte SLP wakeup frames repeat every ~64 ms for only ~1.2 s
+(~18 wakeups), and the guest closes the port ~2.4 s after the tap. An
+attach that *starts* after the tap usually lands at or past the end of
+that window (1/5 measured pre-fix). **Phase 4.5 fix — eager PTY creation:**
+the PTY now exists from transport install (startup), so pilot-xfer can be
+attached and listening *before* the first tap; there is no window to miss.
 
-   Give it ~1 s to open the port. (The open slave also keeps the
-   emulator's read pump alive — reading a pty master returns EIO
-   whenever no slave is open.)
+**Stale wakeups used to poison a late pilot-xfer.** Bytes written to a pty
+master while no slave is open were not discarded — they queued in the
+slave's input buffer. A late-attaching pilot-xfer read a sacrificial
+volley, believed a live device was present, completed CMP against the dead
+attempt, and died with `Error read system info`. **Phase 4.5 fix —
+flush-on-close:** when the guest closes its serial port, the close path
+flushes the pty (slave-side `tcflush(TCIOFLUSH)`), so a prior attempt's
+unanswered bytes can never reach the next listener. A real serial line does
+not buffer for absent readers.
 
-7. **Tap the cradle again.** `button cradle tap`. The fresh wakeup
-   volley reaches a listening desktop at base rate; the handshake
-   completes and the listing prints in ~1 s.
+**Delivery-phase timing used to lose ~10% of attempts.** Even in the right
+order, pilot-xfer's CMP-init reply reached the host <1 ms after the wakeup
+but was delivered into the emulated UART only on the RX pump's
+32K-instruction (~50 ms) quantum: 46 ms after the wakeup won, 56 ms missed
+the guest's 64 ms per-wakeup listen window (byte-identical traffic).
+**Phase 4.5 fix — event-driven RX pump:** the host comm read thread sets a
+relaxed atomic the CPU loop checks each cycle, so RX is delivered promptly
+instead of on the quantum. Result: the soak test
+(`tests/phase4/test_hotsync_soak.py`, 10 single-attempt syncs, no retries)
+goes 10/10 (pre-fix ~9/10).
 
-   - **If you skipped step 5**: pilot-xfer fails fast (~2 s after
-     attaching) with `Error read system info` — that failed run has
-     just drained the stale packets. Re-run pilot-xfer, then re-tap the
-     cradle (dismissing the Problem form first if it is up).
-   - **~10% of attempts fail anyway** with `Error accepting data`
-     (delivery-phase race, see Troubleshooting). Every failed attempt
-     ends in the same Problem form, so just repeat steps 4–7.
-
-## Why this order
-
-**The guest's retry window is tiny.** m515 has no throttle calibration,
-so its ticks run wall-true at ~15× real device speed. Measured: the PTY
-is created ~0.55 s after the cradle tap, the first CMP wakeup follows
-16 ms later, identical 26-byte SLP wakeup frames repeat every ~64 ms for
-only ~1.2 s (~18 wakeups), and the guest closes the port ~2.4 s after
-the tap. An attach that starts after the tap (poll granularity + process
-spawn + port open) usually lands at or past the end of that window —
-1/5 measured. Attach-before-tap removes the race entirely.
-
-**Stale wakeups poison a late pilot-xfer.** Bytes written to a pty
-master while no slave is open are not discarded — they queue in the
-slave's input buffer. A late-attaching pilot-xfer reads the sacrificial
-volley, believes a live device is present, completes CMP against the
-dead attempt (observable: its slave sits at the negotiated 230400 baud
-before any fresh tap), and dies with `Error read system info`; a fresh
-tap against that already-past-CMP pilot-xfer yields
-`Error accepting data`. The queue must be flushed before a clean
-attempt — or consumed by a sacrificial pilot-xfer run.
-
-**The "HotSync Problem" form swallows cradle taps.** After every failed
-attempt the guest shows modal form id=12000. While it is up,
-`button cradle tap` does nothing (UI dumps before/after the tap are
-identical; deterministic order *without* dismissal scored 0/5). Dismiss
-it with `tap-id 12004` before re-tapping.
+**The "HotSync Problem" form swallows cradle taps.** After a *failed*
+attempt the guest shows modal form id=12000; while it is up,
+`button cradle tap` does nothing. This is unchanged guest behavior — it
+matters only on the recovery path now (dismiss with `tap-id 12004` before
+re-tapping), since the happy path no longer produces a failed first
+attempt.
 
 Full measured evidence (PTY byte traces, termios probes, serial logs,
-experiment tallies): `docs/superpowers/plans/2026-06-12-phase4-findings.md`.
+experiment tallies, and the Phase 4.5 resolution addendum):
+`docs/superpowers/plans/2026-06-12-phase4-findings.md`.
 
 ## Device choice
 
@@ -139,26 +124,20 @@ order of magnitude shorter than real-device intuition suggests.
 
 ## Troubleshooting
 
-- **No PTY after the cradle tap** — the guest never opened the port.
-  Check `info` / `palm_state` shows `serial=serial:pty:HotSync` (the
-  preference took; `serial=` absent means the transport is still
-  null). If `serial=` is right but `pty=` never appears, confirm the
-  HotSync app actually launched and started a Local sync (`ui` /
-  screenshot).
-- **`Error read system info` ~2 s after attaching** — pilot-xfer read
-  stale queued wakeups (step 5 skipped or flush failed). The failed run
-  has drained the queue: re-run pilot-xfer, then re-tap the cradle
-  (dismiss the Problem form first if it is up).
-- **`Error accepting data` ~0.3 s after the sync tap** — either
-  pilot-xfer was already past CMP from stale packets (previous bullet),
-  or the residual ~10% delivery-phase race: pilot-xfer's CMP-init reply
-  reaches the host <1 ms after the wakeup but is delivered into the
-  emulated UART on the RX pump's ~50 ms quantum. Measured: 46 ms after
-  the wakeup passes, 56 ms misses the guest's 64 ms per-wakeup listen
-  window — identical packet bytes in both runs. Retry steps 4–7 (the
-  smoke test retries up to 3 attempts; ~0.9 success per attempt). An
-  emulator-side fix (RX pump cadence / wall pacing — recovery-plan spec
-  4.3 territory) is explicitly deferred.
+- **No PTY at startup** — check `info` / `palm_state` shows
+  `serial=serial:pty:HotSync pty=/dev/pts/N`. If `serial=` is absent the
+  preference did not take (transport still null); if `serial=` is right
+  but `pty=` never appears, eager creation did not run — confirm the
+  binary is from 2026-06-12 or later (Phase 4.5).
+- **`Error read system info` ~2 s after attaching** — should no longer
+  occur as of Phase 4.5 (the guest's port close flushes stale bytes). On a
+  binary built before 2026-06-12, see this file's git history for the old
+  flush-then-attach recovery dance. If seen on a current binary, that is a
+  regression — run `tests/phase4/test_pty_stale_flush.py`.
+- **`Error accepting data` ~0.3 s after the sync tap** — should no longer
+  occur as of Phase 4.5 (the event-driven RX pump eliminated the ~10%
+  delivery-phase race). If seen on a current binary, that is a regression —
+  run `tests/phase4/test_hotsync_soak.py` (the contract is 10/10).
 - **Serial logging.** `log set Serial 1` + `log set SerialData 1`,
   reproduce, then `log dump`. The `Log*` pref value is a **bitmask, not
   a level** (`EmTypes.h`): 1 = log in normal runs, 2 = log ONLY while a

@@ -7,8 +7,12 @@ two gaps, both root-fixed + re-run PASSED; findings + resolution:
 `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md`).
 **Phase 4 COMPLETE — GATE 4 PASSED 2026-06-12: HotSync verified end-to-end
 against pilot-link** (procedure: `docs/hotsync.md`; root-cause record:
-`docs/superpowers/plans/2026-06-12-phase4-findings.md`). **Next: Phase 5
-(declutter and ship 0.9.1).**
+`docs/superpowers/plans/2026-06-12-phase4-findings.md`).
+**Phase 4.5 (HotSync normalization) COMPLETE 2026-06-14: the natural order —
+launch, attach pilot-xfer, tap once — is now the working order; three
+emulator-side root fixes (eager PTY, flush-on-close, event-driven RX pump)
+retired the deterministic dance; soak 10/10 ×2.** **Next: Phase 5 (declutter
+and ship 0.9.1).**
 **Read this first.** This file is the only document guaranteed to describe the
 project as it IS. Architecture details: `docs/architecture.md`. Protocol:
 `docs/recontrol-protocol.md`. Everything in `docs/history/` is a dated
@@ -482,6 +486,30 @@ host.
   - Regression sweep at close: phase-1 repros 7/7, honest_ack, surface 3/3,
     dispatch 37/37, break_blocked_ops, info_serial, preference_cli, smoke
     3× — all PASS.
+- **Phase 4.5 — HotSync normalization COMPLETE (2026-06-14, user-requested
+  robustness interphase; plan
+  `docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md`).** Three
+  emulator-side root fixes replace the Phase-4 script-level dance with the
+  natural attach-then-tap order, each TDD'd reproduce-first:
+  - **Eager PTY creation** (`38d69d5`): `SetTransportForDevice →
+    EnsurePtyCreated` builds the PTY at install, not at the guest's first
+    open; `info` reports `pty=` from startup. Repro
+    `test_info_serial.py` rewritten to the eager contract (pre-fix FAIL →
+    PASS).
+  - **Flush-on-close** (`3d8a396`): `CloseCommPort` flushes the pty via a
+    transient slave fd (master-side `tcflush` left 406 bytes on Linux).
+    Repro `test_pty_stale_flush.py`: 406 stale bytes → 0.
+  - **Event-driven RX pump** (`7d0c1b7`): `PutIncomingData` sets relaxed
+    atomic `gSerialRxPending`; the CYCLE macro pumps `CycleSlowly` promptly
+    instead of on the 32K-instruction quantum. Repro `test_hotsync_soak.py`
+    (10 single-attempt syncs): 1/10 FAIL → 10/10 ×2. Idle-CPU cost (3-run
+    1x median) 80.58% vs ~80.50–80.65% baseline — within noise; NOT an
+    input-delivery wake (architecture.md rule-9 clarification added).
+  - Smoke test rewritten to the normal order (3× PASS, attempt 1, no
+    retries); docs/hotsync.md, SKILL.md, findings addendum updated.
+    Full sweep at close: phase-1 7/7, honest_ack, surface 3/3, dispatch
+    37/37, break_blocked_ops, info_serial, preference_cli, pty_stale_flush,
+    smoke, soak — all PASS.
 
 ## Working tree state (Phase 0 baseline, 2026-06-10)
 
@@ -506,26 +534,49 @@ remain on disk but gitignored — see `docs/reference-trees.md`.
 
 ## HotSync status
 
-**WORKS — verified end-to-end 2026-06-12 (Phase 4, GATE 4 PASSED).**
-`pilot-xfer -p /dev/pts/N -l` lists the stock m515 session's 16 databases;
-5/5 + 3/3 consecutive passes of the automated reproduction
-(`tests/phase4/test_hotsync_smoke.py`) plus an independent fresh-agent
-reproduction from `docs/hotsync.md` alone (the GATE 4 run). The procedure
-is **order-sensitive** — the naive tap-then-attach order loses a timing
-race ~80% of the time. Three measured mechanisms (full evidence:
-`docs/superpowers/plans/2026-06-12-phase4-findings.md`): the guest's CMP
-retry volley lasts only ~1.2 s (~18 wakeups at 64 ms; wall-true m515 runs
-~15× real device speed); stale wakeups queue in the pty slave buffer and
-poison a late-attaching pilot-xfer (`Error read system info`); and the
-modal "HotSync Problem" form (id=12000) swallows cradle re-taps until
-dismissed (`tap-id 12004`). Deterministic order: sacrificial tap (creates
-the persistent PTY) → dismiss Problem form → flush pty → attach pilot-xfer
-→ tap cradle. Residual ~10% per-attempt delivery-phase race (RX-pump ~50 ms
-quantum vs the 64 ms listen window) is retried at script level; an
-emulator-side fix is spec-4.3 territory, explicitly deferred. Setup:
-`-preference PortSerial=serial:pty:HotSync` (same-run effective since the
-Phase 4 fix); the PTY slave path is reported by `info`/`palm_state`
-(`serial=… pty=/dev/pts/N`). m500 timing caveat stands: it is the one
+**WORKS — verified end-to-end (Phase 4, GATE 4 PASSED 2026-06-12;
+NORMALIZED in Phase 4.5, 2026-06-14).** `pilot-xfer -p /dev/pts/N -l` lists
+the stock m515 session's 16 databases. **As of Phase 4.5 the procedure is
+the natural order — launch, attach pilot-xfer, tap the cradle once** — no
+sacrificial tap, no form dismissal, no flush. Automated reproduction
+(`tests/phase4/test_hotsync_smoke.py`) passes 3× on the first attempt.
+
+Three emulator-side root fixes (Phase 4.5) removed the former order-
+sensitivity, each with its own reproduce-first test:
+- **Eager PTY creation** at transport install (commit `38d69d5`) — the PTY
+  exists from startup (`info` reports `serial=… pty=/dev/pts/N` immediately),
+  so pilot-xfer can attach BEFORE the first tap; the guest's CMP volley
+  window (~1.2 s, ~18 wakeups at 64 ms, wall-true m515) can no longer be
+  missed. Test: `tests/phase4/test_info_serial.py`.
+- **Flush-on-close** (commit `3d8a396`) — the guest closing its serial port
+  flushes the pty (slave-side `tcflush(TCIOFLUSH)`; master-side did not
+  reach the slave queue on Linux — 406 bytes survived it), so a prior
+  attempt's unanswered bytes can never poison the next attach
+  (`Error read system info`). Test: `tests/phase4/test_pty_stale_flush.py`
+  (pre-fix 406 stale bytes → post-fix 0).
+- **Event-driven UART RX pump** (commit `7d0c1b7`) — the comm read thread
+  sets a relaxed atomic (`gSerialRxPending`) the CPU loop's CYCLE macro
+  checks each cycle, so RX is delivered promptly instead of on the
+  32K-instruction (~50 ms) quantum. This killed the residual ~10% CMP
+  delivery-phase race (46 ms win / 56 ms lose vs the 64 ms listen window).
+  Test: `tests/phase4/test_hotsync_soak.py` (10 single-attempt syncs, no
+  retries) — pre-fix 1/10 FAIL, post-fix **10/10 ×2**. Hot-loop cost
+  (GATE-2 methodology): 1x idle CPU median **80.58%** (80.48/80.58/80.82)
+  vs Phase-2 baseline ~80.50–80.65% — within noise (full-rate atomic-load
+  variant; subsampled fallback not needed).
+
+The modal "HotSync Problem" form (id=12000) still swallows cradle re-taps
+until dismissed (`tap-id 12004`) — unchanged guest behavior, but it matters
+only on the recovery path now since the happy path produces no failed first
+attempt. The smoke test keeps one bounded, **reported** retry as a CI
+safety net; a retry firing regularly is a regression. Full evidence +
+resolution addendum: `docs/superpowers/plans/2026-06-12-phase4-findings.md`.
+
+Spec-4.3 wall-pacing the tick accumulator is **no longer needed for
+HotSync** (the delivery-layer fix removed the race); it remains the
+principled fix for guest-visible timing fidelity in general (deferred,
+post-v1.0). Setup: `-preference PortSerial=serial:pty:HotSync` (same-run
+effective since the Phase 4 fix). m500 timing caveat stands: it is the one
 throttle-calibrated device (~2.66× busy-tick skew) — use m515/Vx.
 
 ## Authoritative document set
@@ -551,7 +602,8 @@ throttle-calibrated device (~2.66× busy-tick skew) — use m515/Vx.
 | `docs/superpowers/plans/2026-06-11-landmine7-root-fix.md` | historical — landmine #7 root fix complete (on master) |
 | `docs/superpowers/plans/2026-06-12-gate3-fail-findings.md` | historical — GATE 3 first-run FAIL findings + RESOLUTION (all gaps fixed, re-run PASSED) |
 | `docs/superpowers/plans/2026-06-12-phase4-hotsync.md` | historical — Phase 4 plan complete; GATE 4 PASSED 2026-06-12 |
-| `docs/superpowers/plans/2026-06-12-phase4-findings.md` | historical — HotSync race root-cause record (still the evidence behind docs/hotsync.md) |
+| `docs/superpowers/plans/2026-06-12-phase4-findings.md` | historical — HotSync race root-cause record + Phase 4.5 resolution addendum (evidence behind docs/hotsync.md) |
+| `docs/superpowers/plans/2026-06-12-phase4.5-hotsync-normalize.md` | historical — Phase 4.5 plan complete (HotSync normalized 2026-06-14) |
 
 Historical (dated, possibly wrong about today): everything in
 `docs/history/`, `docs/ReControlPostMortem/` (predecessor project "RePOSE4"),
