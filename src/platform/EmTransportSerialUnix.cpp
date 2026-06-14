@@ -781,6 +781,27 @@ ErrCode EmHostTransportSerial::CloseCommPort (void)
 {
 	if (fPtyMaster)
 	{
+		// Phase 4.5: discard anything still queued in the pty in either
+		// direction.  A real serial line does not buffer bytes for absent
+		// listeners — pre-fix, the guest's unanswered CMP wakeup volley
+		// stayed readable in the slave queue and poisoned the next
+		// pilot-xfer attach (docs/hotsync.md "Why this order").
+		//
+		// A master-side tcflush(fPtyMaster, TCIOFLUSH) does NOT reach the
+		// slave input queue on Linux (verified: 406 stale bytes survived
+		// it), so flush via a transient slave fd instead — the mechanism
+		// the Phase-4 harness validated.
+		if (!fPtySlaveName.empty ())
+		{
+			int slave = open (fPtySlaveName.c_str (),
+							   O_RDWR | O_NOCTTY | O_NONBLOCK);
+			if (slave >= 0)
+			{
+				(void) tcflush (slave, TCIOFLUSH);
+				close (slave);
+			}
+		}
+
 		// In PTY mode, keep the master fd alive so we can reuse it
 		// across the close/open cycles that Palm OS triggers during
 		// boot.  The fd is closed for real in the destructor.
