@@ -18,6 +18,25 @@ std::string RcCmd_Profile (const QStringList& args)
 
 	QString sub = args[1].toLower ();
 
+	// dump/print validate prerequisites and may return an error before doing
+	// any work; those returns happen before the stopper does anything costly.
+	std::string dumpPath;
+	if (sub == "dump" || sub == "print")
+	{
+		if (args.size () < 3)
+			return "ERR usage: profile " + sub.toStdString () + " <path>\n";
+		dumpPath = args[2].toStdString ();
+		if (!gProfilingEnabled)
+			return "ERR transient: profiling not enabled (call profile init + start first)\n";
+		if (gProfilingOn)
+			return "ERR transient: profiling still running (call profile stop first)\n";
+		if (gClockCycles == 0)
+			return "ERR transient: no profiling data collected (run CPU with profiling enabled first)\n";
+	}
+
+	// One stopper for all subcommand work (every branch needs kStopNow).
+	EmSessionStopper stopper (gSession, kStopNow);
+
 	if (sub == "init")
 	{
 		int maxCalls = MAXFNCALLS;
@@ -26,71 +45,42 @@ std::string RcCmd_Profile (const QStringList& args)
 		if (args.size () >= 4) maxDepth = args[3].toInt ();
 		if (maxCalls < 1) maxCalls = MAXFNCALLS;
 		if (maxDepth < 1) maxDepth = 200;
-
-		EmSessionStopper stopper (gSession, kStopNow);
 		ProfileInit (maxCalls, maxDepth);
 		return "OK\n";
 	}
 
 	if (sub == "start")
 	{
-		EmSessionStopper stopper (gSession, kStopNow);
 		ProfileStart ();
 		return "OK\n";
 	}
 
 	if (sub == "stop")
 	{
-		EmSessionStopper stopper (gSession, kStopNow);
 		ProfileStop ();
 		return "OK\n";
 	}
 
 	if (sub == "dump")
 	{
-		if (args.size () < 3) return "ERR usage: profile dump <path>\n";
-		std::string path = args[2].toStdString ();
-
-		if (!gProfilingEnabled)
-			return "ERR transient: profiling not enabled (call profile init + start first)\n";
-		if (gProfilingOn)
-			return "ERR transient: profiling still running (call profile stop first)\n";
-		if (gClockCycles == 0)
-			return "ERR transient: no profiling data collected (run CPU with profiling enabled first)\n";
-
-		EmSessionStopper stopper (gSession, kStopNow);
-		ProfileDump (path.c_str ());
+		ProfileDump (dumpPath.c_str ());
 		return "OK\n";
 	}
 
 	if (sub == "print")
 	{
-		if (args.size () < 3) return "ERR usage: profile print <path>\n";
-		std::string path = args[2].toStdString ();
-
-		if (!gProfilingEnabled)
-			return "ERR transient: profiling not enabled (call profile init + start first)\n";
-		if (gProfilingOn)
-			return "ERR transient: profiling still running (call profile stop first)\n";
-		if (gClockCycles == 0)
-			return "ERR transient: no profiling data collected (run CPU with profiling enabled first)\n";
-
-		EmSessionStopper stopper (gSession, kStopNow);
-		ProfilePrint (path.c_str ());
+		ProfilePrint (dumpPath.c_str ());
 		return "OK\n";
 	}
 
 	if (sub == "cleanup")
 	{
-		EmSessionStopper stopper (gSession, kStopNow);
 		ProfileCleanup ();
 		return "OK\n";
 	}
 
 	if (sub == "cycles")
 	{
-		EmSessionStopper stopper (gSession, kStopNow);
-
 		char buf[128];
 		snprintf (buf, sizeof (buf), "OK clock=%lld read=%lld write=%lld\n",
 			(long long) gClockCycles, (long long) gReadCycles, (long long) gWriteCycles);
