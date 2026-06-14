@@ -133,9 +133,6 @@ file(GLOB_RECURSE CORE_SOURCES
     "src/core/*.c"
 )
 
-# Exclude bundled Gzip — symbols collide with system zlib
-list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/Gzip/.*\\.(c|cpp)$")
-
 # Exclude Palm SDK implementation files (headers only, except Crc.c)
 list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/Palm/.*\\.cpp$")
 list(FILTER CORE_SOURCES EXCLUDE REGEX "src/core/Palm/.*\\.c$")
